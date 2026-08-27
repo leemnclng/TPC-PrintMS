@@ -322,3 +322,9 @@ Chronological notes about app progress.
 - Summary: Completed the operational path from Pending Payment through printed and completed job order.
 - Completed: Added verified partial/full payments, guarded status transitions, a responsive production stepper and timeline, vendor-neutral confirmed OS submission, printer/file/settings selection, durable success/failure attempts, and manual quality-check/ready/completed actions.
 - Verified: Full fresh Alembic migration, 16 API tests including failed/retried print submission and every lifecycle gate, renderer/desktop typechecks, renderer lint, web production build, and `git diff --check` pass. Physical Canon validation remains open on the Windows workstation.
+
+## 2026-08-28 (Windows PDF print submission repair)
+
+- Summary: Removed the Windows PDF file-association dependency that prevented the Canon queue from receiving jobs.
+- Completed: Printing-MS now renders PDF/image pages locally at 300 DPI, applies color/grayscale, copies, orientation, and supported paper size, and draws them directly to the selected Windows driver queue. Print failures are concise and Print History status labels no longer collapse vertically.
+- Verified: Windows adapter tests cover local PDF rendering, queue arguments, and unsupported-format guidance. Full automated verification passes; physical Canon output revalidation remains open on the Windows workstation.

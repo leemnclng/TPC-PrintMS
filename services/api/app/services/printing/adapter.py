@@ -15,8 +15,12 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+import pymupdf
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 
 @dataclass
@@ -136,8 +140,10 @@ class WindowsPrinterAdapter(PrinterAdapter):
     """Enumerate Windows print queues through the built-in CIM provider.
 
     PowerShell and Win32_Printer ship with supported Windows versions, so the
-    desktop build does not need a compiled pywin32 dependency just to discover
-    a queue created by Canon PRINT, a vendor driver, or Windows IPP.
+    desktop build does not need a compiled pywin32 dependency. PDF and image
+    pages are rasterized locally and drawn through Windows PrintDocument; this
+    avoids the fragile shell ``PrintTo`` verb while still using the installed
+    Canon, IPP, or other vendor printer driver.
     """
 
     def list_printers(self) -> list[DetectedPrinter]:
@@ -201,39 +207,146 @@ class WindowsPrinterAdapter(PrinterAdapter):
         color_mode: str,
         media_size: str,
     ) -> PrintSubmission:
-        del color_mode, media_size  # Applied by the Windows driver/default print profile.
         script_path = Path(__file__).with_name("windows_print.ps1")
-        command = [
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(script_path),
-            "-FilePath",
-            str(file_path),
-            "-PrinterName",
-            printer_name,
-            "-Copies",
-            str(copies),
-        ]
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=max(30, copies * 30),
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        with tempfile.TemporaryDirectory(prefix="printing-ms-pages-") as temporary_directory:
+            page_count = _render_windows_print_pages(
+                file_path,
+                Path(temporary_directory),
+                grayscale=color_mode == "grayscale",
             )
-        except FileNotFoundError as error:
-            raise PrintSubmissionError("Windows PowerShell is unavailable.") from error
-        except subprocess.TimeoutExpired as error:
-            raise PrintSubmissionError("Windows did not accept the print request in time.") from error
-        if result.returncode != 0:
-            detail = result.stderr.strip() or result.stdout.strip() or "Windows rejected the print request."
-            raise PrintSubmissionError(detail)
+            command = [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+                "-ImageDirectory",
+                temporary_directory,
+                "-DocumentName",
+                file_path.name,
+                "-PrinterName",
+                printer_name,
+                "-Copies",
+                str(copies),
+                "-ColorMode",
+                color_mode,
+                "-MediaSize",
+                media_size,
+            ]
+            try:
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=max(60, page_count * copies * 15),
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except FileNotFoundError as error:
+                raise PrintSubmissionError("Windows PowerShell is unavailable.") from error
+            except subprocess.TimeoutExpired as error:
+                raise PrintSubmissionError("Windows did not accept the print request in time.") from error
+            if result.returncode != 0:
+                detail = _windows_print_error(result.stderr, result.stdout)
+                raise PrintSubmissionError(detail)
         return PrintSubmission()
+
+
+_WINDOWS_IMAGE_SUFFIXES = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
+
+
+def _windows_print_error(stderr: str, stdout: str) -> str:
+    output = stderr.strip() or stdout.strip()
+    if not output:
+        return "Windows rejected the print request."
+    first_line = next((line.strip() for line in output.splitlines() if line.strip()), output)
+    first_line = re.sub(r"^.*?windows_print\.ps1\s*:\s*", "", first_line, flags=re.IGNORECASE)
+    return first_line[:500]
+
+
+def _render_windows_print_pages(file_path: Path, output_directory: Path, grayscale: bool) -> int:
+    """Create the page images consumed by the Windows GDI print helper.
+
+    Rendering inside Printing-MS means submission does not depend on whichever
+    desktop application happens to own the PDF ``PrintTo`` file association.
+    """
+
+    suffix = file_path.suffix.lower()
+    if suffix == ".pdf":
+        return _render_pdf_pages(file_path, output_directory, grayscale)
+    if suffix in _WINDOWS_IMAGE_SUFFIXES:
+        return _render_image_pages(file_path, output_directory, grayscale)
+    raise PrintSubmissionError(
+        "Direct Windows printing supports PDF and image files. Export this document to PDF, attach it to the job, and try again."
+    )
+
+
+def _render_pdf_pages(file_path: Path, output_directory: Path, grayscale: bool) -> int:
+    try:
+        document = pymupdf.open(file_path)
+    except Exception as error:
+        raise PrintSubmissionError("The PDF could not be opened for printing.") from error
+
+    try:
+        if document.needs_pass:
+            raise PrintSubmissionError("Password-protected PDFs cannot be printed directly.")
+        if document.page_count < 1:
+            raise PrintSubmissionError("The PDF has no printable pages.")
+        colorspace = pymupdf.csGRAY if grayscale else pymupdf.csRGB
+        for page_number, page in enumerate(document, start=1):
+            pixmap = page.get_pixmap(dpi=300, colorspace=colorspace, alpha=False, annots=True)
+            pixmap.save(output_directory / f"page-{page_number:05d}.png")
+        return document.page_count
+    except PrintSubmissionError:
+        raise
+    except Exception as error:
+        raise PrintSubmissionError("The PDF could not be rendered for Windows printing.") from error
+    finally:
+        document.close()
+
+
+def _render_image_pages(file_path: Path, output_directory: Path, grayscale: bool) -> int:
+    try:
+        source = Image.open(file_path)
+        frame_count = getattr(source, "n_frames", 1)
+        if frame_count < 1:
+            raise PrintSubmissionError("The image has no printable pages.")
+        for page_index in range(frame_count):
+            source.seek(page_index)
+            prepared = _prepare_print_image(source.copy(), grayscale)
+            try:
+                prepared.save(output_directory / f"page-{page_index + 1:05d}.png", dpi=(300, 300))
+            finally:
+                prepared.close()
+        return frame_count
+    except PrintSubmissionError:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError) as error:
+        raise PrintSubmissionError("The image could not be opened for printing.") from error
+    finally:
+        if "source" in locals():
+            source.close()
+
+
+def _prepare_print_image(image: Image.Image, grayscale: bool) -> Image.Image:
+    oriented = ImageOps.exif_transpose(image)
+    if oriented is not image:
+        image.close()
+    if grayscale:
+        result = ImageOps.grayscale(oriented)
+        oriented.close()
+        return result
+    if oriented.mode in {"RGBA", "LA"} or "transparency" in oriented.info:
+        rgba = oriented.convert("RGBA")
+        result = Image.new("RGB", rgba.size, "white")
+        result.paste(rgba, mask=rgba.getchannel("A"))
+        rgba.close()
+        oriented.close()
+        return result
+    result = oriented.convert("RGB")
+    oriented.close()
+    return result
 
 
 def get_printer_adapter(platform_name: str | None = None) -> PrinterAdapter:

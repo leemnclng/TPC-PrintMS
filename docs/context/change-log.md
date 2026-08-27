@@ -155,6 +155,9 @@ Track notable app changes by date.
 - Added: Successful and failed print attempts retain printer, file, settings, operator, timestamps, result, OS job identifier when available, and failure detail.
 - Added: Separate `PRINT_MS_DEVELOPMENT_DATABASE_PATH`, `PRINT_MS_TEST_DATABASE_PATH`, and `PRINT_MS_PRODUCTION_DATABASE_PATH` configuration with distinct defaults.
 - Added: Settings now shows all environment database paths, their source, and which stage is active; changing `PRINT_MS_STAGE` takes effect after restart.
+- Fixed: Windows PDF/image printing no longer depends on a default application supporting the `PrintTo` file verb; Printing-MS renders pages and submits them directly through the selected Canon or other installed printer driver.
+- Changed: Windows print submission now applies the chosen copies, color/grayscale mode, paper size, and page orientation; unsupported Office files ask for PDF export instead of emitting a PowerShell stack trace.
+- Fixed: Print History result badges stay readable on one line and operating-system failures are reduced to a concise actionable message.
 - Changed: Quick Actions now appears directly below the Overview heading, with New Job Order highlighted as the primary counter workflow.
 - Added: The Overview shortcut opens the complete upload-and-analysis job-order modal in one click.
 - Changed: New Job Order is now a guided transaction flow for customer file upload, configured product/variant selection, analysis, price review, and Print Center handoff.

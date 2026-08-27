@@ -373,3 +373,9 @@ Track product and technical decisions that affect future development.
 - Decision: New transaction analysis is temporary. The system creates the job order and retains its uploaded file only when the owner explicitly proceeds after choosing the engine recommendation or a custom final price.
 - Rationale: Cancelling a recommendation should not create abandoned job orders or orphan customer files, while confirmed pricing needs an auditable engine suggestion and final value.
 - Impact: The creation wizard handles one uploaded file and one product per transaction, the server re-analyzes on confirmation, stores both suggested and final totals, automatically plans detected paper, and routes the saved job to Print Center.
+
+### Render Windows Print Files Inside Printing-MS
+
+- Decision: Replace Windows shell `PrintTo` submission with local 300-DPI PDF/image rendering and `System.Drawing.Printing.PrintDocument` output to the selected installed queue. Canon PRINT remains available for device setup, scanning, ink checks, and maintenance; Printing-MS does not automate its UI.
+- Rationale: The shell verb requires another desktop application to own the file type and implement `PrintTo`, which caused valid PDFs to fail before reaching the Canon queue. Windows `PrintDocument` accepts page graphics, printer name, copies, color, and supported paper size without that file association.
+- Impact: PDF and image jobs use the Canon or other Windows driver directly, selected options are applied by Printing-MS, temporary page renders are deleted after submission, Office files require export to PDF until a local Office conversion layer exists, and physical Canon output still requires workstation validation.

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
+import pymupdf
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -13,7 +16,7 @@ from app.db.base import Base
 from app.db.models import Printer
 from app.db.session import get_db
 from app.routers import printers
-from app.services.printing.adapter import DetectedPrinter, WindowsPrinterAdapter
+from app.services.printing.adapter import DetectedPrinter, PrintSubmissionError, WindowsPrinterAdapter
 
 
 def test_windows_adapter_reads_vendor_neutral_spooler_queues(monkeypatch) -> None:
@@ -40,12 +43,19 @@ def test_windows_adapter_reads_vendor_neutral_spooler_queues(monkeypatch) -> Non
 
 def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypatch) -> None:
     document = tmp_path / "approved file.pdf"
-    document.write_bytes(b"%PDF-test")
+    pdf = pymupdf.open()
+    page = pdf.new_page(width=595, height=842)
+    page.insert_text((72, 72), "Printing-MS Windows queue test")
+    pdf.save(document)
+    pdf.close()
     captured: dict[str, object] = {}
 
     def fake_run(command, **kwargs):
         captured["command"] = command
         captured["kwargs"] = kwargs
+        image_directory = command[command.index("-ImageDirectory") + 1]
+        rendered_pages = sorted(Path(image_directory).glob("page-*.png"))
+        captured["rendered_pages"] = [page.read_bytes() for page in rendered_pages]
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -62,10 +72,28 @@ def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypat
     assert isinstance(command, list)
     assert command[0] == "powershell.exe"
     assert "-File" in command
-    assert str(document) in command
+    assert "-ImageDirectory" in command
+    assert str(document) not in command
     assert "Canon G4770 series" in command
-    assert command[-1] == "2"
+    assert command[command.index("-Copies") + 1] == "2"
+    assert command[command.index("-ColorMode") + 1] == "color"
+    assert command[command.index("-MediaSize") + 1] == "A4"
+    assert len(captured["rendered_pages"]) == 1
     assert submission.external_job_id is None
+
+
+def test_windows_adapter_rejects_a_format_without_a_local_renderer(tmp_path) -> None:
+    document = tmp_path / "customer-file.docx"
+    document.write_bytes(b"not-used")
+
+    with pytest.raises(PrintSubmissionError, match="Export this document to PDF"):
+        WindowsPrinterAdapter().submit_file(
+            "Canon G4770 series",
+            document,
+            copies=1,
+            color_mode="grayscale",
+            media_size="Letter",
+        )
 
 
 def test_discovery_reconciles_connected_and_removed_queues(tmp_path, monkeypatch) -> None:

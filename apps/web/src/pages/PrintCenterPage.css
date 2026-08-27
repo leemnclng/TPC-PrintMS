@@ -232,6 +232,7 @@
 .print-history-list strong { font-size: var(--text-sm); }
 .print-history-list span,
 .print-history-list small { color: var(--color-ink-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.print-history-list .status-pill { flex: 0 0 auto; white-space: nowrap; }
 
 @media (max-width: 800px) {
   .staged-print dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }

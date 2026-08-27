@@ -187,8 +187,8 @@ export function PrintCenterPage() {
           <span className="printer-connection__kicker numeric">CANON FIRST · ANY BRAND NEXT</span>
           <h2 id="printer-connection-title">Connect through {platformLabel} once</h2>
           <p>
-            Canon PRINT can set up the printer, check ink, and keep its connection healthy.
-            Printing-MS reads the {platformLabel} queue it creates, which is also how Epson, Brother,
+            Canon PRINT remains available for setup, ink checks, scanning, and maintenance.
+            Printing-MS uses the installed {platformLabel} queue, which is also how Epson, Brother,
             HP, AirPrint, and IPP printers remain compatible.
           </p>
           <div className="printer-platform" aria-live="polite">
@@ -214,7 +214,7 @@ export function PrintCenterPage() {
         <ol className="printer-connection__steps">
           <li>
             <span className="printer-connection__number numeric">01</span>
-            <div><strong>Set up in Canon PRINT</strong><small>Connect the Canon printer to the same network as this Windows computer.</small></div>
+            <div><strong>Set up in Canon PRINT</strong><small>Connect the Canon printer by network or USB and install its Windows driver.</small></div>
           </li>
           <li>
             <span className="printer-connection__number numeric">02</span>
@@ -284,7 +284,7 @@ export function PrintCenterPage() {
                 <label className="form-field"><span>Paper size</span><select value={mediaSize} onChange={(event) => setMediaSize(event.target.value as "A4" | "Letter" | "Legal")}><option value="A4">A4</option><option value="Letter">Letter</option><option value="Legal">Legal</option></select></label>
               </div>
               <div className="print-submission__confirm">
-                <p><strong>This immediately sends the staged file to the operating-system queue.</strong><span>Windows uses the selected printer driver's profile; CUPS receives the selected media and color mode directly.</span></p>
+                <p><strong>This immediately sends the staged file to the operating-system queue.</strong><span>Windows renders PDF or image pages locally, then applies the selected printer, copies, color mode, and paper size through its installed driver.</span></p>
                 <Button variant="primary" type="submit" loading={submittingPrint} disabled={!selectedPrinterId || !selectedFileId || copies < 1 || copies > 99}>Submit to printer</Button>
               </div>
               {submissionError && <p className="print-submission__error" role="alert">{submissionError}</p>}
