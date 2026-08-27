@@ -1,0 +1,37 @@
+[
+  {
+    "date": "2026-08-27",
+    "macrostructure": "Map / Diagram",
+    "theme": "Press",
+    "enrichment": "none",
+    "brief": "Unified paper assignment and pricing with a derived material ledger"
+  },
+  {
+    "date": "2026-08-23",
+    "macrostructure": "Split Studio",
+    "theme": "Press",
+    "enrichment": "none",
+    "brief": "Reusable service variant library with product-level price assignments"
+  },
+  {
+    "date": "2026-08-21",
+    "macrostructure": "Workbench",
+    "theme": "Press",
+    "enrichment": "none",
+    "brief": "Operational inventory register with product recipes and job-order audit movements"
+  },
+  {
+    "date": "2026-08-21",
+    "macrostructure": "Catalogue",
+    "theme": "Press",
+    "enrichment": "none",
+    "brief": "Inventory-first service workspace with separate settings"
+  },
+  {
+    "date": "2026-08-21",
+    "macrostructure": "Index-First",
+    "theme": "Press",
+    "enrichment": "none",
+    "brief": "Owner-managed service catalog with nested products"
+  }
+]

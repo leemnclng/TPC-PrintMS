@@ -1,0 +1,35 @@
+import type { ProductPrintType } from "../types/domain";
+
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+});
+
+export function formatCurrency(amount: number, currency = "PHP"): string {
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+  }).format(amount);
+}
+
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return dateFormatter.format(new Date(iso));
+}
+
+export function formatProductPrintType(printType: ProductPrintType): string {
+  return printType === "colored" ? "Colored" : "B&W (Black and white)";
+}
+
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+}

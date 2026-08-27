@@ -1,0 +1,163 @@
+/* Hallmark · component: product-create flow · genre: editorial · theme: Press · tone: workshop-precise · anchor hue: warm ink-red (28°)
+ * states: default · hover · focus · active · disabled · loading · error · success
+ * pre-emit critique: P5 H5 E5 S5 R5 V4 · contrast: pass (40–41)
+ */
+.product-create-form {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.product-create-modal {
+  width: min(calc(100% - var(--space-8)), 70rem);
+}
+
+.product-create-form__fields {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--space-5);
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+
+.product-create-form__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.product-create-form__materials,
+.product-create-form__variants {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.product-create-form__materials {
+  border-top: 1px solid var(--color-hairline);
+  padding-block-start: var(--space-5);
+}
+
+.product-create-form__materials:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: var(--space-1);
+}
+
+.product-create-form__materials--error {
+  border-top-color: var(--color-danger);
+}
+
+.product-create-form__materials legend,
+.product-create-form__variants legend {
+  margin-block-end: var(--space-2);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.product-create-form__materials-message--error {
+  color: var(--color-danger);
+}
+
+.product-create-form__materials-empty {
+  display: grid;
+  width: 100%;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-hairline);
+  padding-block-start: var(--space-3);
+  color: var(--color-ink-soft);
+}
+
+.product-create-form__variant-empty {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-hairline);
+  padding-block-start: var(--space-3);
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+}
+
+.product-create-form__materials-empty .registration-mark {
+  color: var(--color-hairline-strong);
+}
+
+.product-create-form__materials-empty div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.product-create-form__materials-empty strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.product-create-form__materials-empty .btn {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.product-create-form__variant {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: end;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-hairline);
+  padding-block-start: var(--space-3);
+}
+
+.product-create-form__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-hairline);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+}
+
+@media (min-width: 40rem) {
+  .product-create-form__fields {
+    padding: var(--space-6);
+  }
+
+  .product-create-form__row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .product-create-form__row--three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .product-create-form__materials-empty {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .product-create-form__materials-empty .btn {
+    grid-column: auto;
+  }
+
+  .product-create-form__variant {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.75fr) auto;
+  }
+
+  .product-create-form__actions {
+    padding-inline: var(--space-6);
+  }
+}

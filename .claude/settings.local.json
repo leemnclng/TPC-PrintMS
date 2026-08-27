@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(uv --version)",
+      "Bash(pnpm -v)",
+      "Bash(curl -sI --max-time 5 https://registry.npmjs.org/)",
+      "Bash(pip3 --version)",
+      "Bash(pip3 show *)",
+      "Bash(brew install *)",
+      "Bash(uv sync *)",
+      "Bash(pkill -f \"Electron.app/Contents/MacOS/Electron\")",
+      "Bash(pkill -f \"vite --port 5173\")",
+      "Bash(pkill -f \"app.main\")",
+      "Bash(rm -rf '/Users/leemaneclang/Library/Application Support/PrintingMS')",
+      "Bash(rm -f /tmp/vite-dev-logo.log)"
+    ]
+  }
+}

@@ -1,0 +1,71 @@
+/* Hallmark · component: inventory modals · genre: editorial · theme: Press · tone: workshop-precise · anchor hue: warm ink-red (28°) */
+.inventory-modal__form {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.inventory-modal__fields {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--space-5);
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+
+.inventory-modal__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.inventory-modal__check {
+  display: flex;
+  min-height: var(--control-height);
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+}
+
+.inventory-modal__check input {
+  width: var(--space-4);
+  height: var(--space-4);
+  accent-color: var(--color-accent);
+}
+
+.inventory-modal__check input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.inventory-modal__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-hairline);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+}
+
+@media (min-width: 40rem) {
+  .inventory-modal--compact {
+    width: min(calc(100% - var(--space-8)), 34rem);
+  }
+
+  .inventory-modal__fields {
+    padding: var(--space-6);
+  }
+
+  .inventory-modal__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inventory-modal__actions {
+    padding-inline: var(--space-6);
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "date": "2026-08-21",
+  "fontStack": "Bodoni Moda + IBM Plex Sans + IBM Plex Mono",
+  "palette": "Press custom OKLCH tokens",
+  "motion": "CSS-only, motion-cut",
+  "spacing": "4px token scale",
+  "framework": "React 18 + Vite"
+}

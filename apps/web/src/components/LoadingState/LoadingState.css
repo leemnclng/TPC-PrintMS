@@ -1,0 +1,30 @@
+.loading-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-6);
+  justify-content: center;
+  color: var(--color-ink-faint);
+  font-size: var(--text-sm);
+}
+
+.loading-state__mark {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--color-hairline-strong);
+  border-top-color: var(--color-accent);
+  animation: loading-spin 800ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-state__mark {
+    animation-duration: 1600ms;
+  }
+}
+
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

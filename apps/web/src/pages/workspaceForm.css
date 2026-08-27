@@ -1,0 +1,298 @@
+/* Hallmark · macrostructure: Map / Diagram · variation: Ledger · genre: editorial · theme: Press
+ * tone: workshop-precise · enrichment: none · motion: none
+ * pre-emit critique: P5 H5 E5 S5 R5 V4 · contrast: pass (40–41)
+ */
+.workspace-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 640px;
+}
+
+.workspace-form--product {
+  width: 100%;
+  max-width: 70rem;
+}
+
+.workspace-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.workspace-form__row--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 560px) {
+  .workspace-form__row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.workspace-form__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.workspace-form__error {
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.workspace-linked-stats {
+  display: flex;
+  gap: var(--space-6);
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+}
+
+.workspace-linked-stats strong {
+  color: var(--color-ink);
+  font-size: var(--text-md);
+  display: block;
+}
+
+.workspace-variant-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+}
+
+.workspace-variant-row .form-field {
+  flex: 1;
+}
+
+.workspace-variant-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.form-field__label-standalone {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+}
+
+.workspace-form__hint {
+  font-size: var(--text-sm);
+  color: var(--color-ink-faint);
+  margin: 0;
+}
+
+.workspace-materials {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--color-hairline);
+  padding: var(--space-5) 0 0;
+}
+
+.workspace-materials legend {
+  padding: 0;
+  color: var(--color-ink);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.workspace-materials__empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+}
+
+.workspace-form__reference-price {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  background: var(--color-paper-2);
+}
+
+.workspace-form__reference-price > span:first-child {
+  color: var(--color-ink-faint);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.workspace-form__reference-price strong {
+  font-size: var(--text-lg);
+  color: var(--color-ink);
+}
+
+.workspace-form__reference-price small {
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+}
+
+.product-setup-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+  border-top: 1px solid var(--color-hairline);
+  padding-block-start: var(--space-5);
+}
+
+.product-setup-grid:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: var(--space-1);
+}
+
+.product-setup-grid[aria-invalid="true"] {
+  border-top-color: var(--color-danger);
+}
+
+.product-setup-grid__configuration {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.product-setup-section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.product-setup-section + .product-setup-section {
+  border-top: 1px solid var(--color-hairline);
+  padding-block-start: var(--space-5);
+}
+
+.product-setup-section__heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.product-setup-section__heading h3 {
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.product-setup-section__heading p {
+  max-width: 65ch;
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+}
+
+.assigned-materials-summary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-4);
+  border-top: 1px solid var(--color-hairline-strong);
+  padding-block-start: var(--space-4);
+}
+
+.assigned-materials-summary header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.assigned-materials-summary header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.assigned-materials-summary header span {
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.assigned-materials-summary h3 {
+  overflow-wrap: anywhere;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.assigned-materials-summary output {
+  display: grid;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+  place-items: center;
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-pill);
+  color: var(--color-ink-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.assigned-materials-summary ul {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border-block: 1px solid var(--color-hairline);
+  list-style: none;
+}
+
+.assigned-materials-summary li {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-block: var(--space-3);
+}
+
+.assigned-materials-summary li + li {
+  border-top: 1px solid var(--color-hairline);
+}
+
+.assigned-materials-summary li strong {
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.assigned-materials-summary li span,
+.assigned-materials-summary > p {
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+}
+
+.assigned-materials-summary__error {
+  color: var(--color-danger) !important;
+  font-size: var(--text-sm) !important;
+}
+
+@media (min-width: 56rem) {
+  .product-setup-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(14rem, .42fr);
+    align-items: start;
+    gap: var(--space-8);
+  }
+
+  .assigned-materials-summary {
+    border-top: 0;
+    border-inline-start: 1px solid var(--color-hairline-strong);
+    padding-block-start: 0;
+    padding-inline-start: var(--space-5);
+  }
+}

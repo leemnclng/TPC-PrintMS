@@ -1,0 +1,318 @@
+# Decisions
+
+Track product and technical decisions that affect future development.
+
+## 2026-06-06
+
+### Add App Context Documentation
+
+- Decision: Maintain progress, changes, issues, functionality, and decisions in Markdown files under `docs/context`.
+- Rationale: Keeps project context easy to inspect and update without requiring a separate tracking tool.
+- Impact: Future work should update these docs when meaningful app behavior or implementation context changes.
+
+## 2026-08-15
+
+### Define the Printing-MS Product Boundary
+
+- Decision: Printing-MS is the central printing-management application. Its initial scope comprises Product Catalog, AI-assisted Quotation Management with owner approval, Job Order Management, Real-time Tracking, Document Import/Export, and Reports and Analytics.
+- Rationale: The surrounding business workflow provides operational context, while these modules define the software to be built.
+- Alternatives considered: Treating the entire left-side communication and payment flow as the application itself.
+- Impact: Design and implementation should center on a shared job-order lifecycle and connect each initial module to it.
+
+### Keep External Intake Separate Until Integration Is Defined
+
+- Decision: Messenger, Gmail, and form-based intake are business input channels, but direct integrations are not yet assumed.
+- Rationale: The required automation and integration details have not been specified.
+- Alternatives considered: Building direct Messenger and Gmail integrations into the first implementation automatically.
+- Impact: The initial data model must support source-channel metadata while allowing manual order entry.
+
+### Design Printer Integration to Be Vendor-Neutral
+
+- Decision: Use the Canon PIXMA G4770 as the first supported printer without coupling Printing-MS to that model or Canon-specific APIs.
+- Rationale: The system must be able to add other printers later.
+- Alternatives considered: Implementing a G4770-only integration.
+- Impact: Printer capabilities and connection methods must be modeled separately, with standard network printing or operating-system print queues used where possible.
+
+### Deliver Printing-MS as a Cross-Platform Desktop Application
+
+- Decision: Build an installable Windows and macOS desktop application using Electron, with printing performed through operating-system printer queues. Customer machines will not require Docker or a separate print-agent installation.
+- Rationale: The owner needs to operate local printers directly while keeping installation simple and supporting multiple printer brands.
+- Alternatives considered: A browser-only application with a separate local print agent, or running the application in Docker on each customer machine.
+- Impact: Native printing feasibility, desktop packaging, code signing, and macOS notarization must be validated early.
+
+### Start Local-First While Preserving a Sync Boundary
+
+- Decision: The initial application will use local persistence on one printing workstation, with storage access isolated so a shared backend can be added later.
+- Rationale: This minimizes initial deployment complexity while avoiding unnecessary coupling to a permanently single-machine design.
+- Alternatives considered: Requiring a shared cloud backend in the first release.
+- Impact: Multi-device access and synchronization are deferred, but domain and persistence boundaries must remain suitable for future extraction.
+
+### Use FastAPI as the Local Application Backend
+
+- Decision: Use Python and FastAPI for business logic, SQLite persistence, AI-assisted quotation processing, documents, and reports. Use `uv` with a project `.venv` during development, then bundle the backend into a platform-specific executable for distribution.
+- Rationale: Python supports the planned AI and document-processing work and gives the domain a clean API boundary that can later move to a shared backend.
+- Alternatives considered: Implementing all business logic inside the Electron main process.
+- Impact: Electron must manage the backend lifecycle and secure local communication. Windows and macOS backend executables must be built and tested separately; customers will not manage Python or `.venv`.
+
+### Organize the Initial Application Around the Operational Workflow
+
+- Decision: Use Overview, Job Orders, Quotations, Production, Print Center, Product Catalog, Customers, Reports, and Settings as the initial primary pages. Use nested workspaces for individual orders, quotations, products, and customers.
+- Rationale: This covers every initial system capability while keeping navigation task-oriented and avoiding a separate top-level page for every granular action.
+- Alternatives considered: Organizing navigation directly by database entity or creating many single-purpose pages.
+- Impact: The first application scaffold must create all primary routes and workspaces, even when some deeper controls remain placeholders for later phases.
+
+## 2026-08-15 (initial application scaffold)
+
+### The Paper Club Is the Business Brand; Printing-MS Stays the System Name
+
+- Decision: The user identified their business as "The Paper Club" ("Printing & Digital Services") and supplied its actual logo. The application now seeds the real business profile with that name/tagline and uses the real logo in the sidebar brand lockup, while "Printing-MS" remains the internal system/product name shown as a small subtitle beneath it.
+- Rationale: The docs already named the software "Printing-MS"; the owner's actual storefront brand is a separate, real fact that should appear wherever the app addresses the business (Settings, sidebar), not be replaced or invented.
+- Alternatives considered: Renaming the whole product to "The Paper Club" throughout the codebase; ignoring the brand and using a generic placeholder business name.
+- Impact: `services/api/app/seed.py` seeds Business Profile with the real name/tagline instead of a fabricated placeholder. Two real logo assets live under `apps/web/src/assets/brand/` (mirrored at `docs/assets/brand/`): `the-paper-club-logo.jpg`, the full lockup on its original paper-texture background, kept for future document/letterhead use; and `the-paper-club-mark.png`, a transparent PNG cropped tightly to the wordmark, which is what the sidebar's top-left brand icon actually renders — true transparency meant it could sit directly on the sidebar surface with no background frame, unlike the JPEG.
+
+### Build a Custom Brand-Derived Visual System Instead of a Generic Dashboard Theme
+
+- Decision: Sample the actual ink-red and paper tones from The Paper Club's logo (`oklch(35% 0.145 28)` accent, warm off-white paper surfaces) and pair Bodoni Moda (echoes the logo's high-contrast serif caps) with IBM Plex Sans/Mono for a dense operational UI, rather than reusing a generic catalog theme or default shadcn/Tailwind dashboard look.
+- Rationale: The user explicitly asked for a UI aligned to this specific business, not a generic AI-dashboard template; a print shop's own brand ink and paper stock is a stronger, more honest source of identity than an invented palette.
+- Alternatives considered: A generic neutral admin-dashboard theme (blue/purple gradient cards, default Inter font); picking an unrelated named theme from a design-system catalog.
+- Impact: All colors/fonts/spacing live as named tokens in `apps/web/src/styles/tokens.css`; every component consumes tokens by name, never inline values. Chosen tone: "workshop-precise" (dense, functional, sparing use of paper/ink motifs — e.g., the registration-mark empty-state icon).
+
+### API Wire Format Is camelCase; Internals Stay Idiomatic Per Language
+
+- Decision: FastAPI schemas use a shared `CamelModel` base (Pydantic `alias_generator=to_camel`) so JSON request/response bodies are camelCase, while SQLAlchemy models, Python fields, and the database stay snake_case, and the TypeScript domain types stay camelCase.
+- Rationale: Avoids a manual field-mapping layer on either side while keeping each language's own convention idiomatic.
+- Alternatives considered: snake_case over the wire with manual camelCase mapping in the renderer; camelCase database columns.
+- Impact: Every new backend schema should extend `CamelModel` (`services/api/app/schemas/common.py`); renderer code should never need to convert casing.
+
+### Renderer Uses HashRouter; Backend Is Spawned From Source in Dev
+
+- Decision: The React renderer uses `HashRouter` (not path-based routing) so deep links resolve when the production build is loaded from `file://` inside Electron. The Electron main process currently starts the backend only via `uv run` from `services/api` source; packaged-build backend startup is an explicit unimplemented error rather than a silent failure.
+- Rationale: Path-based routing needs a server to resolve arbitrary deep-link paths, which a `file://`-loaded production build doesn't have. Bundling the backend into a signed executable is genuinely Phase 7 scope (code signing, notarization, per-OS executable builds) and shouldn't be faked in Phase 2.
+- Alternatives considered: Path-based routing with a custom Electron protocol handler; silently falling back to some other backend-start strategy in packaged builds.
+- Impact: All internal navigation must use `react-router-dom` (`Link`/`useNavigate`), never raw `<a href>`. `apps/desktop/src/backendManager.ts` throws a clear, documented error if launched from a packaged build until Phase 7 lands.
+
+## 2026-08-21
+
+### Organize the Catalog Around Services
+
+- Decision: Services are the catalog’s primary level, and every product belongs to one service. For example, a Printing Service can contain business cards, flyers, and other print products.
+- Rationale: The owner needs to choose from a structured service/product catalog when creating quotations and job orders; a free-text product category does not provide that hierarchy.
+- Alternatives considered: Keeping categories as free-text product metadata; treating services and products as the same entity.
+- Impact: The UI navigation now says Services, service workspaces contain product lists, products require a service, and the migration converts existing product categories into services without losing products.
+
+### Separate Service Inventory From Service Settings
+
+- Decision: Opening a service is an inventory-first view containing its products; editing the service name, description, status, or removal is handled on a dedicated Settings route.
+- Rationale: Owners enter a service primarily to manage products used in quotations and job orders, while service configuration is a less frequent administrative task.
+- Alternatives considered: Keeping the service form above the product list; opening settings in an inline expandable panel.
+- Impact: `/product-catalog/:serviceId` is read-only at the service level, and `/product-catalog/:serviceId/settings` owns service edits and removal.
+
+### Keep Focused Creation in Context
+
+- Decision: Focused create actions launched from a list or detail view should use a modal when the form fits comfortably in one responsive overlay. Successful creation closes the modal and visibly updates the originating view; complex editing remains in a dedicated workspace.
+- Rationale: Owners can add records without losing their place, while larger tasks still get enough space and a durable URL.
+- Alternatives considered: Navigating every create action to a full page; using inline forms inside tables.
+- Impact: Product creation opens from the service inventory in a native dialog, while product editing continues to use the Product Workspace. Future features follow `ux-development-standard.md`.
+
+### Separate Product Material Assignments From Actual Stock Movements
+
+- Decision: Inventory materials hold current stock and an immutable movement ledger. Products define only which materials they may use; quantities and actual consumption belong to job orders and their job-linked inventory movements.
+- Rationale: A product assignment is an eligibility rule, while page-based job usage is historical evidence. Keeping them separate prevents a generic product quantity from producing incorrect deductions.
+- Alternatives considered: Storing only a current quantity; decrementing stock without movement history; copying inventory quantities directly onto products.
+- Impact: Inventory adjustments are auditable, Product Workspaces own allowed material choices, and Job Order Workspaces can list actual usage. The writable job-order flow must calculate or capture quantities from its page details before creating movements.
+
+### Require a Material Assignment When Creating a Product
+
+- Decision: Every newly created product must select at least one active inventory material, without assigning a product-level quantity.
+- Rationale: Products feed future job orders, so their allowed material choices must exist from the start; consumption depends on each job order’s page count.
+- Alternatives considered: Allowing products without material assignments; storing a generic per-product quantity.
+- Impact: Both product creation interfaces validate the assignment list, and owners must register inventory materials before creating a product. Existing products remain editable for backward compatibility.
+
+## 2026-08-23
+
+### Treat Product Materials as an Allowed Set Only
+
+- Decision: Product material assignments represent only the complete set of materials a product may use. A job order will let the owner choose the actual subset and calculate or enter quantities from its page details.
+- Rationale: Printing products can use different paper, ink, or finishing materials per job. The product should constrain valid choices without incorrectly claiming every assigned option was consumed every time.
+- Alternatives considered: Treating every product material as automatically consumed for every job order; allowing job orders to choose any inventory material regardless of the product.
+- Impact: Product forms use a quantity-free checkbox multi-select. Product material requirements were renamed to assignments and their quantity column was removed with a data-preserving migration. Future job-order creation must filter materials by the selected product and own all deduction quantities.
+
+### Separate Job Planning From Inventory Deduction
+
+- Status: Refined on 2026-08-27 by “Remove Print Sides From Job Creation.”
+
+- Decision: Owners can create manual job orders with one or more product lines, page/copy/side details, and planned material quantities. Creating the order does not change inventory; stock is deducted only after explicit owner confirmation through Record usage.
+- Rationale: Planned work may change before production, while the inventory ledger must represent materials actually issued to a specific job.
+- Alternatives considered: Deducting planned quantities immediately on creation; waiting for quotation acceptance before allowing any manual order.
+- Impact: Job-order materials are limited to the selected product's assignments, usage is committed atomically, and every deduction is linked to both the job order and product. Quotation conversion can be added later without blocking walk-in/manual orders.
+
+### Keep Customers Optional for Manual Job Orders
+
+- Decision: A manually created job order may optionally link a saved customer; orders without one are identified as walk-in orders.
+- Rationale: Day-to-day production should not require creating a customer record for anonymous or one-time work.
+- Alternatives considered: Requiring every order to own a customer record; automatically creating a shared placeholder customer.
+- Impact: `job_orders.customer_id` is nullable, while quotations continue to require customers. Lists and workspaces use a clear Walk-in fallback instead of fabricating a customer.
+
+### Prioritize Production Inputs in Job Creation
+
+- Status: Refined on 2026-08-27 by “Remove Print Sides From Job Creation.”
+
+- Decision: The New Job Order modal starts with product, output quantity, print-side setup, and material selection. Optional customer, deadline, total, and notes follow at the bottom.
+- Rationale: The owner’s primary task is defining what the shop must produce; administrative and commercial context should not delay that work.
+- Impact: Initial focus and keyboard order begin on the first product selector, and secondary order details remain available before submission.
+
+### Use Visible Product Cards for Job Selection
+
+- Decision: Products in the New Job Order modal are selected from a responsive card pane instead of a dropdown.
+- Rationale: Product identity, parent service, material options, and variants are easier to scan before configuring production.
+- Impact: Cards retain native radio-group keyboard behavior, a clear selected state, and focused validation while collapsing to one column on narrow screens. Each order line has a compact single-row search control for product, service, or variant without clearing or hiding its current selection.
+
+### Calculate and Snapshot Job-Order Prices in Philippine Pesos
+
+- Decision: A product has a base price per billable page/unit, and each optional named variant contributes a positive or negative per-unit adjustment. The server calculates each job line as `(base price + variant adjustment) × pages per copy × copies`, rounds the result to two decimals, and stores the unit price and line total used at creation. All commercial values display as Philippine pesos.
+- Rationale: Owners need fast pricing for options such as Back-to-back, while completed orders must retain the price originally charged even after catalog pricing changes.
+- Alternatives considered: Owner-entered order totals; recalculating historical orders from current product prices; percentage-only variants.
+- Impact: New job orders show live line and order totals, clients no longer submit authoritative totals, and catalog edits do not rewrite historical order pricing. Quotation-specific approval and pricing rules remain separate work.
+
+### Manage Reusable Variants at the Service Level
+
+- Status: Superseded on 2026-08-23 by “Use One Global Variant Library Across Services.”
+
+- Decision: Variant identity and description belong to the parent service, while each product chooses which service variants it supports and owns the corresponding price adjustment.
+- Rationale: Options such as Back-to-back should be named once and reused consistently across related products, but their additional cost can differ by product.
+- Alternatives considered: Re-entering free-text variants on every product; applying one service-wide price adjustment to every product.
+- Impact: Services have a dedicated Variants workspace, product forms use reusable checkbox assignments, and job orders continue to snapshot the selected variant label and calculated price. Existing product variants are converted into service variants by migration.
+
+### Use One Global Variant Library Across Services
+
+- Decision: Variant identity and description belong to one catalog-wide library under the main Services page. Products in any service may assign a global variant and retain their own price adjustment.
+- Rationale: Options such as Back-to-back can apply consistently across several services, while product costs can still differ.
+- Alternatives considered: Duplicating the same variant within every service; keeping variants embedded as free text on products.
+- Impact: `/product-catalog/variants` manages the library, service workspaces remain product-only, and migration merges same-named service variants case-insensitively while preserving product links and adjustments.
+
+### Constrain Products to Two Print Types
+
+- Decision: Every product has one required print type: `colored` or `black_and_white`, displayed as Colored and B&W (Black and white).
+- Rationale: Staff need an explicit, consistent production distinction when browsing a service or choosing a job-order product.
+- Alternatives considered: Free-text product types; treating color as a pricing variant.
+- Impact: Product create/edit forms enforce the two choices, service lists and job-order cards display the type, and existing products migrate to B&W for safe manual review.
+
+## 2026-08-24
+
+### Start Document Analysis With Deterministic Local Processing
+
+- Decision: Phase 1 analyzes PDF, PNG/JPEG/TIFF/BMP/WebP, DOCX, XLSX, and PPTX files locally in memory, with a 25 MB limit and no file retention. It normalizes print metadata and applies owner-configurable per-page rates for A3, A4, Letter, Legal, and fallback paper sizes split by B&W or color.
+- Rationale: The owner needs fast, auditable preflight and pricing without depending on an AI service or introducing document-storage risk before job-order attachment rules exist.
+- Alternatives considered: Uploading documents to an AI provider immediately; persisting every upload; hard-coding prices in the analyzer.
+- Impact: Operations has a standalone Document Analyzer, Settings owns the rate matrix, and analyzer/pricing boundaries can later support OCR, AI recommendations, job-order attachment, and export without replacing the deterministic core.
+
+### Let Products Override Document-Analyzer Rates Like Global Variants
+
+- Status: Partially superseded the same day by "Tie Document Pricing to Real Paper Stock" (paper sizes) and "Tie Product Document Overrides to the Product's Own Print Type" (the print-type axis below).
+- Decision: `DocumentPricingRule` stays the global default per-page rate matrix (paper size × print type). A new `ProductDocumentRate` join lets a product override specific combinations, mirroring how `Variant`/`ProductVariant` already work: one global reusable definition, an optional per-product override. The Document Analyzer gained an optional product picker; analyzing against a product resolves each rate as product override → exact paper-size global rate → `Unknown` fallback rate, and the response echoes which product priced the result.
+- Rationale: The owner wants document pricing to vary by the product an order references, using the same pattern already proven for variants, without giving up the existing paper-size-based rate matrix.
+- Alternatives considered: A single flat override price per product (loses the paper-size dimension the owner explicitly wanted kept); restricting overrides to only the product's own declared print type (rejected at the time — the analyzer measures actual page color content, which can include the opposite type even on a nominally single-type product; reversed below once the product's price itself became derived from this mechanism).
+- Impact: `services/api/app/db/models.py` (`ProductDocumentRate`), product schemas/router accept `documentRates` the same way they accept `variants`, and `PricingEngine`/`PricingBreakdownItem` track a `rateSource` (`product`/`paperSize`/`fallback`) instead of a single fallback flag.
+
+### Consolidate Catalog Configuration Under a New Configuration Page
+
+- Decision: Added a Configuration page, pinned in the nav next to Settings, that owns Global variants (moved from `/product-catalog/variants` to `/configuration/variants`) and Document analyzer pricing (moved out of Settings). The old variants route redirects; Settings keeps a short pointer card instead of embedding the pricing grid.
+- Rationale: Both were catalog-wide configuration the owner reaches for while managing products and pricing, not day-to-day service management or business-profile administration — grouping them stops configuration from being split across two unrelated pages.
+- Alternatives considered: Leaving variants under Services and pricing under Settings; duplicating the controls in both old and new locations instead of moving them.
+- Impact: `apps/web/src/pages/ConfigurationPage.tsx` is the new hub; `ServiceVariantsWorkspace` and `DocumentPricingSettings` are unchanged components, only their route and entry points moved.
+
+### Tie Document Pricing to Real Paper Stock
+
+- Decision: `DocumentPricingRule` no longer stores a free `paper_size` string. It now has a required `inventory_item_id` FK, and the paper size it represents is read live from that `InventoryItem`'s new `paper_size` tag — a closed three-value enum (A4, Letter, Legal). `Unknown`/fallback pricing and A3 are removed outright: the shop doesn't stock A3, and "Unknown" was never a real size. Rules are no longer seeded from a fixed list; `ensure_defaults` creates a rule per print type for every active, paper-tagged inventory item, starting at ₱0 for the owner to configure. At most one active item may hold a given size at a time.
+- Rationale: The owner wants paper sizes in document pricing to mean something concrete — an actual stocked material — rather than an arbitrary label untethered from Inventory, and wants the configurable set limited to what the shop actually stocks.
+- Alternatives considered: Keeping the fixed five-size list and just hiding A3/Unknown in the UI (rejected — the owner asked for the sizes themselves to be tied to inventory, not merely display-filtered); auto-seeding "A4"/"Letter"/"Legal" inventory items automatically (rejected — this app never invents business/inventory data on the owner's behalf; the owner tags their own items).
+- Impact: `InventoryItem.paper_size`, `DocumentPricingRule.inventory_item_id`, migration `e2c7a1f4b6d8`. The Document Analyzer's rate resolution drops its fallback tier entirely (`rateSource` is now `product`/`paperSize` only). The pricing grid in Configuration is empty until the owner tags an inventory item, with an explicit empty state linking to Inventory.
+
+### Tie Product Document Overrides to the Product's Own Print Type
+
+- Decision: A product's document-pricing override list only ever shows and accepts rates matching its own required Print Type (Colored or B&W) — never both. The API rejects (422) an override whose rule print type doesn't match the product's.
+- Rationale: Every product already declares one Print Type; asking it to also configure both a Colored and a B&W rate was redundant information the product itself can't act on.
+- Alternatives considered: Keeping both print-type columns per product (the original 2026-08-24 decision, reversed here) — rejected once the product's own price became derived from this override list, at which point a mismatched-type override would be meaningless.
+- Impact: `ProductDocumentRateSelector` takes a `printType` prop and renders one column (up to three paper-size rows) instead of a two-column grid; `_clean_document_rates` validates the match server-side.
+
+### Replace Product Base Price With a Computed Reference Price
+
+- Status: Superseded on 2026-08-27 by “Price Products and Job Lines From Their Paper Materials.”
+
+- Decision: `Product.base_price` is removed. A product's price is now computed as the Letter-size document-pricing rate for its own print type (its own override if set, else the global rate, else ₱0), plus any variant adjustment. Letter is the assumed default document size — there is no per-order paper-size picker anywhere yet. This one computed number (`pricePerPage`) replaces every prior use of `basePrice`: job-order line pricing, the product catalog list, and job-order product cards/variant options.
+- Rationale: The owner wants a product's price to come entirely from its configured document-pricing rate rather than a separate, disconnected manually-typed number, now that document pricing is itself tied to real paper stock and print type.
+- Alternatives considered: Requiring every product to pick one paper size explicitly (rejected — Letter-as-default plus the existing override list already gives every product a well-defined price without a new required field); adding a paper-size picker to Job Order line items so any of a product's configured sizes could apply per order (deferred — no such picker exists yet anywhere in the app; can be added later without changing this computation's shape).
+- Impact: New `services/api/app/services/product_pricing.py::reference_price_per_page`, used by both `routers/products.py` (`ProductRead.price_per_page`, and the create/update negative-price guard) and `routers/job_orders.py` (line pricing). No job orders existed yet in practice, so there was no historical pricing data to preserve.
+
+### Let a Material Be Deleted Even With Stock Movement History
+
+- Status: Refines the same-day decision below — mere movement history (e.g. a stray opening balance or test adjustment) no longer blocks deletion, only real independent records still do.
+- Decision: Deleting an inventory item is blocked (409) only when it's assigned to a product, used in a job order's material plan, or referenced by a document-pricing rule. Its own stock-movement log is no longer a blocker — it's deleted along with the item.
+- Rationale: The owner hit this in practice on a test material that had no product/job-order/pricing dependency, only some adjustment history from trying out the stock-adjustment flow — forcing deactivation in that case protects nothing real. The remaining three guards are the ones that would actually corrupt another record (a product's material list, a job order's material plan, a pricing rule) if the item vanished out from under them.
+- Alternatives considered: Keeping the original movement-history guard (rejected — the owner explicitly asked for materials like this to be deletable, and a lone item's own movement log isn't a record anything else depends on, unlike the three guards that remain).
+- Impact: `services/api/app/routers/inventory.py::delete_inventory_item` drops the `item.movements` check; `InventoryItem.movements`'s existing `cascade="all, delete-orphan"` now actually fires. `DeleteInventoryItemModal` copy now warns that the item's movement history is deleted with it.
+
+## 2026-08-27
+
+### Price Products and Job Lines From Their Paper Materials
+
+- Decision: A product's catalog reference is the lowest active rate among its assigned paper materials for its print type. During job creation, the exact selected paper material determines the line rate; a line may select only one priced paper material, and a second paper size requires a second line. Product overrides continue to take precedence over global rates.
+- Rationale: The prior Letter-only assumption ignored configured A4 and Legal prices and could show or snapshot an incorrect amount even when the job explicitly selected a different material.
+- Alternatives considered: Continue using Letter as an implicit default; silently choose the first or cheapest material selected on a multi-paper job line.
+- Impact: Product forms, catalog reads, job-order previews, and authoritative server calculations resolve through material-linked pricing rules. Existing completed job-order snapshots remain unchanged.
+
+### Configure Paper Assignment and Pricing Together
+
+- Decision: Product forms use one paper-material row to assign the linked Inventory item and choose either its global rate or a product-specific override. The separate Assigned materials editor is replaced by a read-only summary on the right. Non-paper supplies remain editable under Other materials because they have no document-pricing relationship.
+- Rationale: `DocumentPricingRule.inventory_item_id` already identifies the real paper material, so selecting the same paper again in a generic material list was redundant and made inconsistent setup possible.
+- Alternatives considered: Infer every globally priced paper as assigned to every product; remove non-paper product assignments entirely.
+- Impact: The existing API and database relationships remain unchanged. Product creation/editing now keeps paper assignments and overrides synchronized in one interaction, while job orders still receive the complete allowed material set.
+
+### Select Configured Paper Size During Job Creation
+
+- Decision: After choosing a product, the owner selects exactly one of that product's configured paper sizes. The linked Inventory material is added to the plan automatically, while only non-paper supplies remain separately selectable.
+- Rationale: Paper identity, availability, and pricing are already one configured relationship; asking the owner to select the same paper again as a generic material is redundant and can produce a mismatched price.
+- Alternatives considered: Keep paper checkboxes in Materials to use; silently choose the product's lowest-priced paper.
+- Impact: Changing the size immediately changes the live product/variant price. The API requires a configured paper selection when the product has paper options and snapshots the same authoritative rate.
+
+### Remove Print Sides From Job Creation
+
+- Decision: The owner no longer selects Print sides when creating a job. Paper planning uses pages × copies, while production options such as Back-to-back remain product variants.
+- Rationale: Print sides duplicated an existing variant choice and added a production input the owner does not need in this flow.
+- Alternatives considered: Infer sides from a variant label; remove the database field and migrate historical records.
+- Impact: New-job requests omit `printSides` and use the API's existing single-sided default internally for compatibility. Historical records and API clients remain valid.
+
+### Keep Document Preview Local and Beside Analysis
+
+- Status: Refined on 2026-08-27 by “Render PDFs With a Dedicated Local Viewer.”
+
+- Decision: The analyzed source appears in a left preview pane and the complete analysis appears in a right pane. PDF and browser-supported images use a temporary local object URL; unsupported document formats show a clear fallback instead of uploading or fabricating a rendering.
+- Rationale: Operators need to compare the source and results without switching context, while the analyzer's in-memory privacy boundary must remain intact.
+- Alternatives considered: Put the preview above the results; send Office files to an external preview service; imply a visual preview when the runtime cannot render one.
+- Impact: Desktop results use two balanced, independently contained panes and stack preview-first on narrower screens. Object URLs are revoked when the source changes or the result closes.
+
+### Render PDFs With a Dedicated Local Viewer
+
+- Status: Refined on 2026-08-27 by “Use a Full-Pane Continuous PDF Workspace.”
+
+- Decision: Use a lazy-loaded PDF.js worker and high-DPI canvas renderer for PDF previews instead of delegating rendering to a browser iframe.
+- Rationale: The iframe could be blank in the Electron/browser runtime and provided inconsistent controls. The operator needs predictable local navigation and viewing tools.
+- Alternatives considered: Keep the native iframe/embed; open PDFs in a separate system viewer; upload them to a hosted preview service.
+- Impact: PDF previews now support page navigation, direct page entry, zoom, fit-to-width, rotation, download, keyboard shortcuts, retry, and actionable load/render failures. The viewer bundle loads only when a PDF result is open.
+
+### Use a Full-Pane Continuous PDF Workspace
+
+- Decision: Once analysis succeeds, remove the standard page header, let the preview/results split fill the entire available app content pane, and show every PDF page in one vertically scrollable document instead of paginating it.
+- Rationale: Operators need the source to be larger and should be able to scan page boundaries naturally without repeatedly using previous/next controls.
+- Alternatives considered: Keep the centered content-width limit; add a separate fullscreen mode; retain page-at-a-time navigation.
+- Impact: The preview and results panes independently fill and scroll on desktop, while narrow layouts still stack. PDF pages are labeled and rendered ahead of the scroll position to balance continuous reading with memory and rendering cost.
+
+## Template
+
+### Decision Title
+
+- Date:
+- Decision:
+- Rationale:
+- Alternatives considered:
+- Impact:

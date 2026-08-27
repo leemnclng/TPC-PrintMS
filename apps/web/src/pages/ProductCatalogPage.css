@@ -1,0 +1,28 @@
+/* Hallmark · macrostructure: Index-First · genre: editorial · theme: Press · enrichment: none
+ * pre-emit critique: P5 H5 E4 S5 R5 V4 · contrast: pass (40–41)
+ * audience: owner · use: manage services and their products · tone: utilitarian
+ */
+
+.service-index {
+  max-width: 920px;
+}
+
+.service-index__identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.service-index__identity strong {
+  color: var(--color-ink);
+  font-size: var(--text-base);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.service-index__identity span {
+  max-width: 64ch;
+  color: var(--color-ink-soft);
+  line-height: var(--leading-snug);
+}

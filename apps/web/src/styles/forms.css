@@ -1,0 +1,79 @@
+/* Shared form-field styling — used by Settings and every workspace form. */
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+}
+
+.form-field input,
+.form-field textarea,
+.form-field select {
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-sm);
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.form-field textarea {
+  resize: vertical;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .form-field input:hover,
+  .form-field textarea:hover,
+  .form-field select:hover {
+    border-color: var(--color-ink-faint);
+    background: var(--color-paper-2);
+  }
+}
+
+.form-field input:focus-visible,
+.form-field textarea:focus-visible,
+.form-field select:focus-visible {
+  border-color: var(--color-accent);
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.form-field input:disabled,
+.form-field textarea:disabled,
+.form-field select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  background: var(--color-paper-3);
+}
+
+.form-field--error input,
+.form-field--error textarea,
+.form-field--error select {
+  border-color: var(--color-danger);
+}
+
+.form-field--success input,
+.form-field--success textarea,
+.form-field--success select {
+  border-color: var(--color-success);
+}
+
+.form-field__message {
+  min-height: 1lh;
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.form-field__message--error {
+  color: var(--color-danger);
+}

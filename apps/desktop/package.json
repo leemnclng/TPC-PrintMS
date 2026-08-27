@@ -1,0 +1,41 @@
+{
+  "name": "@printing-ms/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsc -b && electron dist/main.js",
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit",
+    "package": "tsc -b && electron-builder"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6.3"
+  },
+  "build": {
+    "appId": "com.thepaperclub.printingms",
+    "productName": "Printing-MS",
+    "files": [
+      "dist/**/*",
+      "../web/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../../services/api",
+        "to": "backend",
+        "filter": ["!.venv", "!__pycache__", "!**/__pycache__/**"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

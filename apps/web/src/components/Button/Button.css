@@ -1,0 +1,101 @@
+.btn {
+  --btn-fg: var(--color-ink);
+  --btn-bg: transparent;
+  --btn-border: var(--color-hairline-strong);
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none; /* LinkButton renders an <a> — a button never shows link underline */
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.btn--md {
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+}
+.btn--sm {
+  min-height: var(--control-height);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.btn--primary {
+  --btn-bg: var(--color-accent);
+  --btn-fg: var(--color-accent-ink);
+  --btn-border: var(--color-accent);
+}
+.btn--primary:hover:not(:disabled) {
+  --btn-bg: var(--color-accent-strong);
+  --btn-border: var(--color-accent-strong);
+}
+
+.btn--primary:focus-visible {
+  outline-color: var(--color-ink);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  --btn-bg: var(--color-paper-3);
+}
+
+.btn--ghost {
+  --btn-border: transparent;
+}
+.btn--ghost:hover:not(:disabled) {
+  --btn-bg: var(--color-paper-3);
+}
+
+.btn--danger {
+  --btn-fg: var(--color-danger);
+  --btn-border: var(--color-danger);
+}
+.btn--danger:hover:not(:disabled) {
+  --btn-bg: var(--color-danger-soft);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn[data-state="loading"] {
+  cursor: progress;
+}
+
+.btn__spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  opacity: 0.7;
+  animation: btn-spin 700ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn__spinner {
+    animation-duration: 1400ms;
+  }
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

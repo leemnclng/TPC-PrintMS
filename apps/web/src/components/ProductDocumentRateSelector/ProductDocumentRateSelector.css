@@ -1,0 +1,151 @@
+/* Hallmark · component: paper material and pricing selector · genre: editorial · theme: Press
+ * tone: workshop-precise · states: default · hover · focus · active · disabled · error · success
+ * pre-emit critique: P5 H5 E5 S5 R5 V4 · contrast: pass (40–41)
+ */
+.product-document-rate-selector {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  border-top: 1px solid var(--color-hairline);
+}
+
+.product-document-rate-selector__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--color-hairline);
+  padding-block: var(--space-3);
+}
+
+.product-document-rate-selector__row[data-selected="true"] {
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+}
+
+.product-document-rate-selector__choice {
+  display: flex;
+  min-height: var(--control-height);
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding-inline: var(--space-3);
+  cursor: pointer;
+}
+
+.product-document-rate-selector__choice input {
+  width: var(--space-4);
+  height: var(--space-4);
+  margin-block-start: var(--space-1);
+  accent-color: var(--color-accent);
+}
+
+.product-document-rate-selector__choice input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.product-document-rate-selector__choice:active {
+  color: var(--color-accent);
+}
+
+.product-document-rate-selector__choice input:disabled,
+.product-document-rate-selector__choice input:disabled + span {
+  cursor: not-allowed;
+  opacity: .6;
+}
+
+.product-document-rate-selector__choice > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.product-document-rate-selector__choice strong {
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+}
+
+.product-document-rate-selector__choice small {
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+}
+
+.product-document-rate-selector__pricing {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  padding-inline: var(--space-3);
+}
+
+.product-document-rate-selector__pricing label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+}
+
+.product-document-rate-selector__pricing input,
+.product-document-rate-selector__pricing select {
+  min-width: 0;
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-sm);
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.product-document-rate-selector__pricing input:focus-visible,
+.product-document-rate-selector__pricing select:focus-visible {
+  border-color: var(--color-accent);
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.product-document-rate-selector__pricing input:active:not(:disabled),
+.product-document-rate-selector__pricing select:active:not(:disabled) {
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+}
+
+.product-document-rate-selector__pricing input:disabled,
+.product-document-rate-selector__pricing select:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+  background: var(--color-paper-3);
+  color: var(--color-ink-soft);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .product-document-rate-selector__row:hover {
+    background: var(--color-paper-2);
+    color: var(--color-ink);
+  }
+
+  .product-document-rate-selector__pricing input:hover:not(:disabled),
+  .product-document-rate-selector__pricing select:hover:not(:disabled) {
+    border-color: var(--color-ink-soft);
+    background: var(--color-paper-2);
+    color: var(--color-ink);
+  }
+}
+
+@media (min-width: 42rem) {
+  .product-document-rate-selector__row {
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, .8fr);
+    align-items: center;
+  }
+
+  .product-document-rate-selector__pricing {
+    grid-template-columns: minmax(0, 1fr) minmax(8rem, .72fr);
+  }
+}

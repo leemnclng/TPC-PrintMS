@@ -1,0 +1,112 @@
+/* Hallmark · component: material multi-select · genre: editorial · theme: Press · tone: workshop-precise · anchor hue: warm ink-red (28°)
+ * states: default · hover · focus · active · disabled · loading · error · success
+ * pre-emit critique: P5 H5 E5 S5 R5 V4 · contrast: pass (40–41)
+ */
+.material-multiselect {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.material-multiselect__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--color-ink-faint);
+  font-size: var(--text-xs);
+}
+
+.material-multiselect__summary span:first-child {
+  flex: none;
+  color: var(--color-ink-soft);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.material-multiselect__list {
+  display: flex;
+  max-height: 22rem;
+  flex-direction: column;
+  overflow-y: auto;
+  border-block: 1px solid var(--color-hairline);
+}
+
+.material-multiselect__item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.material-multiselect__item + .material-multiselect__item {
+  border-top: 1px solid var(--color-hairline);
+}
+
+.material-multiselect__item[data-selected] {
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+}
+
+.material-multiselect__item[data-disabled] {
+  opacity: 0.55;
+}
+
+.material-multiselect__choice {
+  display: flex;
+  min-height: var(--control-height);
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.material-multiselect__choice:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+.material-multiselect__choice input {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: none;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.material-multiselect__choice input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: var(--space-1);
+}
+
+.material-multiselect__identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.material-multiselect__identity strong {
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.material-multiselect__identity span {
+  color: var(--color-ink-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .material-multiselect__item:not([data-disabled]):hover {
+    background: var(--color-paper-2);
+    color: var(--color-ink);
+  }
+}

@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+dist-electron/
+release/
+*.tsbuildinfo
+
+# Python / uv
+services/api/.venv/
+services/api/__pycache__/
+**/__pycache__/
+*.pyc
+.uv-cache/
+
+# App data (local-first SQLite + managed files)
+services/api/.data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Env / secrets
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/

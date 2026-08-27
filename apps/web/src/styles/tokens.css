@@ -1,0 +1,127 @@
+/* Hallmark · component: app-shell · genre: editorial (adapted for operational desktop UI)
+ * theme: custom "Press" — tuned from The Paper Club's real wordmark (TPC-image.jpeg)
+ * tone: workshop-precise · anchor hue: warm ink-red (~28°), sampled from source logo
+ * paper-band: light (L 91-98%) · display-style: high-contrast-serif (Bodoni Moda) · accent-hue: warm (28°)
+ * contrast: pass (46-50)
+ *
+ * Printing-MS design tokens — "Press"
+ * Every color below was sampled from The Paper Club's own logo (docs/assets/brand),
+ * not invented: the accent red is the exact ink used in the wordmark; the paper
+ * tones are the exact warm off-white of the logo's stock. Status hues are the
+ * only colors not drawn from the brand mark — they carry operational meaning
+ * (success/warning/info) that a single-hue brand mark can't supply, so they are
+ * kept deliberately muted and subordinate to the ink-red accent.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- Paper (surfaces) — warm off-white, never cool grey or stark white ---- */
+  --color-paper: oklch(98% 0.004 95);       /* page background */
+  --color-paper-2: oklch(95% 0.006 95);     /* panel / card / table row */
+  --color-paper-3: oklch(91% 0.008 95);     /* hover / sunken / pressed — matches sampled logo stock */
+  --color-paper-4: oklch(87% 0.009 95);     /* strongest sunken surface, rare */
+
+  /* ---- Ink (text) — warm near-black, never pure #000 or cool grey ---- */
+  --color-ink: oklch(20% 0.015 30);         /* primary text */
+  --color-ink-soft: oklch(42% 0.02 30);     /* secondary text, captions */
+  --color-ink-faint: oklch(62% 0.015 30);   /* placeholder, disabled text */
+  --color-ink-on-accent: oklch(98% 0.004 95);
+  --color-accent-ink: var(--color-ink-on-accent);
+
+  /* ---- Hairline / structure — replaces soft drop-shadows ---- */
+  --color-hairline: oklch(85% 0.01 95);
+  --color-hairline-strong: oklch(75% 0.012 95);
+
+  /* ---- Brand accent — sampled directly from The Paper Club wordmark ---- */
+  --color-accent: oklch(35% 0.145 28);      /* primary action, brand ink-red */
+  --color-accent-strong: oklch(28% 0.15 28);/* hover/active */
+  --color-accent-soft: oklch(94% 0.03 28);  /* tinted backgrounds, badges */
+  --color-accent-softer: oklch(97% 0.015 28);
+
+  /* ---- Focus ring ---- */
+  --color-focus: oklch(35% 0.145 28);
+
+  /* ---- Operational status hues (not brand-derived; meaning-carrying) ---- */
+  --color-success: oklch(46% 0.1 149);
+  --color-success-soft: oklch(93% 0.035 149);
+  --color-warning: oklch(56% 0.13 75);
+  --color-warning-soft: oklch(93% 0.05 80);
+  --color-info: oklch(48% 0.09 231);
+  --color-info-soft: oklch(93% 0.03 231);
+  --color-neutral: oklch(55% 0.012 95);
+  --color-neutral-soft: oklch(93% 0.006 95);
+  /* Danger reuses the brand accent on purpose: rejected/cancelled/overdue read
+     as "stop", the same instinct the ink-red already carries as a CTA color. */
+  --color-danger: var(--color-accent);
+  --color-danger-soft: var(--color-accent-soft);
+  --color-backdrop: oklch(20% 0.015 30 / 0.58);
+
+  /* ---- Type: 2+1 system, all brand-derived ---- */
+  /* Display: echoes the high-contrast serif caps in "THE / CLUB" — major
+     section heads only, never body copy, never more than one weight/page. */
+  --font-display: "Bodoni Moda", "Playfair Display", Georgia, serif;
+  /* UI: dense functional grotesk for labels, tables, controls. */
+  --font-ui: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  /* Mono: job numbers, quotation numbers, amounts, timestamps — ticket-like. */
+  --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+
+  --text-xs: 0.6875rem;   /* 11px */
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-base: 0.9375rem; /* 15px — dense operational default */
+  --text-md: 1.0625rem;   /* 17px */
+  --text-lg: 1.25rem;     /* 20px */
+  --text-xl: 1.625rem;    /* 26px */
+  --text-display-s: 2rem;     /* 32px */
+  --text-display: 2.75rem;    /* 44px */
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+
+  /* ---- Spacing: strict 4pt scale ---- */
+  --space-1: 0.25rem;  /* 4px */
+  --space-2: 0.5rem;   /* 8px */
+  --space-3: 0.75rem;  /* 12px */
+  --space-4: 1rem;     /* 16px */
+  --space-5: 1.25rem;  /* 20px */
+  --space-6: 1.5rem;   /* 24px */
+  --space-8: 2rem;     /* 32px */
+  --space-10: 2.5rem;  /* 40px */
+  --space-12: 3rem;    /* 48px */
+  --space-16: 4rem;    /* 64px */
+
+  /* ---- Radius: sharp / workshop, not soft-rounded-everything ---- */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
+
+  /* ---- Controls + stacking ---- */
+  --control-height: 2.75rem;
+  --z-modal: 400;
+
+  /* ---- Elevation: hairlines do the work; shadow reserved for true overlays ---- */
+  --shadow-overlay: 0 8px 24px -8px oklch(20% 0.015 30 / 0.28);
+
+  /* ---- Motion: named easings only, never bare `ease` ---- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 260ms;
+
+  /* ---- Layout ---- */
+  --sidebar-w: 232px;
+  --topbar-h: 56px;
+  --content-max: 1240px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 1ms;
+    --dur-base: 1ms;
+    --dur-slow: 1ms;
+  }
+}

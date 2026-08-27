@@ -1,0 +1,55 @@
+/* Hallmark · macrostructure: Catalogue · genre: editorial · theme: Press · tone: workshop-precise
+ * anchor hue: warm ink-red (28°) · enrichment: none · pre-emit critique: P5 H5 E5 S5 R5 V5
+ * contrast: pass (40–41) · nav: existing sidebar · footer: none · slop: pass (42–45)
+ * honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (49)
+ * icons: pass (30) · mobile: pass (34, 49, 50–57)
+ */
+.service-workspace__products {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.service-workspace__section-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--color-hairline);
+  padding-block-end: var(--space-2);
+}
+
+.service-workspace__section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.service-workspace__section-title h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-title);
+  line-height: 1;
+}
+
+.service-workspace__count {
+  color: var(--color-ink-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 39.99rem) {
+  .service-workspace__section-header,
+  .service-workspace__section-title {
+    align-items: flex-start;
+  }
+
+  .service-workspace__section-title {
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+}
