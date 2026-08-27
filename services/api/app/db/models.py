@@ -466,6 +466,7 @@ class JobFile(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="files")
+    print_jobs: Mapped[list["PrintJob"]] = relationship(back_populates="job_file")
 
 
 class Printer(Base):
@@ -490,15 +491,19 @@ class PrintJob(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     job_order_id: Mapped[str] = mapped_column(ForeignKey("job_orders.id"), nullable=False)
     printer_id: Mapped[str] = mapped_column(ForeignKey("printers.id"), nullable=False)
+    job_file_id: Mapped[str | None] = mapped_column(ForeignKey("job_files.id"), nullable=True)
     copies: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     color_mode: Mapped[str] = mapped_column(String, default="color", nullable=False)
     media_size: Mapped[str] = mapped_column(String, default="A4", nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     result: Mapped[PrintResult] = mapped_column(Enum(PrintResult), default=PrintResult.pending, nullable=False)
     operator: Mapped[str | None] = mapped_column(String, nullable=True)
+    external_job_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="print_jobs")
     printer: Mapped["Printer"] = relationship(back_populates="print_jobs")
+    job_file: Mapped["JobFile | None"] = relationship(back_populates="print_jobs")
 
 
 class StatusEvent(Base):

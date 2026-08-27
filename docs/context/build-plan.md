@@ -87,16 +87,16 @@ Job order:
 ### Phase 4: Job Order and Files
 
 - Create confirmed jobs from an uploaded file, selected product/variant/copies, detected configured paper size, and an approved suggested or owner-overridden price. **Active.**
-- Record online/cash payments and verification.
+- Record owner-verified partial/full cash, online, bank-transfer, or other payments. **Active.**
 - Attach the confirmed customer file as a staged print-ready job file. **Active.**
-- Add deadlines, notes, status history, and audit entries.
+- Add deadlines, notes, and status history. **Active except general audit entries.**
 - Exit: A complete job can be prepared for production without printing.
 
 ### Phase 5: Production Printing
 
-- Extend the active native printer-setup/discovery flow with preview, print settings, queue submission, retry, cancel, and history.
-- Require explicit owner confirmation before submission.
-- Record the chosen printer, settings, operator, timestamps, and result.
+- Extend the active native printer-setup/discovery flow with preview, capability-driven settings, retry, cancel, and OS completion reconciliation. Queue submission and history are active.
+- Require explicit owner confirmation before submission. **Active.**
+- Record the chosen printer, file, settings, operator, timestamps, and result. **Active.**
 - Exit: An approved job can be printed and traced from job order to OS queue result.
 
 ### Phase 6: Tracking and Reports

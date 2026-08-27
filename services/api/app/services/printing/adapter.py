@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -26,8 +27,27 @@ class DetectedPrinter:
     state: str  # idle | printing | offline | error | unknown
 
 
+@dataclass
+class PrintSubmission:
+    external_job_id: str | None = None
+
+
+class PrintSubmissionError(RuntimeError):
+    pass
+
+
 class PrinterAdapter:
     def list_printers(self) -> list[DetectedPrinter]:
+        raise NotImplementedError
+
+    def submit_file(
+        self,
+        printer_name: str,
+        file_path: Path,
+        copies: int,
+        color_mode: str,
+        media_size: str,
+    ) -> PrintSubmission:
         raise NotImplementedError
 
 
@@ -78,6 +98,38 @@ class CupsPrinterAdapter(PrinterAdapter):
                 )
             )
         return printers
+
+    def submit_file(
+        self,
+        printer_name: str,
+        file_path: Path,
+        copies: int,
+        color_mode: str,
+        media_size: str,
+    ) -> PrintSubmission:
+        command = [
+            "lp",
+            "-d",
+            printer_name,
+            "-n",
+            str(copies),
+            "-o",
+            f"media={media_size}",
+            "-o",
+            f"ColorModel={'Gray' if color_mode == 'grayscale' else 'RGB'}",
+            str(file_path),
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        except FileNotFoundError as error:
+            raise PrintSubmissionError("The operating-system print command is unavailable.") from error
+        except subprocess.TimeoutExpired as error:
+            raise PrintSubmissionError("The operating-system print queue did not respond in time.") from error
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or "The print queue rejected the file."
+            raise PrintSubmissionError(detail)
+        match = re.search(r"request id is (\S+)", result.stdout)
+        return PrintSubmission(external_job_id=match.group(1) if match else None)
 
 
 class WindowsPrinterAdapter(PrinterAdapter):
@@ -140,6 +192,48 @@ class WindowsPrinterAdapter(PrinterAdapter):
                 )
             )
         return printers
+
+    def submit_file(
+        self,
+        printer_name: str,
+        file_path: Path,
+        copies: int,
+        color_mode: str,
+        media_size: str,
+    ) -> PrintSubmission:
+        del color_mode, media_size  # Applied by the Windows driver/default print profile.
+        script_path = Path(__file__).with_name("windows_print.ps1")
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script_path),
+            "-FilePath",
+            str(file_path),
+            "-PrinterName",
+            printer_name,
+            "-Copies",
+            str(copies),
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=max(30, copies * 30),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except FileNotFoundError as error:
+            raise PrintSubmissionError("Windows PowerShell is unavailable.") from error
+        except subprocess.TimeoutExpired as error:
+            raise PrintSubmissionError("Windows did not accept the print request in time.") from error
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or "Windows rejected the print request."
+            raise PrintSubmissionError(detail)
+        return PrintSubmission()
 
 
 def get_printer_adapter(platform_name: str | None = None) -> PrinterAdapter:

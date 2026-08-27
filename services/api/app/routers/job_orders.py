@@ -22,10 +22,16 @@ from ..db.models import (
     InventoryMovementKind,
     JobFile,
     JobOrder,
+    JobOrderStatus,
     JobOrderItem,
     JobOrderMaterialPlan,
+    Payment,
+    Printer,
+    PrintJob,
+    PrintResult,
     Product,
     ProductVariant,
+    StatusEvent,
 )
 from ..db.session import get_db
 from ..schemas.inventory import InventoryMovementRead
@@ -37,7 +43,16 @@ from ..modules.document_analyzer.utils.file_detection import (
     UnsafeArchiveError,
     UnsupportedFileTypeError,
 )
-from ..schemas.job_orders import AnalyzedJobOrderCreate, JobOrderCreate, JobOrderMaterialUsageCreate, JobOrderRead
+from ..schemas.job_orders import (
+    AnalyzedJobOrderCreate,
+    JobOrderCreate,
+    JobOrderMaterialUsageCreate,
+    JobOrderRead,
+    JobOrderTransitionCreate,
+    PaymentCreate,
+    PrintSubmissionCreate,
+)
+from ..services.printing.adapter import PrintSubmissionError, get_printer_adapter
 from ..services.product_pricing import price_per_page_for_material, reference_price_per_page
 
 router = APIRouter(prefix="/job-orders", tags=["job-orders"], dependencies=[Depends(require_token)])
@@ -66,6 +81,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "product_id": item.product_id,
                 "product_name": item.product.name,
                 "service_name": item.product.service.name,
+                "print_type": item.product.print_type,
                 "variant_label": item.variant_label,
                 "pages_per_copy": item.pages_per_copy,
                 "copies": item.copies,
@@ -81,6 +97,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                         "quantity_on_hand": plan.inventory_item.quantity_on_hand,
                         "planned_quantity": plan.planned_quantity,
                         "consumed_quantity": plan.consumed_quantity,
+                        "paper_size": plan.inventory_item.paper_size,
                     }
                     for plan in item.material_plans
                 ],
@@ -96,6 +113,44 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "uploaded_at": file.uploaded_at,
             }
             for file in job_order.files
+        ],
+        payments=[
+            {
+                "id": payment.id,
+                "amount": payment.amount,
+                "method": payment.method,
+                "verified": payment.verified,
+                "recorded_at": payment.recorded_at,
+            }
+            for payment in sorted(job_order.payments, key=lambda item: item.recorded_at, reverse=True)
+        ],
+        print_attempts=[
+            {
+                "id": attempt.id,
+                "printer_id": attempt.printer_id,
+                "printer_name": attempt.printer.display_name,
+                "job_file_id": attempt.job_file_id,
+                "filename": attempt.job_file.original_filename if attempt.job_file else None,
+                "copies": attempt.copies,
+                "color_mode": attempt.color_mode,
+                "media_size": attempt.media_size,
+                "submitted_at": attempt.submitted_at,
+                "result": attempt.result,
+                "operator": attempt.operator,
+                "external_job_id": attempt.external_job_id,
+                "error_message": attempt.error_message,
+            }
+            for attempt in sorted(job_order.print_jobs, key=lambda item: item.submitted_at, reverse=True)
+        ],
+        status_events=[
+            {
+                "id": event.id,
+                "from_status": event.from_status,
+                "to_status": event.to_status,
+                "note": event.note,
+                "occurred_at": event.occurred_at,
+            }
+            for event in sorted(job_order.status_events, key=lambda item: item.occurred_at, reverse=True)
         ],
         created_at=job_order.created_at,
         updated_at=job_order.updated_at,
@@ -113,6 +168,20 @@ def get_job_order(job_order_id: str, db: Session = Depends(get_db)) -> JobOrderR
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
     return _to_read(job_order)
+
+
+def _record_status(job_order: JobOrder, to_status: JobOrderStatus, note: str) -> None:
+    from_status = job_order.status
+    if from_status == to_status:
+        return
+    job_order.status = to_status
+    job_order.status_events.append(
+        StatusEvent(
+            from_status=from_status.value if from_status else None,
+            to_status=to_status.value,
+            note=note,
+        )
+    )
 
 
 @router.get("/{job_order_id}/files/{file_id}")
@@ -228,6 +297,8 @@ async def create_analyzed_job_order(
         job_order.suggested_total = suggested_total
         job_order.price_overridden = payload.price_mode == "custom"
         job_order.total = final_total
+        if final_total == 0:
+            _record_status(job_order, JobOrderStatus.paid, "No payment required; job marked paid automatically.")
         billable_quantity = max(analysis.page_count * payload.copies, 1)
         job_order.items[0].unit_price = round(final_total / billable_quantity, 2)
         job_order.items[0].line_total = final_total
@@ -328,6 +399,7 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
         customer_id=payload.customer_id,
         due_date=payload.due_date,
         total=0,
+        status=JobOrderStatus.pending_payment,
         notes=payload.notes.strip() if payload.notes else None,
     )
     for item_payload in payload.items:
@@ -381,7 +453,139 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
         ]
         job_order.items.append(item)
         job_order.total = round(job_order.total + line_total, 2)
+    job_order.status_events.append(
+        StatusEvent(from_status=None, to_status=job_order.status.value, note="Job order created.")
+    )
     db.add(job_order)
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.post("/{job_order_id}/payments", response_model=JobOrderRead, status_code=201)
+def record_payment(
+    job_order_id: str,
+    payload: PaymentCreate,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    if not job_order:
+        raise HTTPException(status_code=404, detail="Job order not found.")
+    if job_order.status != JobOrderStatus.pending_payment:
+        raise HTTPException(status_code=409, detail="Payments can only be recorded while the job is pending payment.")
+    verified_total = sum(payment.amount for payment in job_order.payments if payment.verified)
+    outstanding = round(max(job_order.total - verified_total, 0), 2)
+    if payload.amount > outstanding + 0.001:
+        raise HTTPException(status_code=422, detail=f"Payment exceeds the outstanding balance of ₱{outstanding:,.2f}.")
+
+    job_order.payments.append(Payment(amount=round(payload.amount, 2), method=payload.method, verified=True))
+    if round(verified_total + payload.amount, 2) >= round(job_order.total, 2):
+        _record_status(job_order, JobOrderStatus.paid, "Full payment recorded and verified by the owner.")
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.post("/{job_order_id}/transitions", response_model=JobOrderRead)
+def transition_job_order(
+    job_order_id: str,
+    payload: JobOrderTransitionCreate,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    if not job_order:
+        raise HTTPException(status_code=404, detail="Job order not found.")
+    target = JobOrderStatus(payload.to_status)
+    allowed = {
+        JobOrderStatus.paid: JobOrderStatus.queued,
+        JobOrderStatus.printing: JobOrderStatus.quality_check,
+        JobOrderStatus.quality_check: JobOrderStatus.ready,
+        JobOrderStatus.ready: JobOrderStatus.completed,
+    }
+    if allowed.get(job_order.status) != target:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{job_order.status.value.replace('_', ' ').title()} cannot move directly to {target.value.replace('_', ' ').title()}.",
+        )
+    if target == JobOrderStatus.queued and not any(file.kind == "print_ready" for file in job_order.files):
+        raise HTTPException(status_code=422, detail="Attach a print-ready file before queueing this job.")
+
+    default_notes = {
+        JobOrderStatus.queued: "Owner queued the paid job for printing.",
+        JobOrderStatus.quality_check: "Printing finished; owner started quality review.",
+        JobOrderStatus.ready: "Quality check passed; job is ready.",
+        JobOrderStatus.completed: "Owner completed the job order.",
+    }
+    _record_status(job_order, target, payload.note.strip() if payload.note else default_notes[target])
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.post("/{job_order_id}/print-attempts", response_model=JobOrderRead, status_code=201)
+async def submit_print_attempt(
+    job_order_id: str,
+    payload: PrintSubmissionCreate,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    if not job_order:
+        raise HTTPException(status_code=404, detail="Job order not found.")
+    if job_order.status != JobOrderStatus.queued:
+        raise HTTPException(status_code=409, detail="Queue the paid job before submitting it to a printer.")
+    printer = db.get(Printer, payload.printer_id)
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found.")
+    if printer.last_seen_state in {"offline", "error"}:
+        raise HTTPException(status_code=409, detail=f"{printer.display_name} is currently {printer.last_seen_state}.")
+    job_file = db.get(JobFile, payload.job_file_id)
+    if not job_file or job_file.job_order_id != job_order.id or job_file.kind != "print_ready":
+        raise HTTPException(status_code=404, detail="Print-ready job file not found.")
+
+    files_root = (settings.resolved_data_dir / "files").resolve()
+    stored_path = (settings.resolved_data_dir / job_file.stored_path).resolve()
+    if files_root not in stored_path.parents or not stored_path.is_file():
+        raise HTTPException(status_code=404, detail="The staged print file is unavailable.")
+    owner = db.query(BusinessProfile).first()
+    attempt = PrintJob(
+        job_order_id=job_order.id,
+        printer_id=printer.id,
+        job_file_id=job_file.id,
+        copies=payload.copies,
+        color_mode=payload.color_mode,
+        media_size=payload.media_size,
+        result=PrintResult.pending,
+        operator=owner.owner_name if owner else "Owner",
+    )
+    db.add(attempt)
+    db.commit()
+    db.refresh(attempt)
+
+    adapter = get_printer_adapter(settings.resolved_printer_platform)
+    try:
+        submission = await run_in_threadpool(
+            adapter.submit_file,
+            printer.system_name,
+            stored_path,
+            payload.copies,
+            payload.color_mode,
+            payload.media_size,
+        )
+    except PrintSubmissionError as error:
+        attempt.result = PrintResult.failed
+        attempt.error_message = str(error)[:1000]
+        db.commit()
+        raise HTTPException(status_code=502, detail=f"Print submission failed: {error}") from error
+    except Exception as error:
+        attempt.result = PrintResult.failed
+        attempt.error_message = "Unexpected operating-system print failure."
+        db.commit()
+        raise HTTPException(status_code=502, detail="The operating system could not submit the print job.") from error
+
+    attempt.result = PrintResult.succeeded
+    attempt.external_job_id = submission.external_job_id
+    job_order.assigned_printer_id = printer.id
+    _record_status(job_order, JobOrderStatus.printing, f"Submitted {job_file.original_filename} to {printer.display_name}.")
     db.commit()
     db.refresh(job_order)
     return _to_read(job_order)

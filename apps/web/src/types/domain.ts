@@ -158,6 +158,9 @@ export interface JobOrder {
   assignedPrinterId?: string | null;
   items: JobOrderItem[];
   files: JobFile[];
+  payments: Payment[];
+  printAttempts: PrintJob[];
+  statusEvents: StatusEvent[];
   createdAt: string;
   updatedAt: string;
 }
@@ -180,6 +183,7 @@ export interface JobOrderMaterialPlan {
   quantityOnHand: number;
   plannedQuantity: number;
   consumedQuantity: number;
+  paperSize?: InventoryPaperSize | null;
 }
 
 export interface JobOrderItem {
@@ -187,6 +191,7 @@ export interface JobOrderItem {
   productId: string;
   productName: string;
   serviceName: string;
+  printType: ProductPrintType;
   variantLabel?: string | null;
   pagesPerCopy: number;
   copies: number;
@@ -216,11 +221,25 @@ export interface PrintJob {
   id: string;
   jobOrderId: string;
   printerId: string;
+  printerName: string;
+  jobFileId?: string | null;
+  filename?: string | null;
   copies: number;
   colorMode: "color" | "grayscale";
   mediaSize: string;
   submittedAt: string;
   result: "pending" | "succeeded" | "failed" | "cancelled";
+  operator?: string | null;
+  externalJobId?: string | null;
+  errorMessage?: string | null;
+}
+
+export interface StatusEvent {
+  id: string;
+  fromStatus?: string | null;
+  toStatus: string;
+  note?: string | null;
+  occurredAt: string;
 }
 
 export interface BusinessProfile {

@@ -4,6 +4,11 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
 });
 
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
 export function formatCurrency(amount: number, currency = "PHP"): string {
   return new Intl.NumberFormat("en-PH", {
     style: "currency",
@@ -15,6 +20,11 @@ export function formatCurrency(amount: number, currency = "PHP"): string {
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   return dateFormatter.format(new Date(iso));
+}
+
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return dateTimeFormatter.format(new Date(iso));
 }
 
 export function formatProductPrintType(printType: ProductPrintType): string {

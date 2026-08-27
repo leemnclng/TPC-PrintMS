@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from ..db.models import JobOrderStatus, PrintSides
+from ..db.models import InventoryPaperSize, JobOrderStatus, PaymentMethod, PrintResult, PrintSides, ProductPrintType
 from .common import CamelModel
 
 
@@ -50,6 +50,7 @@ class JobOrderMaterialPlanRead(CamelModel):
     quantity_on_hand: float
     planned_quantity: float
     consumed_quantity: float
+    paper_size: InventoryPaperSize | None
 
 
 class JobOrderItemRead(CamelModel):
@@ -57,6 +58,7 @@ class JobOrderItemRead(CamelModel):
     product_id: str
     product_name: str
     service_name: str
+    print_type: ProductPrintType
     variant_label: str | None
     pages_per_copy: int
     copies: int
@@ -72,6 +74,56 @@ class JobFileRead(CamelModel):
     kind: str
     size_bytes: int
     uploaded_at: datetime
+
+
+class PaymentCreate(CamelModel):
+    amount: float = Field(gt=0)
+    method: PaymentMethod = PaymentMethod.cash
+
+
+class PaymentRead(CamelModel):
+    id: str
+    amount: float
+    method: PaymentMethod
+    verified: bool
+    recorded_at: datetime
+
+
+class JobOrderTransitionCreate(CamelModel):
+    to_status: Literal["queued", "quality_check", "ready", "completed"]
+    note: str | None = None
+
+
+class PrintSubmissionCreate(CamelModel):
+    printer_id: str
+    job_file_id: str
+    copies: int = Field(ge=1, le=99)
+    color_mode: Literal["color", "grayscale"]
+    media_size: Literal["A4", "Letter", "Legal"]
+
+
+class PrintAttemptRead(CamelModel):
+    id: str
+    printer_id: str
+    printer_name: str
+    job_file_id: str | None
+    filename: str | None
+    copies: int
+    color_mode: str
+    media_size: str
+    submitted_at: datetime
+    result: PrintResult
+    operator: str | None
+    external_job_id: str | None
+    error_message: str | None
+
+
+class StatusEventRead(CamelModel):
+    id: str
+    from_status: str | None
+    to_status: str
+    note: str | None
+    occurred_at: datetime
 
 
 class JobOrderMaterialUsageEntry(CamelModel):
@@ -100,5 +152,8 @@ class JobOrderRead(CamelModel):
     assigned_printer_id: str | None
     items: list[JobOrderItemRead] = Field(default_factory=list)
     files: list[JobFileRead] = Field(default_factory=list)
+    payments: list[PaymentRead] = Field(default_factory=list)
+    print_attempts: list[PrintAttemptRead] = Field(default_factory=list)
+    status_events: list[StatusEventRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

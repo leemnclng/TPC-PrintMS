@@ -9,9 +9,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
+from app.db.models import Printer
 from app.db.session import get_db
 from app.modules.document_analyzer.api import router as document_analyzer_router
 from app.routers import customers, inventory, job_orders, products, services, variants
+from app.services.printing.adapter import PrintSubmission, PrintSubmissionError
 
 
 def test_job_order_creation_and_material_usage(tmp_path) -> None:
@@ -322,6 +324,113 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     )
     assert download.status_code == 200
     assert download.content == document
+
+    partial_payment = client.post(
+        f"/job-orders/{order['id']}/payments",
+        headers=headers,
+        json={"amount": 10, "method": "cash"},
+    )
+    assert partial_payment.status_code == 201
+    assert partial_payment.json()["status"] == "pending_payment"
+    assert partial_payment.json()["amountPaid"] == 10
+    overpayment = client.post(
+        f"/job-orders/{order['id']}/payments",
+        headers=headers,
+        json={"amount": 16, "method": "cash"},
+    )
+    assert overpayment.status_code == 422
+    paid = client.post(
+        f"/job-orders/{order['id']}/payments",
+        headers=headers,
+        json={"amount": 15, "method": "online"},
+    )
+    assert paid.status_code == 201
+    assert paid.json()["status"] == "paid"
+    assert paid.json()["amountPaid"] == 25
+
+    queued = client.post(
+        f"/job-orders/{order['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "queued"},
+    )
+    assert queued.status_code == 200
+    assert queued.json()["status"] == "queued"
+
+    with test_session() as db:
+        printer = Printer(
+            system_name="Canon G4770 series",
+            display_name="Canon G4770 series",
+            is_default=True,
+            last_seen_state="idle",
+        )
+        db.add(printer)
+        db.commit()
+        db.refresh(printer)
+        printer_id = printer.id
+
+    class StubPrintAdapter:
+        fail = True
+
+        def submit_file(self, *_args):
+            if self.fail:
+                raise PrintSubmissionError("Test queue rejected the first attempt.")
+            return PrintSubmission(external_job_id="Canon-42")
+
+    stub_adapter = StubPrintAdapter()
+    monkeypatch.setattr(job_orders, "get_printer_adapter", lambda _platform: stub_adapter)
+    print_payload = {
+        "printerId": printer_id,
+        "jobFileId": order["files"][0]["id"],
+        "copies": 2,
+        "colorMode": "color",
+        "mediaSize": "A4",
+    }
+    failed_print = client.post(
+        f"/job-orders/{order['id']}/print-attempts",
+        headers=headers,
+        json=print_payload,
+    )
+    assert failed_print.status_code == 502
+    after_failure = client.get(f"/job-orders/{order['id']}", headers=headers).json()
+    assert after_failure["status"] == "queued"
+    assert after_failure["printAttempts"][0]["result"] == "failed"
+
+    stub_adapter.fail = False
+    printed = client.post(
+        f"/job-orders/{order['id']}/print-attempts",
+        headers=headers,
+        json=print_payload,
+    )
+    assert printed.status_code == 201
+    assert printed.json()["status"] == "printing"
+    assert printed.json()["assignedPrinterId"] == printer_id
+    assert printed.json()["printAttempts"][0]["result"] == "succeeded"
+    assert printed.json()["printAttempts"][0]["externalJobId"] == "Canon-42"
+
+    for current, target in (
+        ("printing", "quality_check"),
+        ("quality_check", "ready"),
+        ("ready", "completed"),
+    ):
+        transition = client.post(
+            f"/job-orders/{order['id']}/transitions",
+            headers=headers,
+            json={"toStatus": target},
+        )
+        assert transition.status_code == 200
+        assert transition.json()["status"] == target
+        assert transition.json()["statusEvents"][0]["fromStatus"] == current
+
+    completed = client.get(f"/job-orders/{order['id']}", headers=headers).json()
+    assert [event["toStatus"] for event in completed["statusEvents"]] == [
+        "completed",
+        "ready",
+        "quality_check",
+        "printing",
+        "queued",
+        "paid",
+        "pending_payment",
+    ]
 
     suggested_response = client.post(
         "/job-orders/from-analysis",

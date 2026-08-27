@@ -362,6 +362,12 @@ Track product and technical decisions that affect future development.
 - Impact:
 ## 2026-08-28
 
+### Gate Printing Behind Verified Payment and Explicit Production Transitions
+
+- Decision: Use the owner-controlled lifecycle Pending Payment → Paid → Queued → Printing → Quality Check → Ready → Completed. Full verified payment unlocks queueing; a successful OS queue handoff unlocks Printing; physical completion and quality outcomes remain explicit owner confirmations.
+- Rationale: Financial approval, OS submission, and physical print completion are different facts and must not be inferred from one another. Failed OS attempts need an audit record without incorrectly advancing production.
+- Impact: Job workspaces record payments and expose only the valid next action. Print Center submits staged files through the selected OS queue and retains successful/failed attempts. Windows delegates to the registered application's PrintTo handler; CUPS uses `lp`. Advanced capability discovery and OS completion polling remain future work.
+
 ### Persist Only Owner-Confirmed Analyzed Transactions
 
 - Decision: New transaction analysis is temporary. The system creates the job order and retains its uploaded file only when the owner explicitly proceeds after choosing the engine recommendation or a custom final price.

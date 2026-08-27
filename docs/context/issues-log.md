@@ -7,10 +7,9 @@ Track known issues, blockers, risks, and follow-up work.
 | Date | Area | Issue | Status | Owner/Notes |
 | --- | --- | --- | --- | --- |
 | 2026-08-15 | Product | User roles and permissions are not yet defined. | Open | Clarify owner/admin, sales, cashier, production staff, and customer access. |
-| 2026-08-15 | Workflow | Canonical job-order statuses and transition rules are not yet defined. | Open | Required before implementing tracking and notifications. |
 | 2026-08-15 | Integrations | Messenger, Gmail, form intake, and online-payment integration levels are undecided. | Open | Initial implementation can support manual entry and payment verification. |
 | 2026-08-15 | Documents | File retention, conversion/export, and backup behavior remain incomplete. | Open | Confirmed analyzed transactions now retain the approved upload under the configured managed data directory and attach it to the job; standalone/cancelled analysis remains temporary. Define cleanup, print-ready conversion, and backup/restore coverage. |
-| 2026-08-15 | Printing | Required printer controls and cross-platform capability differences are not yet defined. | Open | Confirm media, quality, borderless mode, colour, copies, and expected queue status detail. |
+| 2026-08-15 | Printing | Advanced printer capabilities and cross-platform completion/cancellation behavior remain undefined. | Open | Printer, file, copies, media, and colour are active. Define quality, borderless mode, capability discovery, OS completion polling, and cancellation semantics. |
 | 2026-08-15 | Deployment | Supported Windows and macOS versions are not yet defined. | Open | Required for packaging, hardware validation, and release support. |
 | 2026-08-15 | Backend | Bundled FastAPI lifecycle and local communication need validation. | Open | Test loopback authentication, port allocation, startup recovery, shutdown, logging, and platform-specific executable packaging. |
 | 2026-08-15 | UX | Exact dashboard metrics, report definitions, and page-level permissions are deferred. | Open | Initial pages will expose honest placeholders and shared workflow states until business rules and roles are confirmed. |
@@ -33,6 +32,7 @@ Track known issues, blockers, risks, and follow-up work.
 | 2026-08-27 | Pricing | Product-selected document analysis could return ₱0 because it priced detected page color instead of the product's configured print type and assigned paper. | Analyzer pricing now resolves through the selected product's active assigned paper rule and prices all pages using that product's print type, matching product and job-order pricing. |
 | 2026-08-27 | Quotation | The unused Quotations workspace duplicated the Document Analyzer's pricing role. | Removed Quotations from the renderer navigation/routes and related customer/overview/settings surfaces; legacy backend records remain intact for compatibility. |
 | 2026-08-27 | Printing | Windows printer discovery was an explicit unimplemented stub. | Implemented vendor-neutral Windows spooler discovery through the built-in `Win32_Printer` CIM provider, including default and queue-state mapping; no Canon SDK or `pywin32` dependency is required. |
+| 2026-08-28 | Workflow | Canonical job-order statuses and transition rules were not defined. | Adopted the guarded owner workflow Pending Payment → Paid → Queued → Printing → Quality Check → Ready → Completed. Full verified payment, print-ready files, and successful OS submission enforce the production gates. |
 
 ## Template
 

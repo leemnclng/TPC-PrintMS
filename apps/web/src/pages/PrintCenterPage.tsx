@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader/PageHeader";
 import { Card, CardHeader } from "../components/Card/Card";
@@ -11,7 +11,7 @@ import { ErrorState } from "../components/ErrorState/ErrorState";
 import { useResource } from "../hooks/useResource";
 import { api, ApiError } from "../lib/apiClient";
 import { formatCurrency, formatDate, formatFileSize } from "../lib/format";
-import { printerStateMeta } from "../types/statusMeta";
+import { jobOrderStatusMeta, printerStateMeta } from "../types/statusMeta";
 import type { JobOrder, Printer, PrinterPlatformInfo } from "../types/domain";
 import "./PrintCenterPage.css";
 
@@ -38,6 +38,13 @@ export function PrintCenterPage() {
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [openingSettings, setOpeningSettings] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [selectedPrinterId, setSelectedPrinterId] = useState("");
+  const [selectedFileId, setSelectedFileId] = useState("");
+  const [copies, setCopies] = useState(1);
+  const [colorMode, setColorMode] = useState<"color" | "grayscale">("color");
+  const [mediaSize, setMediaSize] = useState<"A4" | "Letter" | "Legal">("A4");
+  const [submittingPrint, setSubmittingPrint] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
 
   const nativePlatform = window.paperClub?.platform;
   const resolvedPlatform = platformInfo?.platform
@@ -61,6 +68,48 @@ export function PrintCenterPage() {
       : resolvedPlatform === "linux"
         ? "LINUX QUEUE"
         : "OS QUEUE";
+
+  useEffect(() => {
+    if (!stagedOrder) return;
+    const item = stagedOrder.items[0];
+    const printFile = stagedOrder.files.find((file) => file.kind === "print_ready");
+    const paper = item?.materials.find((material) => material.paperSize)?.paperSize;
+    setSelectedFileId(printFile?.id ?? "");
+    setCopies(item?.copies ?? 1);
+    setColorMode(item?.printType === "black_and_white" ? "grayscale" : "color");
+    setMediaSize(paper ?? "A4");
+    setSubmissionError(null);
+  }, [stagedOrder]);
+
+  useEffect(() => {
+    if (!data?.length || selectedPrinterId) return;
+    const available = data.find((printer) => printer.isDefault && !["offline", "error"].includes(printer.lastSeenState))
+      ?? data.find((printer) => !["offline", "error"].includes(printer.lastSeenState));
+    setSelectedPrinterId(available?.id ?? "");
+  }, [data, selectedPrinterId]);
+
+  async function handlePrintSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!stagedOrder || stagedOrder.status !== "queued" || !selectedPrinterId || !selectedFileId || submittingPrint) return;
+    setSubmittingPrint(true);
+    setSubmissionError(null);
+    try {
+      await api.post<JobOrder>(`/job-orders/${stagedOrder.id}/print-attempts`, {
+        printerId: selectedPrinterId,
+        jobFileId: selectedFileId,
+        copies,
+        colorMode,
+        mediaSize,
+      });
+      reloadStagedOrder();
+      reload();
+    } catch (caught) {
+      setSubmissionError(caught instanceof ApiError ? caught.message : "The print job could not be submitted.");
+      reloadStagedOrder();
+    } finally {
+      setSubmittingPrint(false);
+    }
+  }
 
   async function handleDiscover() {
     setDiscovering(true);
@@ -198,8 +247,9 @@ export function PrintCenterPage() {
 
       {state === "ready" && data && data.length > 0 && (
         <div className="printer-grid">
-          {data.map((printer) => (
-            <Card key={printer.id}>
+          {data.map((printer) => {
+            const unavailable = ["offline", "error"].includes(printer.lastSeenState);
+            const card = <Card className={selectedPrinterId === printer.id ? "is-selected" : undefined}>
               <CardHeader title={printer.displayName} meta={printer.isDefault ? "Default" : undefined} />
               <StatusPill
                 label={printerStateMeta[printer.lastSeenState].label}
@@ -207,9 +257,48 @@ export function PrintCenterPage() {
               />
               <p className="printer-card__queue numeric">{queueLabel} · {printer.systemName}</p>
               <p className="printer-card__meta">Last seen {formatDate(printer.lastSeenAt)}</p>
-            </Card>
-          ))}
+              {stagedOrder?.status === "queued" && <strong className="printer-card__selection">{unavailable ? "Unavailable" : selectedPrinterId === printer.id ? "Selected" : "Select printer"}</strong>}
+            </Card>;
+            return stagedOrder?.status === "queued" ? (
+              <label className={`printer-choice${unavailable ? " is-disabled" : ""}`} key={printer.id}>
+                <input type="radio" name="printer" value={printer.id} checked={selectedPrinterId === printer.id} disabled={unavailable} onChange={() => setSelectedPrinterId(printer.id)} />
+                {card}
+              </label>
+            ) : <div key={printer.id}>{card}</div>;
+          })}
         </div>
+      )}
+
+      {stagedOrder && (
+        <section className="print-submission" aria-labelledby="print-submission-title">
+          <header>
+            <div><span className="numeric">OS PRINT SUBMISSION</span><h2 id="print-submission-title">Send {stagedOrder.number} to the selected queue</h2></div>
+            <StatusPill label={jobOrderStatusMeta[stagedOrder.status].label} tone={jobOrderStatusMeta[stagedOrder.status].tone} />
+          </header>
+          {stagedOrder.status === "queued" ? (
+            <form onSubmit={handlePrintSubmit}>
+              <div className="print-submission__fields">
+                <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{stagedOrder.files.filter((file) => file.kind === "print_ready").map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
+                <label className="form-field"><span>Copies</span><input type="number" min="1" max="99" value={copies} onChange={(event) => setCopies(Number(event.target.value))} /></label>
+                <label className="form-field"><span>Color mode</span><select value={colorMode} onChange={(event) => setColorMode(event.target.value as "color" | "grayscale")}><option value="color">Color</option><option value="grayscale">Grayscale</option></select></label>
+                <label className="form-field"><span>Paper size</span><select value={mediaSize} onChange={(event) => setMediaSize(event.target.value as "A4" | "Letter" | "Legal")}><option value="A4">A4</option><option value="Letter">Letter</option><option value="Legal">Legal</option></select></label>
+              </div>
+              <div className="print-submission__confirm">
+                <p><strong>This immediately sends the staged file to the operating-system queue.</strong><span>Windows uses the selected printer driver's profile; CUPS receives the selected media and color mode directly.</span></p>
+                <Button variant="primary" type="submit" loading={submittingPrint} disabled={!selectedPrinterId || !selectedFileId || copies < 1 || copies > 99}>Submit to printer</Button>
+              </div>
+              {submissionError && <p className="print-submission__error" role="alert">{submissionError}</p>}
+            </form>
+          ) : (
+            <div className="print-submission__gate">
+              <div>
+                <strong>{stagedOrder.status === "pending_payment" ? "Payment is required before printing." : stagedOrder.status === "paid" ? "Queue this paid job before printing." : stagedOrder.status === "printing" ? "The file was submitted. Return to the job when physical printing finishes." : "This job has already moved beyond print submission."}</strong>
+                <span>Production status changes remain deliberate owner confirmations.</span>
+              </div>
+              <LinkButton to={`/job-orders/${stagedOrder.id}`} variant="primary">Continue in job order</LinkButton>
+            </div>
+          )}
+        </section>
       )}
 
       <div className="print-center-columns">
@@ -230,10 +319,16 @@ export function PrintCenterPage() {
         </Card>
         <Card>
           <CardHeader title="Print history" />
-          <EmptyState
-            title="No print attempts recorded"
-            description="Printer connection is now active; direct job submission and audited results are the next Print Center step."
-          />
+          {stagedOrder?.printAttempts.length ? (
+            <div className="print-history-list">
+              {stagedOrder.printAttempts.map((attempt) => (
+                <div key={attempt.id}>
+                  <div><strong>{attempt.printerName}</strong><span>{attempt.filename || "Print-ready file"} · {attempt.copies} {attempt.copies === 1 ? "copy" : "copies"}</span><small>{attempt.errorMessage || `Submitted ${formatDate(attempt.submittedAt)}`}</small></div>
+                  <StatusPill label={attempt.result === "succeeded" ? "Submitted" : attempt.result} tone={attempt.result === "succeeded" ? "success" : attempt.result === "failed" ? "danger" : "info"} />
+                </div>
+              ))}
+            </div>
+          ) : <EmptyState title="No print attempts recorded" description="Queue a paid job and submit its staged file to record the first attempt." />}
         </Card>
       </div>
     </>

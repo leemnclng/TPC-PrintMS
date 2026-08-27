@@ -38,6 +38,36 @@ def test_windows_adapter_reads_vendor_neutral_spooler_queues(monkeypatch) -> Non
     assert detected[0].is_default is True
 
 
+def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypatch) -> None:
+    document = tmp_path / "approved file.pdf"
+    document.write_bytes(b"%PDF-test")
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    submission = WindowsPrinterAdapter().submit_file(
+        "Canon G4770 series",
+        document,
+        copies=2,
+        color_mode="color",
+        media_size="A4",
+    )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[0] == "powershell.exe"
+    assert "-File" in command
+    assert str(document) in command
+    assert "Canon G4770 series" in command
+    assert command[-1] == "2"
+    assert submission.external_job_id is None
+
+
 def test_discovery_reconciles_connected_and_removed_queues(tmp_path, monkeypatch) -> None:
     engine = create_engine(
         f"sqlite:///{tmp_path / 'printers.db'}",

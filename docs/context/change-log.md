@@ -149,6 +149,10 @@ Track notable app changes by date.
 - Removed:
 ## 2026-08-28
 
+- Added: Owners can record verified partial or full payments; a fully paid job automatically advances to Paid.
+- Added: Job orders now enforce Paid → Queued → Printing → Quality Check → Ready → Completed with one clear next action and a durable status timeline.
+- Added: Print Center now selects an available printer, staged file, copies, color mode, and paper size before explicit operating-system submission.
+- Added: Successful and failed print attempts retain printer, file, settings, operator, timestamps, result, OS job identifier when available, and failure detail.
 - Added: Separate `PRINT_MS_DEVELOPMENT_DATABASE_PATH`, `PRINT_MS_TEST_DATABASE_PATH`, and `PRINT_MS_PRODUCTION_DATABASE_PATH` configuration with distinct defaults.
 - Added: Settings now shows all environment database paths, their source, and which stage is active; changing `PRINT_MS_STAGE` takes effect after restart.
 - Changed: Quick Actions now appears directly below the Overview heading, with New Job Order highlighted as the primary counter workflow.

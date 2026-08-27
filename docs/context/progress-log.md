@@ -317,3 +317,8 @@ Chronological notes about app progress.
 - Summary: Added independently configurable development, test, and production SQLite locations.
 - Completed: Added three stage-specific `.env` variables with isolated defaults, retained the legacy active-stage override, exposed every resolved path/source through health diagnostics, and added a responsive Runtime Environments matrix to Settings.
 - Verified: Configuration tests cover explicit stage paths, compatibility override, and isolated defaults; the full API and renderer verification suites pass.
+## 2026-08-28 (payment-to-completion production workflow)
+
+- Summary: Completed the operational path from Pending Payment through printed and completed job order.
+- Completed: Added verified partial/full payments, guarded status transitions, a responsive production stepper and timeline, vendor-neutral confirmed OS submission, printer/file/settings selection, durable success/failure attempts, and manual quality-check/ready/completed actions.
+- Verified: Full fresh Alembic migration, 16 API tests including failed/retried print submission and every lifecycle gate, renderer/desktop typechecks, renderer lint, web production build, and `git diff --check` pass. Physical Canon validation remains open on the Windows workstation.
