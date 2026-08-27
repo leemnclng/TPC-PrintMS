@@ -1,5 +1,9 @@
+import json
+from io import BytesIO
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -219,6 +223,125 @@ def test_job_order_creation_and_material_usage(tmp_path) -> None:
     )
     assert insufficient_response.status_code == 409
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 75
+
+
+def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tmp_path, monkeypatch) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'analyzed-job.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "app-data")
+
+    def override_db():
+        db = test_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(services.router)
+    app.include_router(products.router)
+    app.include_router(inventory.router)
+    app.include_router(variants.router)
+    app.include_router(document_analyzer_router)
+    app.include_router(job_orders.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    paper = _create_material(client, headers, "A4 transaction paper", "sheet", 100, paper_size="A4")
+    rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
+    color_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored")
+    assert client.put(
+        "/document-analyzer/pricing-rules",
+        headers=headers,
+        json={"rules": [{"id": color_rule["id"], "pricePerPage": 5, "isActive": True}]},
+    ).status_code == 200
+    service = client.post(
+        "/services",
+        headers=headers,
+        json={"name": "Transaction printing", "isActive": True},
+    ).json()
+    product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "A4 color document",
+            "printType": "colored",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}],
+        },
+    ).json()
+    image_buffer = BytesIO()
+    Image.new("RGB", (794, 1123), (190, 30, 30)).save(image_buffer, format="PNG", dpi=(96, 96))
+    document = image_buffer.getvalue()
+
+    analysis_response = client.post(
+        "/document-analyzer/analyze",
+        headers=headers,
+        data={"product_id": product["id"]},
+        files={"file": ("customer-a4.png", document, "image/png")},
+    )
+    assert analysis_response.status_code == 200
+    assert client.get("/job-orders", headers=headers).json() == []
+    assert not (tmp_path / "app-data" / "files").exists()
+
+    transaction = {
+        "productId": product["id"],
+        "copies": 2,
+        "priceMode": "custom",
+        "customPrice": 25,
+        "otherMaterials": [],
+    }
+    response = client.post(
+        "/job-orders/from-analysis",
+        headers=headers,
+        data={"transaction": json.dumps(transaction)},
+        files={"file": ("customer-a4.png", document, "image/png")},
+    )
+
+    assert response.status_code == 201
+    order = response.json()
+    assert order["total"] == 25
+    assert order["suggestedTotal"] > 0
+    assert order["priceOverridden"] is True
+    assert order["items"][0]["pagesPerCopy"] == 1
+    assert order["items"][0]["copies"] == 2
+    assert order["items"][0]["materials"][0]["plannedQuantity"] == 2
+    assert order["files"][0]["originalFilename"] == "customer-a4.png"
+    assert order["files"][0]["kind"] == "print_ready"
+
+    download = client.get(
+        f"/job-orders/{order['id']}/files/{order['files'][0]['id']}",
+        headers=headers,
+    )
+    assert download.status_code == 200
+    assert download.content == document
+
+    suggested_response = client.post(
+        "/job-orders/from-analysis",
+        headers=headers,
+        data={
+            "transaction": json.dumps(
+                {
+                    "productId": product["id"],
+                    "copies": 3,
+                    "priceMode": "suggested",
+                    "otherMaterials": [],
+                }
+            )
+        },
+        files={"file": ("second-a4.png", document, "image/png")},
+    )
+    assert suggested_response.status_code == 201
+    suggested_order = suggested_response.json()
+    assert suggested_order["total"] == suggested_order["suggestedTotal"]
+    assert suggested_order["priceOverridden"] is False
 
 
 def _create_material(

@@ -3,8 +3,6 @@ import { AppShell } from "./components/AppShell/AppShell";
 
 import { OverviewPage } from "./pages/OverviewPage";
 import { JobOrdersPage } from "./pages/JobOrdersPage";
-import { QuotationsPage } from "./pages/QuotationsPage";
-import { ProductionPage } from "./pages/ProductionPage";
 import { PrintCenterPage } from "./pages/PrintCenterPage";
 import { DocumentAnalyzerPage } from "./pages/DocumentAnalyzerPage";
 import { InventoryPage } from "./pages/inventory/InventoryPage";
@@ -15,7 +13,6 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ConfigurationPage } from "./pages/ConfigurationPage";
 
 import { JobOrderWorkspace } from "./pages/workspaces/JobOrderWorkspace";
-import { QuotationWorkspace } from "./pages/workspaces/QuotationWorkspace";
 import { ProductWorkspace } from "./pages/workspaces/ProductWorkspace";
 import { ServiceSettingsWorkspace } from "./pages/workspaces/ServiceSettingsWorkspace";
 import { VariantsWorkspace } from "./pages/workspaces/ServiceVariantsWorkspace";
@@ -31,10 +28,6 @@ export default function App() {
         <Route path="job-orders" element={<JobOrdersPage />} />
         <Route path="job-orders/:jobOrderId" element={<JobOrderWorkspace />} />
 
-        <Route path="quotations" element={<QuotationsPage />} />
-        <Route path="quotations/:quotationId" element={<QuotationWorkspace />} />
-
-        <Route path="production" element={<ProductionPage />} />
         <Route path="print-center" element={<PrintCenterPage />} />
         <Route path="document-analyzer" element={<DocumentAnalyzerPage />} />
         <Route path="inventory" element={<InventoryPage />} />

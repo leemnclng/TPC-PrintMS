@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.core.security import require_token
-from app.db.models import DocumentPricingRule, Product
+from app.db.models import DocumentPricingRule, Product, ProductVariant
 from app.db.session import get_db
 
 from .analyzers.base import InvalidDocumentError
@@ -30,17 +30,29 @@ analysis_service = AnalysisService()
 pricing_service = PricingService()
 
 
-@router.post("/analyze", response_model=AnalysisResponse)
+@router.post("/analyze", response_model=AnalysisResponse, response_model_exclude_none=True)
 async def analyze_document(
     file: UploadFile = File(...),
     product_id: str | None = Form(None),
+    variant_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ) -> AnalysisResponse:
     product: Product | None = None
+    variant: ProductVariant | None = None
     if product_id:
         product = db.get(Product, product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found.")
+    if variant_id:
+        if product is None:
+            raise HTTPException(status_code=422, detail="Select a product before selecting a variant.")
+        variant = (
+            db.query(ProductVariant)
+            .filter(ProductVariant.product_id == product.id, ProductVariant.variant_id == variant_id)
+            .first()
+        )
+        if variant is None:
+            raise HTTPException(status_code=404, detail="Variant is not assigned to the selected product.")
 
     filename = Path(file.filename or "document").name
     content_type = file.content_type or ""
@@ -63,8 +75,17 @@ async def analyze_document(
         raise HTTPException(status_code=422, detail=str(error)) from error
     return AnalysisResponse(
         analysis=analysis,
-        pricing=pricing_service.calculate(analysis, db, product),
-        pricing_context=PricingContext(product_id=product.id, product_name=product.name) if product else None,
+        pricing=pricing_service.calculate(analysis, db, product, variant),
+        pricing_context=(
+            PricingContext(
+                product_id=product.id,
+                product_name=product.name,
+                variant_id=variant.variant_id if variant else None,
+                variant_name=variant.label if variant else None,
+            )
+            if product
+            else None
+        ),
     )
 
 

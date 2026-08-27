@@ -1,16 +1,6 @@
-import type { JobOrderStatus, PrinterState, QuotationStatus } from "./domain";
+import type { JobOrderStatus, PrinterState } from "./domain";
 
 export type StatusTone = "neutral" | "warning" | "info" | "success" | "danger";
-
-export const quotationStatusMeta: Record<QuotationStatus, { label: string; tone: StatusTone }> = {
-  draft: { label: "Draft", tone: "neutral" },
-  pending_approval: { label: "Pending approval", tone: "warning" },
-  approved: { label: "Approved", tone: "info" },
-  sent: { label: "Sent", tone: "info" },
-  accepted: { label: "Accepted", tone: "success" },
-  rejected: { label: "Rejected", tone: "danger" },
-  expired: { label: "Expired", tone: "neutral" },
-};
 
 export const jobOrderStatusMeta: Record<JobOrderStatus, { label: string; tone: StatusTone }> = {
   pending_payment: { label: "Pending payment", tone: "warning" },

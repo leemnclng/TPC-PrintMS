@@ -10,7 +10,7 @@ from docx import Document
 
 from ..models.document_analysis import DocumentAnalysis, PageMargins
 from ..models.enums import DocumentFileType
-from ..utils.color_analysis import ImageColorMetrics, analyze_image_color
+from ..utils.color_analysis import ImageColorMetrics, analyze_image_color, estimate_text_ink_coverage
 from ..utils.image_processing import open_image
 from ..utils.page_geometry import classify_orientation, classify_paper_size, emu_to_mm
 from .base import DocumentAnalyzer, InvalidDocumentError, estimate_print_time
@@ -46,14 +46,20 @@ class DocxAnalyzer(DocumentAnalyzer):
             except Exception:
                 pass
 
-        colored_content = any(metric.is_colored for metric in image_metrics) or self._has_colored_text(document)
+        has_colored_text = self._has_colored_text(document)
+        colored_content = any(metric.is_colored for metric in image_metrics) or has_colored_text
         color_pages = page_count if colored_content else 0
         bw_pages = page_count - color_pages
         warnings = ["DOCX page and color counts use saved layout metadata and may differ after opening in another Word version."]
         if stored_page_count is None:
             warnings.append("No saved page count was present, so pagination was estimated from document length.")
         coverage = round(mean(metric.coverage_percent for metric in image_metrics), 1) if image_metrics else 0.0
-        ink = round(mean(metric.ink_coverage_percent for metric in image_metrics), 1) if image_metrics else 0.0
+        text_ink = estimate_text_ink_coverage(len(text), page_count)
+        image_ink = mean(metric.ink_coverage_percent for metric in image_metrics) if image_metrics else 0.0
+        image_color = mean(metric.color_coverage_percent for metric in image_metrics) if image_metrics else 0.0
+        ink = round(min(100.0, text_ink + image_ink), 1)
+        color_coverage = round(min(100.0, image_color + (text_ink if has_colored_text else 0.0)), 1)
+        warnings.append("Ink coverage is estimated from text density and embedded images because DOCX is not rendered.")
         return DocumentAnalysis(
             filename=filename,
             file_type=self.file_type,
@@ -71,6 +77,7 @@ class DocxAnalyzer(DocumentAnalyzer):
             image_count=image_count,
             contains_images=image_count > 0,
             image_coverage_percent=coverage,
+            estimated_color_coverage_percent=color_coverage,
             estimated_ink_coverage_percent=ink,
             table_count=len(document.tables),
             graphic_count=image_count,

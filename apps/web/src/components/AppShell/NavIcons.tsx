@@ -38,25 +38,6 @@ export function JobOrdersIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-export function QuotationsIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg {...base} {...props}>
-      <path d="M5 2.6h6.5l3.5 3.5v11.3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.6a1 1 0 0 1 1-1z" />
-      <path d="M11.5 2.6v3.5H15" />
-      <path d="M6.6 11h6.8M6.6 14h5" />
-    </svg>
-  );
-}
-
-export function ProductionIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg {...base} {...props}>
-      <path d="M16.2 10.2a6.2 6.2 0 1 1-2.1-4.6" />
-      <path d="M16.2 3v4.2h-4.2" />
-    </svg>
-  );
-}
-
 export function PrintCenterIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
@@ -139,8 +120,6 @@ export function ConfigurationIcon(props: SVGProps<SVGSVGElement>) {
 export const navIcons = {
   overview: OverviewIcon,
   jobOrders: JobOrdersIcon,
-  quotations: QuotationsIcon,
-  production: ProductionIcon,
   printCenter: PrintCenterIcon,
   documentAnalyzer: DocumentAnalyzerIcon,
   inventory: InventoryIcon,

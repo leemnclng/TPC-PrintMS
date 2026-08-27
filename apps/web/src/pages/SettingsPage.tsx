@@ -12,6 +12,13 @@ import { api, ApiError } from "../lib/apiClient";
 import type { BusinessProfile } from "../types/domain";
 import "./SettingsPage.css";
 
+const DATABASE_STAGES = ["development", "test", "production"] as const;
+const DATABASE_STAGE_LABELS: Record<(typeof DATABASE_STAGES)[number], string> = {
+  development: "Development",
+  test: "Test",
+  production: "Production",
+};
+
 export function SettingsPage() {
   const { data, state, error, reload } = useResource(() => api.get<BusinessProfile>("/settings/business-profile"));
   const { health } = useHealth();
@@ -35,6 +42,7 @@ export function SettingsPage() {
       const updated = await api.put<BusinessProfile>("/settings/business-profile", form);
       setForm(updated);
       setSaved(true);
+      window.dispatchEvent(new CustomEvent("business-profile-updated", { detail: updated }));
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : "Couldn't save.");
     } finally {
@@ -66,6 +74,15 @@ export function SettingsPage() {
               />
             </label>
             <label className="form-field">
+              <span>Owner name</span>
+              <input
+                value={form.ownerName}
+                onChange={(e) => setForm({ ...form, ownerName: e.target.value })}
+                required
+                maxLength={120}
+              />
+            </label>
+            <label className="form-field">
               <span>Tagline</span>
               <input
                 value={form.tagline ?? ""}
@@ -86,22 +103,13 @@ export function SettingsPage() {
                 <input value={form.phone ?? ""} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </label>
             </div>
-            <div className="settings-form__row">
-              <label className="form-field">
-                <span>Quotation number prefix</span>
-                <input
-                  value={form.quotationPrefix}
-                  onChange={(e) => setForm({ ...form, quotationPrefix: e.target.value })}
-                />
-              </label>
-              <label className="form-field">
-                <span>Job order number prefix</span>
-                <input
-                  value={form.jobOrderPrefix}
-                  onChange={(e) => setForm({ ...form, jobOrderPrefix: e.target.value })}
-                />
-              </label>
-            </div>
+            <label className="form-field">
+              <span>Job order number prefix</span>
+              <input
+                value={form.jobOrderPrefix}
+                onChange={(e) => setForm({ ...form, jobOrderPrefix: e.target.value })}
+              />
+            </label>
 
             <div className="settings-form__actions">
               <Button type="submit" variant="primary" loading={saving}>
@@ -127,7 +135,7 @@ export function SettingsPage() {
       <Card>
         <CardHeader title="Document templates" />
         <p className="settings-placeholder-text">
-          Quotation and job-order document layout is planned once print-ready export is defined.
+          Job-order document layout is planned once print-ready export is defined.
         </p>
         <PlannedNotice phase="Phase 4 — Job Order & Files" />
       </Card>
@@ -140,10 +148,49 @@ export function SettingsPage() {
         <PlannedNotice phase="Phase 7 — Release Hardening" />
       </Card>
 
+      <Card className="settings-environments">
+        <CardHeader title="Runtime environments" meta="RESTART TO SWITCH" />
+        <p className="settings-placeholder-text">
+          Each application stage has an independent SQLite database. Set the paths in <span className="numeric">services/api/.env</span>, choose the active stage with <span className="numeric">PRINT_MS_STAGE</span>, then restart the app.
+        </p>
+        {health ? (
+          <div className="environment-grid">
+            {DATABASE_STAGES.map((stage, index) => {
+              const active = health.stage === stage;
+              const path = health.databasePaths?.[stage] ?? (active ? health.databasePath : "Restart to resolve this path");
+              const source = health.databasePathSources?.[stage] ?? "Environment configuration";
+              return (
+                <article className={`environment-card${active ? " is-active" : ""}`} key={stage}>
+                  <header>
+                    <span className="numeric">0{index + 1}</span>
+                    {active && <strong>ACTIVE</strong>}
+                  </header>
+                  <h3>{DATABASE_STAGE_LABELS[stage]}</h3>
+                  <code>PRINT_MS_{stage.toUpperCase()}_DATABASE_PATH</code>
+                  <dl>
+                    <div><dt>SQLite path</dt><dd className="numeric">{path}</dd></div>
+                    <div><dt>Resolved from</dt><dd>{source}</dd></div>
+                  </dl>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="settings-placeholder-text">Backend is not reachable — environment paths unavailable.</p>
+        )}
+        <p className="environment-note">
+          Changing stages never copies or deletes data. The selected database is opened only during application startup.
+        </p>
+      </Card>
+
       <Card>
         <CardHeader title="Diagnostics" />
         {health ? (
           <dl className="diagnostics-list">
+            <div>
+              <dt>App stage</dt>
+              <dd>{health.stage}</dd>
+            </div>
             <div>
               <dt>Backend version</dt>
               <dd className="numeric">{health.version}</dd>
@@ -155,6 +202,10 @@ export function SettingsPage() {
             <div>
               <dt>Database</dt>
               <dd>{health.dbOk ? "OK" : "Unreachable"}</dd>
+            </div>
+            <div>
+              <dt>Database path</dt>
+              <dd className="diagnostics-list__path numeric">{health.databasePath}</dd>
             </div>
             <div>
               <dt>Data directory</dt>

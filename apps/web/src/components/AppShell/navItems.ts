@@ -24,13 +24,11 @@ export const navGroups: NavGroup[] = [
     label: "Sales",
     items: [
       { label: "Job Orders", path: "/job-orders", matchPrefix: "/job-orders", icon: "jobOrders" },
-      { label: "Quotations", path: "/quotations", matchPrefix: "/quotations", icon: "quotations" },
     ],
   },
   {
     label: "Operations",
     items: [
-      { label: "Production", path: "/production", matchPrefix: "/production", icon: "production" },
       { label: "Print Center", path: "/print-center", matchPrefix: "/print-center", icon: "printCenter" },
       { label: "Document Analyzer", path: "/document-analyzer", matchPrefix: "/document-analyzer", icon: "documentAnalyzer" },
       { label: "Inventory", path: "/inventory", matchPrefix: "/inventory", icon: "inventory" },

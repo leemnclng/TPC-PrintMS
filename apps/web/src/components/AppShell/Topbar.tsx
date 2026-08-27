@@ -1,6 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { navItems } from "./navItems";
 import { useClock } from "../../hooks/useClock";
+import type { HealthStatus } from "../../types/domain";
 import "./Topbar.css";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -13,7 +14,7 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
-export function Topbar() {
+export function Topbar({ stage }: { stage?: HealthStatus["stage"] }) {
   const location = useLocation();
   const now = useClock();
 
@@ -25,7 +26,9 @@ export function Topbar() {
     <header className="topbar">
       <span className="topbar__crumb">{current.label}</span>
       <div className="topbar__spacer" />
-      {import.meta.env.DEV && <span className="topbar__badge">DEV</span>}
+      {stage && stage !== "production" && (
+        <span className="topbar__badge">{stage === "development" ? "DEV" : stage.toUpperCase()}</span>
+      )}
       <span className="topbar__clock numeric">
         {dateFormatter.format(now)} · {timeFormatter.format(now)}
       </span>

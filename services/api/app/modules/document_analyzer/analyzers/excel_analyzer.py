@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 
 from ..models.document_analysis import DocumentAnalysis, PageMargins
 from ..models.enums import DocumentFileType, Orientation, PaperSize
-from ..utils.color_analysis import ImageColorMetrics, analyze_image_color
+from ..utils.color_analysis import ImageColorMetrics, analyze_image_color, estimate_text_ink_coverage
 from ..utils.image_processing import open_image
 from .base import DocumentAnalyzer, InvalidDocumentError, estimate_print_time
 
@@ -79,12 +79,20 @@ class ExcelAnalyzer(DocumentAnalyzer):
         orientation = orientations[0] if len(set(orientations)) == 1 else Orientation.mixed
         paper_size = paper_sizes[0] if len(set(paper_sizes)) == 1 else PaperSize.unknown
         coverage = round(mean(metric.coverage_percent for metric in image_metrics), 1) if image_metrics else 0.0
-        ink = round(mean(metric.ink_coverage_percent for metric in image_metrics), 1) if image_metrics else 0.0
+        text_ink = estimate_text_ink_coverage(len(text), page_count)
+        image_ink = mean(metric.ink_coverage_percent for metric in image_metrics) if image_metrics else 0.0
+        image_color = mean(metric.color_coverage_percent for metric in image_metrics) if image_metrics else 0.0
+        ink = round(min(100.0, text_ink + image_ink), 1)
+        color_coverage = round(
+            min(100.0, image_color + text_ink * (color_pages / max(page_count, 1))),
+            1,
+        )
         warnings = [
             "XLSX pagination is estimated as one page per non-empty visible worksheet; print areas and scaling can change the final count."
         ]
         if truncated:
             warnings.append("Cell inspection was capped for safety; counts may exclude content beyond the analyzed range.")
+        warnings.append("Ink coverage is estimated from cell density and embedded images because XLSX is not rendered.")
         return DocumentAnalysis(
             filename=filename,
             file_type=self.file_type,
@@ -102,6 +110,7 @@ class ExcelAnalyzer(DocumentAnalyzer):
             image_count=image_count,
             contains_images=image_count > 0,
             image_coverage_percent=coverage,
+            estimated_color_coverage_percent=color_coverage,
             estimated_ink_coverage_percent=ink,
             table_count=table_count,
             graphic_count=graphic_count,

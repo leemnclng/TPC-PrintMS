@@ -23,12 +23,19 @@ export function DocumentAnalyzerPage() {
   const [inputKey, setInputKey] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const [productId, setProductId] = useState("");
+  const [variantId, setVariantId] = useState("");
   const [dragging, setDragging] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DocumentAnalysisResponse | null>(null);
-  const { data: products } = useResource(() => api.get<Product[]>("/products"));
+  const {
+    data: products,
+    state: productsState,
+    error: productsError,
+    reload: reloadProducts,
+  } = useResource(() => api.get<Product[]>("/products"));
   const activeProducts = (products ?? []).filter((product) => product.isActive);
+  const selectedProduct = activeProducts.find((product) => product.id === productId);
 
   function chooseFile(candidate: File | null) {
     setError(null);
@@ -68,12 +75,13 @@ export function DocumentAnalyzerPage() {
 
   async function handleAnalyze(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!file || analyzing) return;
+    if (!file || !selectedProduct || analyzing) return;
     setAnalyzing(true);
     setError(null);
     const formData = new FormData();
     formData.append("file", file);
-    if (productId) formData.append("product_id", productId);
+    formData.append("product_id", productId);
+    if (variantId) formData.append("variant_id", variantId);
     try {
       setResult(await api.upload<DocumentAnalysisResponse>("/document-analyzer/analyze", formData));
     } catch (caught) {
@@ -112,29 +120,69 @@ export function DocumentAnalyzerPage() {
               <span className="numeric">01 / PREFLIGHT</span>
               <h2>Place one document on the analysis desk</h2>
             </div>
-            <p>Files are processed locally in memory and are not retained after analysis.</p>
+            <p>Pricing starts from the product rate, then adds measured ink, color coverage, and the selected variant. Files stay local and are not retained.</p>
           </div>
 
-          <label className="form-field analyzer-intake__product">
-            <span>Reference product (optional)</span>
-            <select
-              value={productId}
-              disabled={analyzing}
-              onChange={(event) => setProductId(event.target.value)}
-            >
-              <option value="">No product — generic paper-size estimate</option>
-              {groupProductsByService(activeProducts).map(([serviceName, serviceProducts]) => (
-                <optgroup label={serviceName} key={serviceName}>
-                  {serviceProducts.map((product) => (
-                    <option value={product.id} key={product.id}>{product.name}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <span className="form-field__message">
-              Pricing this order against a product applies its own paper-size overrides where set.
-            </span>
-          </label>
+          <div className="analyzer-intake__pricing-context">
+            <label className="form-field">
+              <span>Product</span>
+              <select
+                value={productId}
+                disabled={analyzing || productsState !== "ready"}
+                required
+                onChange={(event) => {
+                  setProductId(event.target.value);
+                  setVariantId("");
+                }}
+              >
+                <option value="">
+                  {productsState === "loading" ? "Loading products…" : "Select a product"}
+                </option>
+                {groupProductsByService(activeProducts).map(([serviceName, serviceProducts]) => (
+                  <optgroup label={serviceName} key={serviceName}>
+                    {serviceProducts.map((product) => (
+                      <option value={product.id} key={product.id}>{product.name}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <span className="form-field__message">
+                Sets the base page price for the detected paper size.
+              </span>
+            </label>
+
+            <label className="form-field">
+              <span>Variant</span>
+              <select
+                value={variantId}
+                disabled={analyzing || !selectedProduct || selectedProduct.variants.length === 0}
+                onChange={(event) => setVariantId(event.target.value)}
+              >
+                <option value="">No variant</option>
+                {(selectedProduct?.variants ?? []).map((variant) => (
+                  <option value={variant.variantId} key={variant.variantId}>
+                    {variant.label} · {variant.priceAdjustment >= 0 ? "+" : ""}{formatCurrency(variant.priceAdjustment)} / page
+                  </option>
+                ))}
+              </select>
+              <span className="form-field__message">
+                Optional configured adjustment applied once per page.
+              </span>
+            </label>
+          </div>
+
+          {productsState === "error" ? (
+            <div className="analyzer-intake__resource-error" role="alert">
+              <span>{productsError ?? "Products could not be loaded."}</span>
+              <Button type="button" variant="ghost" size="sm" onClick={reloadProducts}>Retry</Button>
+            </div>
+          ) : null}
+          {productsState === "ready" && activeProducts.length === 0 ? (
+            <div className="analyzer-intake__resource-error">
+              <span>Add an active priced product before analyzing a document.</span>
+              <LinkButton to="/product-catalog" variant="ghost" size="sm">Open services</LinkButton>
+            </div>
+          ) : null}
 
           <input
             key={inputKey}
@@ -169,7 +217,7 @@ export function DocumentAnalyzerPage() {
 
           <footer className="analyzer-intake__actions">
             {file ? <Button type="button" variant="ghost" disabled={analyzing} onClick={resetAnalyzer}>Clear</Button> : null}
-            <Button type="submit" variant="primary" loading={analyzing} disabled={!file}>
+            <Button type="submit" variant="primary" loading={analyzing} disabled={!file || !selectedProduct}>
               Analyze document
             </Button>
           </footer>
@@ -213,7 +261,9 @@ function AnalysisResult({
             <span>Suggested print price</span>
             <strong className="numeric">{formatCurrency(pricing.suggestedPrice)}</strong>
             <small>
-              {pricingContext ? `Priced for ${pricingContext.productName}` : "Generic estimate — no product referenced"}
+              {pricingContext
+                ? `Priced for ${pricingContext.productName}${pricingContext.variantName ? ` · ${pricingContext.variantName}` : ""}`
+                : "Analysis only — no product referenced"}
             </small>
           </div>
         </header>
@@ -228,7 +278,7 @@ function AnalysisResult({
         <section className="analyzer-color-ledger" aria-labelledby="color-ledger-title">
           <div className="analyzer-section-heading">
             <div><span>PRINT SEPARATION</span><h3 id="color-ledger-title">Color ledger</h3></div>
-            <p>{analysis.colorPages} colored · {analysis.bwPages} B&amp;W</p>
+            <p>{analysis.colorPages} colored · {analysis.estimatedColorCoveragePercent.toFixed(1)}% color coverage</p>
           </div>
           <div className="analyzer-color-ledger__bar" aria-label={`${analysis.colorPages} colored and ${analysis.bwPages} black-and-white pages`}>
             <span style={{ width: `${colorShare}%` }} />
@@ -254,6 +304,7 @@ function AnalysisResult({
           </DetailGroup>
           <DetailGroup title="Coverage">
             <Detail label="Image coverage" value={`${analysis.imageCoveragePercent.toFixed(1)}%`} />
+            <Detail label="Color coverage" value={`${analysis.estimatedColorCoveragePercent.toFixed(1)}%`} />
             <Detail label="Estimated ink" value={`${analysis.estimatedInkCoveragePercent.toFixed(1)}%`} />
             <Detail label="Margins" value={analysis.margins ? formatMargins(analysis.margins) : "Not available"} />
             <Detail label="File type" value={analysis.fileType.toUpperCase()} />
@@ -269,9 +320,16 @@ function AnalysisResult({
             <div className="analyzer-pricing__table">
               {pricing.breakdown.map((item) => (
                 <div key={item.printType}>
-                  <span>{formatProductPrintType(item.printType)}{formatRateSourceTag(item.rateSource)}</span>
+                  <span>{pricingContext ? `${pricingContext.productName} base` : formatProductPrintType(item.printType)}{formatRateSourceTag(item.rateSource)}</span>
                   <span className="numeric">{item.pages} × {formatCurrency(item.ratePerPage)}</span>
                   <strong className="numeric">{formatCurrency(item.subtotal)}</strong>
+                </div>
+              ))}
+              {pricing.adjustments.map((item) => (
+                <div className="analyzer-pricing__adjustment" key={`${item.kind}-${item.label}`}>
+                  <span>{item.label}<small>{item.basis}</small></span>
+                  <span className="numeric">Adjustment</span>
+                  <strong className="numeric">{formatSignedCurrency(item.amount)}</strong>
                 </div>
               ))}
             </div>
@@ -393,6 +451,11 @@ function formatMargins(margins: { topMm: number; rightMm: number; bottomMm: numb
 
 function formatRateSourceTag(rateSource: DocumentPricingBreakdown["rateSource"]) {
   return rateSource === "product" ? " · product rate" : "";
+}
+
+function formatSignedCurrency(value: number) {
+  if (value === 0) return formatCurrency(0);
+  return `${value > 0 ? "+" : "−"}${formatCurrency(Math.abs(value))}`;
 }
 
 function groupProductsByService(products: Product[]): [string, Product[]][] {

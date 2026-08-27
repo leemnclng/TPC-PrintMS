@@ -61,7 +61,7 @@ Job order:
 
 ### Phase 1: Printing Feasibility Spike
 
-- Detect installed printers and read available capabilities.
+- Detect installed printers on Windows and macOS/Linux (implemented through Windows CIM and CUPS); read available capabilities next.
 - Preview and print a sample PDF/image through the OS queue.
 - Validate Canon G4770 on Windows and macOS where hardware is available.
 - Test copies, colour mode, media size, orientation, cancellation, and error handling.
@@ -80,22 +80,21 @@ Job order:
 
 ### Phase 3: Commercial Workflow
 
-- Build customers, product catalog, pricing, quotations, and owner approval.
-- Add deterministic pricing first; AI may parse requirements and suggest quotation items, but cannot approve or finalize prices.
-- Generate customer-ready quotation documents.
-- Exit: An owner can create, approve, revise, and record acceptance of a quotation.
+- Build customers, product catalog, and deterministic product/document pricing.
+- Analyze customer documents for page geometry, color coverage, ink load, and configured product variants.
+- Exit: An owner can produce a transparent suggested price before creating a job order.
 
 ### Phase 4: Job Order and Files
 
-- Convert accepted quotations into job orders.
+- Create confirmed jobs from an uploaded file, selected product/variant/copies, detected configured paper size, and an approved suggested or owner-overridden price. **Active.**
 - Record online/cash payments and verification.
-- Attach source and print-ready files.
+- Attach the confirmed customer file as a staged print-ready job file. **Active.**
 - Add deadlines, notes, status history, and audit entries.
 - Exit: A complete job can be prepared for production without printing.
 
 ### Phase 5: Production Printing
 
-- Add printer setup, preview, print settings, queue submission, retry, cancel, and history.
+- Extend the active native printer-setup/discovery flow with preview, print settings, queue submission, retry, cancel, and history.
 - Require explicit owner confirmation before submission.
 - Record the chosen printer, settings, operator, timestamps, and result.
 - Exit: An approved job can be printed and traced from job order to OS queue result.

@@ -173,9 +173,6 @@ export function CustomerWorkspace() {
           <CardHeader title="Linked history" />
           <div className="workspace-linked-stats">
             <span>
-              <strong className="numeric">{data.quotationCount}</strong> quotations
-            </span>
-            <span>
               <strong className="numeric">{data.jobOrderCount}</strong> job orders
             </span>
           </div>

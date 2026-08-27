@@ -39,7 +39,7 @@ export function ProductCatalogPage() {
       <PageHeader
         eyebrow="SERVICES"
         title="Service Catalog"
-        description="Create a service first, then organize the products used in quotations and job orders inside it."
+        description="Create a service first, then organize the products used in job orders and document analysis inside it."
         actions={
           <>
             <LinkButton variant="secondary" to="/configuration/variants">

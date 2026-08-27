@@ -5,15 +5,6 @@
 // the current documented working draft — see docs/context/issues-log.md for
 // the open question about final transition permissions.
 
-export type QuotationStatus =
-  | "draft"
-  | "pending_approval"
-  | "approved"
-  | "sent"
-  | "accepted"
-  | "rejected"
-  | "expired";
-
 export type JobOrderStatus =
   | "pending_payment"
   | "paid"
@@ -39,7 +30,6 @@ export interface Customer {
   phone?: string | null;
   sourceChannel: SourceChannel;
   notes?: string | null;
-  quotationCount: number;
   jobOrderCount: number;
   createdAt: string;
   updatedAt: string;
@@ -143,29 +133,6 @@ export interface InventoryMovement {
   occurredAt: string;
 }
 
-export interface QuotationItem {
-  id: string;
-  productId: string;
-  productName: string;
-  variantLabel?: string | null;
-  quantity: number;
-  unitPrice: number;
-  aiSuggested: boolean;
-}
-
-export interface Quotation {
-  id: string;
-  number: string;
-  customerId: string;
-  customerName: string;
-  status: QuotationStatus;
-  items: QuotationItem[];
-  total: number;
-  sourceChannel: SourceChannel;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface Payment {
   id: string;
   jobOrderId: string;
@@ -183,13 +150,24 @@ export interface JobOrder {
   quotationId?: string | null;
   status: JobOrderStatus;
   total: number;
+  suggestedTotal: number;
+  priceOverridden: boolean;
   amountPaid: number;
   dueDate?: string | null;
   notes?: string | null;
   assignedPrinterId?: string | null;
   items: JobOrderItem[];
+  files: JobFile[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface JobFile {
+  id: string;
+  originalFilename: string;
+  kind: "source" | "print_ready";
+  sizeBytes: number;
+  uploadedAt: string;
 }
 
 export type PrintSides = "single_sided" | "double_sided";
@@ -227,6 +205,13 @@ export interface Printer {
   lastSeenAt: string;
 }
 
+export interface PrinterPlatformInfo {
+  platform: "windows" | "macos" | "linux";
+  configuredPlatform: "auto" | "windows" | "macos" | "linux";
+  detectionSource: "automatic" | "environment";
+  adapter: "windows_spooler" | "cups";
+}
+
 export interface PrintJob {
   id: string;
   jobOrderId: string;
@@ -240,6 +225,7 @@ export interface PrintJob {
 
 export interface BusinessProfile {
   businessName: string;
+  ownerName: string;
   tagline?: string | null;
   email?: string | null;
   phone?: string | null;
@@ -250,10 +236,14 @@ export interface BusinessProfile {
 
 export interface HealthStatus {
   status: "ok";
+  stage: "development" | "production" | "test";
   version: string;
   uptimeSeconds: number;
   dbOk: boolean;
   dataDir: string;
+  databasePath: string;
+  databasePaths: Record<"development" | "test" | "production", string>;
+  databasePathSources: Record<"development" | "test" | "production", string>;
 }
 
 export type DocumentFileType = "pdf" | "image" | "docx" | "xlsx" | "pptx";
@@ -284,6 +274,7 @@ export interface DocumentAnalysis {
   imageCount: number;
   containsImages: boolean;
   imageCoveragePercent: number;
+  estimatedColorCoveragePercent: number;
   estimatedInkCoveragePercent: number;
   tableCount: number;
   graphicCount: number;
@@ -309,14 +300,25 @@ export interface DocumentPricingBreakdown {
 
 export interface DocumentPricingResult {
   suggestedPrice: number;
+  baseSubtotal: number;
   currency: "PHP";
   breakdown: DocumentPricingBreakdown[];
+  adjustments: DocumentPricingAdjustment[];
   warnings: string[];
+}
+
+export interface DocumentPricingAdjustment {
+  kind: "inkCoverage" | "colorCoverage" | "variant";
+  label: string;
+  basis: string;
+  amount: number;
 }
 
 export interface DocumentPricingContext {
   productId: string;
   productName: string;
+  variantId?: string | null;
+  variantName?: string | null;
 }
 
 export interface DocumentAnalysisResponse {
@@ -337,7 +339,6 @@ export interface DocumentPricingRule {
 
 export interface OverviewSnapshot {
   jobOrdersByStatus: Record<JobOrderStatus, number>;
-  quotationsAwaitingApproval: number;
   paymentsAwaitingVerification: number;
   upcomingDeadlines: number;
   printQueueDepth: number;

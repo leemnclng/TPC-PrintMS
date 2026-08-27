@@ -1,12 +1,30 @@
+import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import { navGroups } from "./navItems";
 import { navIcons } from "./NavIcons";
-import { useHealth } from "../../hooks/useHealth";
+import type { ConnectionState } from "../../hooks/useHealth";
+import { useResource } from "../../hooks/useResource";
+import { api } from "../../lib/apiClient";
+import type { BusinessProfile } from "../../types/domain";
 import brandMark from "../../assets/brand/the-paper-club-mark.png";
 import "./Sidebar.css";
 
-export function Sidebar() {
-  const { state } = useHealth();
+export function Sidebar({ connectionState }: { connectionState: ConnectionState }) {
+  const { data: profile, reload: reloadProfile } = useResource(() =>
+    api.get<BusinessProfile>("/settings/business-profile"),
+  );
+  const ownerName = profile?.ownerName.trim() || "Owner";
+  const initials = ownerName
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+  useEffect(() => {
+    window.addEventListener("business-profile-updated", reloadProfile);
+    return () => window.removeEventListener("business-profile-updated", reloadProfile);
+  }, [reloadProfile]);
 
   return (
     <aside className="sidebar">
@@ -47,15 +65,15 @@ export function Sidebar() {
 
       <div className="sidebar__footer">
         <span className="sidebar__avatar" aria-hidden="true">
-          O
-          <span className={`sidebar__avatar-dot sidebar__avatar-dot--${state}`} />
+          {initials}
+          <span className={`sidebar__avatar-dot sidebar__avatar-dot--${connectionState}`} />
         </span>
         <span className="sidebar__footer-text">
-          <span className="sidebar__footer-role">Owner</span>
+          <span className="sidebar__footer-role" title={ownerName}>{ownerName}</span>
           <span className="sidebar__footer-status">
-            {state === "checking" && "Connecting…"}
-            {state === "online" && "Backend connected"}
-            {state === "offline" && "Backend offline"}
+            {connectionState === "checking" && "Connecting…"}
+            {connectionState === "online" && "Connected"}
+            {connectionState === "offline" && "Backend offline"}
           </span>
         </span>
       </div>

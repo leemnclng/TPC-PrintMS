@@ -44,6 +44,7 @@ class ImageAnalyzer(DocumentAnalyzer):
             image_count=1,
             contains_images=True,
             image_coverage_percent=color.coverage_percent,
+            estimated_color_coverage_percent=color.color_coverage_percent,
             estimated_ink_coverage_percent=color.ink_coverage_percent,
             table_count=0,
             graphic_count=0,

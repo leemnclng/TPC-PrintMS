@@ -21,6 +21,7 @@
     "productName": "Printing-MS",
     "files": [
       "dist/**/*",
+      "build/icon.png",
       "../web/dist/**/*"
     ],
     "extraResources": [
@@ -32,9 +33,11 @@
     ],
     "mac": {
       "category": "public.app-category.business",
+      "icon": "build/icon.png",
       "target": "dmg"
     },
     "win": {
+      "icon": "build/icon.png",
       "target": "nsis"
     }
   }

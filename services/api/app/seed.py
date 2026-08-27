@@ -20,6 +20,7 @@ def seed_business_profile(db: Session) -> None:
     db.add(
         BusinessProfile(
             business_name="The Paper Club",
+            owner_name="Owner",
             tagline="Printing & Digital Services",
         )
     )

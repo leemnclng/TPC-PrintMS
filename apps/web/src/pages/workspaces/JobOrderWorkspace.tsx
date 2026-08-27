@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Button } from "../../components/Button/Button";
+import { LinkButton } from "../../components/Button/LinkButton";
 import { PageHeader } from "../../components/PageHeader/PageHeader";
 import { Card, CardHeader } from "../../components/Card/Card";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import { EmptyState } from "../../components/EmptyState/EmptyState";
 import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
-import { PlannedNotice } from "../../components/PlannedNotice/PlannedNotice";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../lib/apiClient";
-import { formatCurrency, formatDate } from "../../lib/format";
+import { formatCurrency, formatDate, formatFileSize } from "../../lib/format";
 import { jobOrderStatusMeta } from "../../types/statusMeta";
 import type { InventoryMovement, JobOrder } from "../../types/domain";
 import { JobMaterialUsageModal } from "../jobOrders/JobMaterialUsageModal";
@@ -46,8 +46,12 @@ export function JobOrderWorkspace() {
           <CardHeader title="Order summary" />
           <dl className="workspace-fact-list">
             <div>
-              <dt>Total</dt>
+              <dt>Final price</dt>
               <dd className="numeric">{formatCurrency(order.total)}</dd>
+            </div>
+            <div>
+              <dt>Engine suggestion</dt>
+              <dd className="numeric">{formatCurrency(order.suggestedTotal)}{order.priceOverridden ? " · owner override" : ""}</dd>
             </div>
             <div>
               <dt>Paid</dt>
@@ -97,12 +101,19 @@ export function JobOrderWorkspace() {
         </Card>
 
         <Card>
-          <CardHeader title="Files" />
-          <EmptyState
-            title="No files attached"
-            description="Source files and approved print-ready files attach here."
-          />
-          <PlannedNotice phase="Phase 4 — Job Order & Files" />
+          <CardHeader title="Files" meta={`${order.files.length} ${order.files.length === 1 ? "file" : "files"}`} />
+          {order.files.length === 0 ? (
+            <EmptyState title="No files attached" description="Confirmed analyzed transactions attach their approved print-ready file here." />
+          ) : (
+            <div className="workspace-file-list">
+              {order.files.map((file) => (
+                <div key={file.id}>
+                  <span className="numeric">{file.kind === "print_ready" ? "READY" : "SOURCE"}</span>
+                  <div><strong>{file.originalFilename}</strong><small>{formatFileSize(file.sizeBytes)} · {formatDate(file.uploadedAt)}</small></div>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
 
         <Card>
@@ -141,12 +152,11 @@ export function JobOrderWorkspace() {
         </Card>
 
         <Card>
-          <CardHeader title="Printing" />
+          <CardHeader title="Printing" action={<LinkButton to={`/print-center?jobOrderId=${encodeURIComponent(order.id)}`} size="sm">Open Print Center</LinkButton>} />
           <EmptyState
-            title="Not sent to a printer"
-            description="Printer selection, print settings, and attempts happen from the Print Center once this job is ready."
+            title={order.files.length ? "Ready for print setup" : "Not sent to a printer"}
+            description={order.files.length ? "The approved file is staged. Continue to Print Center to select an operating-system printer." : "Attach an approved file before opening print setup."}
           />
-          <PlannedNotice phase="Phase 5 — Production Printing" />
         </Card>
       </div>
 

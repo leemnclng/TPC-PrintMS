@@ -13,6 +13,7 @@ from .enums import PaperSize
 # generator, which only renames fields) — "paperSize" matches the frontend
 # union verbatim.
 RateSource = Literal["product", "paperSize"]
+AdjustmentKind = Literal["inkCoverage", "colorCoverage", "variant"]
 
 
 class PricingBreakdownItem(CamelModel):
@@ -24,16 +25,27 @@ class PricingBreakdownItem(CamelModel):
     rate_source: RateSource = "paperSize"
 
 
+class PricingAdjustment(CamelModel):
+    kind: AdjustmentKind
+    label: str
+    basis: str
+    amount: float
+
+
 class PricingResult(CamelModel):
     suggested_price: float = Field(ge=0)
+    base_subtotal: float = Field(default=0, ge=0)
     currency: str = "PHP"
     breakdown: list[PricingBreakdownItem] = Field(default_factory=list)
+    adjustments: list[PricingAdjustment] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 
 class PricingContext(CamelModel):
     product_id: str
     product_name: str
+    variant_id: str | None = None
+    variant_name: str | None = None
 
 
 class PricingRuleRead(CamelModel):

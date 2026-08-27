@@ -7,6 +7,7 @@ from openpyxl import Workbook
 from PIL import Image
 from pptx import Presentation
 from pypdf import PdfWriter
+import pymupdf
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -15,7 +16,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.modules.document_analyzer.api import router
 from app.modules.document_analyzer.services.analysis_service import AnalysisService
-from app.routers import inventory, products, services
+from app.routers import inventory, products, services, variants
 
 
 def test_supported_document_formats_produce_normalized_analysis() -> None:
@@ -32,6 +33,11 @@ def test_supported_document_formats_produce_normalized_analysis() -> None:
     assert pdf.file_type.value == "pdf"
     assert pdf.page_count == 1
     assert pdf.paper_size.value == "A4"
+
+    colored_pdf = service.analyze("colored.pdf", fixtures["colored_pdf"], "application/pdf")
+    assert colored_pdf.color_pages == 1
+    assert colored_pdf.estimated_color_coverage_percent > 95
+    assert colored_pdf.estimated_ink_coverage_percent > 95
 
     docx = service.analyze("sample.docx", fixtures["docx"])
     assert docx.word_count == 5
@@ -161,6 +167,7 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
     app.include_router(services.router)
     app.include_router(products.router)
     app.include_router(inventory.router)
+    app.include_router(variants.router)
     client = TestClient(app)
     headers = {"X-Print-MS-Token": settings.token}
     image = _fixtures()["image"]
@@ -186,12 +193,24 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
 
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
     a4_color_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored")
+    a4_bw_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "black_and_white")
     seed_response = client.put(
         "/document-analyzer/pricing-rules",
         headers=headers,
-        json={"rules": [{"id": a4_color_rule["id"], "pricePerPage": 5, "isActive": True}]},
+        json={
+            "rules": [
+                {"id": a4_color_rule["id"], "pricePerPage": 5, "isActive": True},
+                {"id": a4_bw_rule["id"], "pricePerPage": 2, "isActive": True},
+            ]
+        },
     )
     assert seed_response.status_code == 200
+
+    variant = client.post(
+        "/variants",
+        headers=headers,
+        json={"label": "Back-to-back", "description": None, "isActive": True},
+    ).json()
 
     product = client.post(
         "/products",
@@ -201,7 +220,7 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
             "name": "Premium photo print",
             "printType": "colored",
             "isActive": True,
-            "variants": [],
+            "variants": [{"variantId": variant["id"], "priceAdjustment": 2}],
             "materialAssignments": [{"inventoryItemId": material["id"]}],
             "documentRates": [{"pricingRuleId": a4_color_rule["id"], "pricePerPage": 15}],
         },
@@ -225,18 +244,70 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
         data={"product_id": product["id"]},
         files={"file": ("colored-a4.png", image, "image/png")},
     ).json()
-    assert priced["pricingContext"] == {"productId": product["id"], "productName": "Premium photo print"}
+    assert priced["pricingContext"]["productId"] == product["id"]
+    assert priced["pricingContext"]["productName"] == "Premium photo print"
     breakdown = priced["pricing"]["breakdown"][0]
     assert breakdown["ratePerPage"] == 15
     assert breakdown["rateSource"] == "product"
-    assert priced["pricing"]["suggestedPrice"] == 15
+    assert priced["analysis"]["estimatedInkCoveragePercent"] == 88.2
+    assert priced["pricing"]["baseSubtotal"] == 15
+    assert priced["pricing"]["adjustments"][0]["kind"] == "inkCoverage"
+    assert priced["pricing"]["suggestedPrice"] == 28.23
+
+    with_variant = client.post(
+        "/document-analyzer/analyze",
+        headers=headers,
+        data={"product_id": product["id"], "variant_id": variant["id"]},
+        files={"file": ("colored-a4.png", image, "image/png")},
+    ).json()
+    assert with_variant["pricingContext"]["variantName"] == "Back-to-back"
+    assert with_variant["pricing"]["adjustments"][-1]["kind"] == "variant"
+    assert with_variant["pricing"]["suggestedPrice"] == 30.23
+
+    bw_product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Standard document",
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": material["id"]}],
+            "documentRates": [],
+        },
+    ).json()
+    bw_with_color = client.post(
+        "/document-analyzer/analyze",
+        headers=headers,
+        data={"product_id": bw_product["id"]},
+        files={"file": ("colored-a4.png", image, "image/png")},
+    ).json()
+    assert [item["kind"] for item in bw_with_color["pricing"]["adjustments"]] == [
+        "inkCoverage",
+        "colorCoverage",
+    ]
+    assert bw_with_color["pricing"]["suggestedPrice"] == 6.76
+
+    # A selected product defines how every page is printed. The analyzer's
+    # detected page color is still reported, but it must not switch away
+    # from that product's configured print type or assigned paper price.
+    bw_pdf_priced_as_color_product = client.post(
+        "/document-analyzer/analyze",
+        headers=headers,
+        data={"product_id": product["id"]},
+        files={"file": ("blank.pdf", _fixtures()["pdf"], "application/pdf")},
+    ).json()
+    assert bw_pdf_priced_as_color_product["analysis"]["bwPages"] == 1
+    assert bw_pdf_priced_as_color_product["pricing"]["suggestedPrice"] == 15
+    assert bw_pdf_priced_as_color_product["pricing"]["breakdown"][0]["printType"] == "colored"
 
     generic = client.post(
         "/document-analyzer/analyze",
         headers=headers,
         files={"file": ("colored-a4.png", image, "image/png")},
     ).json()
-    assert generic["pricingContext"] is None
+    assert generic.get("pricingContext") is None
     assert generic["pricing"]["breakdown"][0]["rateSource"] == "paperSize"
     assert generic["pricing"]["suggestedPrice"] == 5
 
@@ -276,6 +347,12 @@ def _fixtures() -> dict[str, bytes]:
     pdf_buffer = BytesIO()
     pdf_writer.write(pdf_buffer)
 
+    colored_pdf_document = pymupdf.open()
+    colored_pdf_page = colored_pdf_document.new_page(width=595.28, height=841.89)
+    colored_pdf_page.draw_rect(colored_pdf_page.rect, color=(1, 0, 0), fill=(1, 0, 0))
+    colored_pdf = colored_pdf_document.tobytes()
+    colored_pdf_document.close()
+
     document = Document()
     document.add_paragraph("Hello world from Word")
     table = document.add_table(rows=1, cols=1)
@@ -297,6 +374,7 @@ def _fixtures() -> dict[str, bytes]:
     return {
         "image": image_buffer.getvalue(),
         "pdf": pdf_buffer.getvalue(),
+        "colored_pdf": colored_pdf,
         "docx": docx_buffer.getvalue(),
         "xlsx": xlsx_buffer.getvalue(),
         "pptx": pptx_buffer.getvalue(),

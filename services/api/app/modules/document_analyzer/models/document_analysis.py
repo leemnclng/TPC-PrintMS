@@ -32,6 +32,7 @@ class DocumentAnalysis(CamelModel):
     image_count: int = Field(ge=0)
     contains_images: bool
     image_coverage_percent: float = Field(ge=0, le=100)
+    estimated_color_coverage_percent: float = Field(ge=0, le=100)
     estimated_ink_coverage_percent: float = Field(ge=0, le=100)
     table_count: int = Field(ge=0)
     graphic_count: int = Field(ge=0)

@@ -3,12 +3,9 @@ import { PageHeader } from "../components/PageHeader/PageHeader";
 import { Card, CardHeader } from "../components/Card/Card";
 import { StatCard } from "../components/StatCard/StatCard";
 import { StatusPill } from "../components/StatusPill/StatusPill";
-import { Button } from "../components/Button/Button";
-import { LinkButton } from "../components/Button/LinkButton";
 import { EmptyState } from "../components/EmptyState/EmptyState";
 import { LoadingState } from "../components/LoadingState/LoadingState";
 import { ErrorState } from "../components/ErrorState/ErrorState";
-import { PlannedNotice } from "../components/PlannedNotice/PlannedNotice";
 import { useResource } from "../hooks/useResource";
 import { api } from "../lib/apiClient";
 import { jobOrderStatusMeta } from "../types/statusMeta";
@@ -26,17 +23,43 @@ export function OverviewPage() {
         description="Where active work stands right now — pending approvals, payments, deadlines, and the print queue."
       />
 
+      <section className="overview-quick-actions" aria-labelledby="quick-actions-title">
+        <header>
+          <span className="numeric">QUICK ACTIONS</span>
+          <div>
+            <h2 id="quick-actions-title">Start at the counter</h2>
+            <p>Open the most common shop workflows without leaving the overview.</p>
+          </div>
+        </header>
+        <div className="overview-quick-actions__grid">
+          <Link className="overview-quick-action overview-quick-action--primary" to="/job-orders?create=1">
+            <span className="overview-quick-action__number numeric">01</span>
+            <span className="overview-quick-action__body">
+              <small>PRIMARY WORKFLOW</small>
+              <strong>New job order</strong>
+              <span>Upload a customer file, analyze it, approve the price, and continue to print setup.</span>
+            </span>
+            <span className="overview-quick-action__arrow" aria-hidden="true">→</span>
+          </Link>
+          <Link className="overview-quick-action" to="/customers/new">
+            <span className="overview-quick-action__number numeric">02</span>
+            <span className="overview-quick-action__body"><strong>New customer</strong><span>Add customer and contact details.</span></span>
+            <span className="overview-quick-action__arrow" aria-hidden="true">→</span>
+          </Link>
+          <Link className="overview-quick-action" to="/product-catalog/new">
+            <span className="overview-quick-action__number numeric">03</span>
+            <span className="overview-quick-action__body"><strong>New service</strong><span>Configure a new shop offering.</span></span>
+            <span className="overview-quick-action__arrow" aria-hidden="true">→</span>
+          </Link>
+        </div>
+      </section>
+
       {state === "loading" && <LoadingState label="Reading local data…" />}
       {state === "error" && <ErrorState description={error ?? undefined} onRetry={reload} />}
 
       {state === "ready" && data && (
         <>
           <div className="overview-stats">
-            <StatCard
-              label="Quotations awaiting approval"
-              value={data.quotationsAwaitingApproval}
-              tone={data.quotationsAwaitingApproval > 0 ? "warning" : "neutral"}
-            />
             <StatCard
               label="Payments awaiting verification"
               value={data.paymentsAwaitingVerification}
@@ -74,30 +97,6 @@ export function OverviewPage() {
               />
             </Card>
           </div>
-
-          <Card>
-            <CardHeader title="Quick actions" />
-            <div className="overview-actions">
-              <LinkButton variant="primary" to="/customers/new">
-                New customer
-              </LinkButton>
-              <LinkButton variant="secondary" to="/product-catalog/new">
-                New service
-              </LinkButton>
-              <div className="overview-actions__planned">
-                <Button variant="secondary" disabled>
-                  New quotation
-                </Button>
-                <PlannedNotice phase="Phase 3 — Commercial Workflow" />
-              </div>
-              <div className="overview-actions__planned">
-                <Button variant="secondary" disabled>
-                  New job order
-                </Button>
-                <PlannedNotice phase="Phase 4 — Job Order & Files" />
-              </div>
-            </div>
-          </Card>
         </>
       )}
     </>

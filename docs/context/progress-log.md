@@ -259,6 +259,41 @@ Chronological notes about app progress.
 - Completed: The analyzed state now suppresses the standard page header, removes the global content-width cap, fills the available desktop height, and presents every PDF page in one scrollable stack. Nearby pages render ahead of the viewport while zoom, fit, rotation, and download remain available.
 - Verified: All 7 API tests, renderer/desktop typechecks, renderer lint, and the web production build pass.
 
+## 2026-08-27 (analyzer pricing and environment cleanup)
+
+- Summary: Aligned document estimates with configured product pricing and simplified deployment/navigation/profile configuration.
+- Completed: Product-selected analysis now uses assigned paper rules and the product print type; PDF extraction failures are surfaced; stage and SQLite path come from `.env`; Production was removed; owner name is editable and shown in the sidebar.
+- Verified: All 9 API tests, renderer/desktop typechecks, renderer lint, web production build, and a clean full Alembic migration pass.
+
+## 2026-08-27 (sidebar connection copy)
+
+- Summary: Shortened the online sidebar status from “Backend connected” to “Connected.”
+- Verified: Renderer typecheck and lint pass.
+
+## 2026-08-27 (coverage-aware analyzer pricing)
+
+- Summary: Replaced the unused quotation UI with a more capable product-based document estimate.
+- Completed: Added rendered PDF color/ink measurement, conservative Office estimates, required product and optional variant selection, and a transparent base/ink/color/variant pricing breakdown. Removed all active Quotations surfaces without deleting legacy backend data.
+- Verified: All 9 API tests, renderer/desktop typechecks, renderer lint, and the web production build pass.
+
+## 2026-08-27 (application icon branding)
+
+- Summary: Applied The Paper Club logo mark to browser and native application surfaces.
+- Completed: Added the favicon, Electron window/taskbar icon, development macOS dock icon, and packaged Windows/macOS icon configuration.
+- Verified: Renderer and desktop typechecks, renderer lint, and the web production build pass.
+
+## 2026-08-27 (Windows Canon and vendor-neutral printer connection)
+
+- Summary: Made Print Center ready to connect the owner's Canon through Windows without coupling the app to Canon.
+- Completed: Implemented Windows queue discovery through `Win32_Printer`, added native Printers & scanners access, a Canon-first three-step setup guide, cross-brand queue copy, and stale-queue offline reconciliation.
+- Verified: All 11 API tests, renderer/desktop typechecks, renderer lint, and the web production build pass. Physical Canon validation remains for the Windows workstation.
+
+## 2026-08-27 (printer host OS detection)
+
+- Summary: Print Center now identifies which operating system controls its printer adapter.
+- Completed: Added automatic Windows/macOS/Linux detection, the optional `PRINT_MS_PRINTER_PLATFORM` override, a platform-information API, and visible loading/ready/error/retry states in Print Center.
+- Verified: All 12 API tests, renderer/desktop typechecks, renderer lint, and the web production build pass.
+
 ## Template
 
 ### YYYY-MM-DD
@@ -267,3 +302,18 @@ Chronological notes about app progress.
 - Completed:
 - In progress:
 - Next steps:
+## 2026-08-28 (confirmed transaction workflow)
+
+- Summary: Connected customer-file intake, product selection, document analysis, owner pricing approval, job creation, durable file staging, and Print Center handoff.
+- Completed: New Job Order is now a validation-aware transaction wizard. Analysis saves nothing; owner confirmation revalidates pricing server-side, records suggested/final pricing, creates the paper plan and job file, then opens the staged Print Center context. Job details expose the approved file and pricing decision.
+- Verified: All 13 API tests, Alembic head inspection, renderer/desktop typechecks, renderer lint, web production build, and `git diff --check` pass.
+## 2026-08-28 (overview quick transaction action)
+
+- Summary: Moved Quick Actions to the top of Overview and made New Job Order the dominant one-click workflow.
+- Completed: Added responsive primary/secondary action tiles and URL-driven opening of the existing job-order transaction modal, including clean query removal when cancelled.
+- Verified: Renderer/desktop typechecks, renderer lint, web production build, and `git diff --check` pass.
+## 2026-08-28 (stage-separated SQLite environments)
+
+- Summary: Added independently configurable development, test, and production SQLite locations.
+- Completed: Added three stage-specific `.env` variables with isolated defaults, retained the legacy active-stage override, exposed every resolved path/source through health diagnostics, and added a responsive Runtime Environments matrix to Settings.
+- Verified: Configuration tests cover explicit stage paths, compatibility override, and isolated defaults; the full API and renderer verification suites pass.

@@ -8,7 +8,7 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from ..models.document_analysis import DocumentAnalysis
 from ..models.enums import DocumentFileType
-from ..utils.color_analysis import ImageColorMetrics, analyze_image_color
+from ..utils.color_analysis import ImageColorMetrics, analyze_image_color, estimate_text_ink_coverage
 from ..utils.image_processing import open_image
 from ..utils.page_geometry import classify_orientation, classify_paper_size, emu_to_mm
 from .base import DocumentAnalyzer, InvalidDocumentError, estimate_print_time
@@ -31,12 +31,15 @@ class PptxAnalyzer(DocumentAnalyzer):
         table_count = 0
         color_pages = 0
         image_metrics: list[ImageColorMetrics] = []
+        has_colored_text = False
         for slide in presentation.slides:
             slide_colored = False
             for shape in slide.shapes:
                 if getattr(shape, "has_text_frame", False):
                     text_parts.append(shape.text)
-                    slide_colored = slide_colored or self._text_is_colored(shape)
+                    colored_text = self._text_is_colored(shape)
+                    has_colored_text = has_colored_text or colored_text
+                    slide_colored = slide_colored or colored_text
                 if getattr(shape, "has_table", False):
                     table_count += 1
                 if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
@@ -58,7 +61,11 @@ class PptxAnalyzer(DocumentAnalyzer):
         width_mm = emu_to_mm(presentation.slide_width)
         height_mm = emu_to_mm(presentation.slide_height)
         coverage = round(mean(metric.coverage_percent for metric in image_metrics), 1) if image_metrics else 0.0
-        ink = round(mean(metric.ink_coverage_percent for metric in image_metrics), 1) if image_metrics else 0.0
+        text_ink = estimate_text_ink_coverage(len(text), page_count)
+        image_ink = mean(metric.ink_coverage_percent for metric in image_metrics) if image_metrics else 0.0
+        image_color = mean(metric.color_coverage_percent for metric in image_metrics) if image_metrics else 0.0
+        ink = round(min(100.0, text_ink + image_ink), 1)
+        color_coverage = round(min(100.0, image_color + (text_ink if has_colored_text else 0.0)), 1)
         return DocumentAnalysis(
             filename=filename,
             file_type=self.file_type,
@@ -76,6 +83,7 @@ class PptxAnalyzer(DocumentAnalyzer):
             image_count=image_count,
             contains_images=image_count > 0,
             image_coverage_percent=coverage,
+            estimated_color_coverage_percent=color_coverage,
             estimated_ink_coverage_percent=ink,
             table_count=table_count,
             graphic_count=graphic_count,
@@ -84,7 +92,10 @@ class PptxAnalyzer(DocumentAnalyzer):
             duplex_compatible=page_count > 1,
             estimated_print_time_seconds=estimate_print_time(color_pages, bw_pages),
             confidence=0.88,
-            warnings=["PowerPoint pages represent slides; printer handout layouts are not included."],
+            warnings=[
+                "PowerPoint pages represent slides; printer handout layouts are not included.",
+                "Ink coverage is estimated from text density and embedded images because PPTX is not rendered.",
+            ],
         )
 
     @staticmethod

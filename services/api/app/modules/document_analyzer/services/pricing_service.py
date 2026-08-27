@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.db.models import DocumentPricingRule, InventoryItem, Product, ProductPrintType
+from app.db.models import DocumentPricingRule, InventoryItem, Product, ProductPrintType, ProductVariant
 
 from ..models.document_analysis import DocumentAnalysis
 from ..models.pricing_result import PricingResult, PricingRuleRead
@@ -46,15 +46,37 @@ class PricingService:
         # `calculate` filters to active items separately for actual pricing.
         return db.query(DocumentPricingRule).all()
 
-    def calculate(self, analysis: DocumentAnalysis, db: Session, product: Product | None = None) -> PricingResult:
+    def calculate(
+        self,
+        analysis: DocumentAnalysis,
+        db: Session,
+        product: Product | None = None,
+        variant: ProductVariant | None = None,
+    ) -> PricingResult:
         rules = self.ensure_defaults(db)
         usable_rules = [rule for rule in rules if rule.inventory_item.is_active]
         overrides: dict[tuple[str, ProductPrintType], float] | None = None
         if product is not None:
+            assigned_material_ids = {assignment.inventory_item_id for assignment in product.material_assignments}
+            usable_rules = [
+                rule
+                for rule in usable_rules
+                if rule.inventory_item_id in assigned_material_ids
+            ]
+            usable_rule_ids = {rule.id for rule in usable_rules if rule.is_active}
             overrides = {
-                (rate.paper_size.value, rate.print_type): rate.price_per_page for rate in product.document_rates
+                (rate.paper_size.value, rate.print_type): rate.price_per_page
+                for rate in product.document_rates
+                if rate.pricing_rule_id in usable_rule_ids and rate.print_type == product.print_type
             }
-        return self._engine.calculate(analysis, usable_rules, overrides)
+        return self._engine.calculate(
+            analysis,
+            usable_rules,
+            overrides,
+            product.print_type if product is not None else None,
+            variant.label if variant is not None else None,
+            variant.price_adjustment if variant is not None else 0,
+        )
 
     @staticmethod
     def to_read(rule: DocumentPricingRule) -> PricingRuleRead:

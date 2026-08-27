@@ -26,7 +26,6 @@ export function CustomersPage() {
     { key: "name", header: "Customer", render: (r) => r.displayName },
     { key: "contact", header: "Contact", render: (r) => r.email ?? r.phone ?? "—" },
     { key: "channel", header: "Source", render: (r) => CHANNEL_LABEL[r.sourceChannel] },
-    { key: "quotations", header: "Quotations", numeric: true, align: "right", render: (r) => r.quotationCount },
     { key: "orders", header: "Job orders", numeric: true, align: "right", render: (r) => r.jobOrderCount },
   ];
 
@@ -35,7 +34,7 @@ export function CustomersPage() {
       <PageHeader
         eyebrow="CUSTOMERS"
         title="Customers"
-        description="Contact details and history for everyone who's requested a quotation or job — however they first reached out."
+        description="Contact details and job history for every customer — however they first reached out."
         actions={
           <LinkButton variant="primary" to="/customers/new">
             New customer

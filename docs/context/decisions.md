@@ -254,6 +254,19 @@ Track product and technical decisions that affect future development.
 
 ## 2026-08-27
 
+### Treat Canon PRINT as a Companion, Not the Printing API
+
+- Decision: On the owner's Windows workstation, Canon PRINT remains available for Canon setup, scanning, ink information, and maintenance. Printing-MS connects through the Windows printer queue created for that device, using the same queue adapter for Canon and other manufacturers.
+- Rationale: Canon PRINT exposes a user-facing desktop workflow, while the Windows spooler is the stable system boundary for applications that print. This preserves Canon functionality without coupling Printing-MS to an undocumented app-to-app API.
+- Alternatives considered: Automating the Canon PRINT desktop UI; building directly against a Canon-only SDK; requiring a different integration per printer manufacturer.
+- Impact: Print Center opens Windows Printers & scanners, explains the three-step Canon setup flow, and discovers queues through `Win32_Printer`. macOS/Linux continue through CUPS. Actual print submission and capability negotiation remain separate work.
+
+### Auto-Detect the Printer Host Platform With an Explicit Override
+
+- Decision: Printer integration resolves the host as Windows, macOS, or Linux from the backend runtime by default. `PRINT_MS_PRINTER_PLATFORM` may explicitly select `windows`, `macos`, or `linux`; `auto` remains the recommended value.
+- Rationale: Normal installations should require no OS configuration, while packaging tests and controlled deployments still need a deterministic adapter override.
+- Impact: `/printers/platform` exposes the resolved platform, configured value, detection source, and adapter. Print Center displays this state and derives platform-specific guidance from it.
+
 ### Price Products and Job Lines From Their Paper Materials
 
 - Decision: A product's catalog reference is the lowest active rate among its assigned paper materials for its print type. During job creation, the exact selected paper material determines the line rate; a line may select only one priced paper material, and a second paper size requires a second line. Product overrides continue to take precedence over global rates.
@@ -307,6 +320,37 @@ Track product and technical decisions that affect future development.
 - Alternatives considered: Keep the centered content-width limit; add a separate fullscreen mode; retain page-at-a-time navigation.
 - Impact: The preview and results panes independently fill and scroll on desktop, while narrow layouts still stack. PDF pages are labeled and rendered ahead of the scroll position to balance continuous reading with memory and rendering cost.
 
+### Align Product-Selected Analysis With Product Pricing
+
+- Decision: When a product is selected in Document Analyzer, price every page using the product's configured print type and only an active pricing rule tied to one of its assigned paper materials. Resolve product override first, then the global rate for the detected size. Generic analysis continues to price detected color and B&W pages separately.
+- Rationale: Product and job-order pricing already define the requested output mode; using detected source color as the billing mode could ignore a valid product configuration and return ₱0.
+- Impact: Analyzer estimates now match catalog and job-order pricing while still reporting detected color separation as analysis metadata.
+
+### Configure Runtime Stage and SQLite Path Through Environment
+
+- Decision: `PRINT_MS_STAGE` selects one of three independently configured paths: `PRINT_MS_DEVELOPMENT_DATABASE_PATH`, `PRINT_MS_TEST_DATABASE_PATH`, or `PRINT_MS_PRODUCTION_DATABASE_PATH`. Relative paths resolve from `services/api`; the older `PRINT_MS_DATABASE_PATH` remains an active-stage compatibility override. Settings exposes every resolved path but does not switch a live database.
+- Rationale: Development and production must never share an implicit database, while test runs need a third disposable data boundary. Applying the stage only at startup avoids changing SQLAlchemy connections while the application is running.
+- Impact: `services/api/.env.example` scaffolds all stages. Operators change `PRINT_MS_STAGE` and restart, and Settings marks the active database plus the source of every path.
+
+### Remove the Separate Production Page
+
+- Decision: Remove Production from primary navigation and routing. Production status remains part of Job Orders, individual job workspaces, and Overview rather than a duplicate board.
+- Rationale: The separate page duplicated operational status already carried by the job-order workflow.
+- Impact: `/production` now follows the catch-all redirect to Overview, and the page implementation is removed.
+
+### Price Analysis From Measured Coverage and Product Options
+
+- Decision: Document Analyzer requires a selected product in the UI and optionally accepts one of that product's variants. The estimate is the exact paper-size product rate × pages, plus ink load as the same percentage of the base subtotal, plus a color premium proportional to measured color coverage using the configured colored-rate difference, plus the variant adjustment × pages.
+- Rationale: A flat per-page total ignored how much printable content was actually present and could not represent configured finishing/production variants.
+- Alternatives considered: Fixed undocumented coverage bands; treating every page containing any color as a full-color page; inferring variants from their labels.
+- Impact: PDF pages are rasterized locally with PyMuPDF so text, vectors, and images all contribute to color/ink coverage. Images use direct pixel analysis; Office formats retain conservative, clearly warned estimates because they are not natively rendered.
+
+### Remove Quotations From the Active UI
+
+- Decision: Remove Quotations navigation, list/detail routes, status surfaces, overview metric, customer counts, and Settings controls. Document Analyzer provides the operator's suggested price before a Job Order is created.
+- Rationale: The owner does not use a separate quotation workflow and identified it as redundant with document analysis.
+- Impact: Legacy quotation database models and APIs remain untouched to avoid destructive data loss, but `/quotations` now redirects through the renderer catch-all.
+
 ## Template
 
 ### Decision Title
@@ -316,3 +360,10 @@ Track product and technical decisions that affect future development.
 - Rationale:
 - Alternatives considered:
 - Impact:
+## 2026-08-28
+
+### Persist Only Owner-Confirmed Analyzed Transactions
+
+- Decision: New transaction analysis is temporary. The system creates the job order and retains its uploaded file only when the owner explicitly proceeds after choosing the engine recommendation or a custom final price.
+- Rationale: Cancelling a recommendation should not create abandoned job orders or orphan customer files, while confirmed pricing needs an auditable engine suggestion and final value.
+- Impact: The creation wizard handles one uploaded file and one product per transaction, the server re-analyzes on confirmation, stores both suggested and final totals, automatically plans detected paper, and routes the saved job to Print Center.

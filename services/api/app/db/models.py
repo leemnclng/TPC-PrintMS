@@ -120,6 +120,7 @@ class BusinessProfile(TimestampMixin, Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     business_name: Mapped[str] = mapped_column(String, nullable=False)
+    owner_name: Mapped[str] = mapped_column(String, default="Owner", nullable=False)
     tagline: Mapped[str | None] = mapped_column(String, nullable=True)
     email: Mapped[str | None] = mapped_column(String, nullable=True)
     phone: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -361,6 +362,8 @@ class JobOrder(TimestampMixin, Base):
         Enum(JobOrderStatus), default=JobOrderStatus.pending_payment, nullable=False
     )
     total: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    suggested_total: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    price_overridden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     due_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     assigned_printer_id: Mapped[str | None] = mapped_column(ForeignKey("printers.id"), nullable=True)

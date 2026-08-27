@@ -14,8 +14,8 @@ from pathlib import Path
 APP_DIR_NAME = "PrintingMS"
 
 
-def resolve_data_dir() -> Path:
-    override = os.environ.get("PRINT_MS_DATA_DIR")
+def resolve_data_dir(override: str | Path | None = None) -> Path:
+    override = override or os.environ.get("PRINT_MS_DATA_DIR")
     if override:
         path = Path(override).expanduser()
     elif sys.platform == "darwin":

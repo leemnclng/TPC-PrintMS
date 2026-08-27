@@ -123,6 +123,21 @@ Track notable app changes by date.
 - Added: PDF page navigation, direct page entry, zoom, fit-to-width, rotation, keyboard shortcuts, download, and retryable error states.
 - Changed: Analyzed documents now occupy the full available app content pane instead of the centered page width.
 - Changed: PDF preview now shows every page in one continuous vertical scroll; previous/next pagination controls were removed.
+- Fixed: Product-selected document analysis now uses the product's configured print type, assigned paper material, and override/global rate instead of returning ₱0 when source-page color differs.
+- Fixed: PDF analysis now handles encrypted/invalid files consistently and warns when text extraction fails on individual pages.
+- Added: `PRINT_MS_STAGE` and `PRINT_MS_DATABASE_PATH` `.env` configuration, with resolved stage/database diagnostics in Settings.
+- Added: Owner name configuration in Settings; the saved name and initials now appear in the sidebar.
+- Removed: The redundant Production page, route, navigation item, and icon.
+- Changed: The sidebar connection status now reads “Connected” instead of “Backend connected.”
+- Added: PDF page raster analysis now measures ink and color coverage across text, vectors, and images; image files use the same pixel engine and Office formats expose conservative estimated coverage.
+- Changed: Document Analyzer pricing now shows product base subtotal, measured ink surcharge, configured color-coverage premium, and optional per-page variant adjustment as separate lines.
+- Changed: Product selection is required for Analyzer pricing, with only that product's configured variants available.
+- Removed: Quotations navigation, routes, pages, overview metric, customer counts, and Settings controls; legacy backend records remain untouched.
+- Changed: The Paper Club mark now appears in the browser tab and as the Electron window, dock/taskbar, and packaged application icon.
+- Added: Print Center can open native Windows/macOS printer settings and now guides Canon PRINT users from device setup to OS queue discovery.
+- Added: Windows printer discovery through the built-in spooler provider, covering Canon and other installed printer brands without a vendor SDK.
+- Fixed: A printer queue removed from the operating system is marked offline after discovery instead of retaining a stale healthy state.
+- Added: Print Center auto-detects and displays the printer host operating system and whether it was automatic or selected through `PRINT_MS_PRINTER_PLATFORM`.
 
 ## Template
 
@@ -132,3 +147,14 @@ Track notable app changes by date.
 - Added:
 - Fixed:
 - Removed:
+## 2026-08-28
+
+- Added: Separate `PRINT_MS_DEVELOPMENT_DATABASE_PATH`, `PRINT_MS_TEST_DATABASE_PATH`, and `PRINT_MS_PRODUCTION_DATABASE_PATH` configuration with distinct defaults.
+- Added: Settings now shows all environment database paths, their source, and which stage is active; changing `PRINT_MS_STAGE` takes effect after restart.
+- Changed: Quick Actions now appears directly below the Overview heading, with New Job Order highlighted as the primary counter workflow.
+- Added: The Overview shortcut opens the complete upload-and-analysis job-order modal in one click.
+- Changed: New Job Order is now a guided transaction flow for customer file upload, configured product/variant selection, analysis, price review, and Print Center handoff.
+- Added: Owners can accept the engine recommendation or set a transaction-only final price while preserving the original suggestion for audit.
+- Added: Confirmed transactions retain their approved file and automatically plan the detected configured paper at pages × copies.
+- Changed: Cancelling before final confirmation creates no job order and retains no file.
+- Added: Print Center opens with the confirmed job, pricing decision, product/page details, and ready-to-print file visibly staged.

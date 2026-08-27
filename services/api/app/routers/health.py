@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..core.config import DATA_DIR, settings
+from ..core.config import settings
 from ..db.session import get_db
 from ..schemas.health import HealthRead
 
@@ -26,8 +26,12 @@ def health(db: Session = Depends(get_db)) -> HealthRead:
         db_ok = False
 
     return HealthRead(
+        stage=settings.stage,
         version=settings.version,
         uptime_seconds=time.monotonic() - _started_at,
         db_ok=db_ok,
-        data_dir=str(DATA_DIR),
+        data_dir=str(settings.resolved_data_dir),
+        database_path=str(settings.resolved_database_path),
+        database_paths={stage: str(path) for stage, path in settings.resolved_database_paths.items()},
+        database_path_sources=settings.database_path_sources,
     )

@@ -4,13 +4,14 @@ Per docs/context/decisions.md, Printing-MS must not couple to the Canon
 PIXMA G4770 (the first validation target) or any Canon-specific API. This
 module reads whatever printers the operating system already has installed
 and queued — CUPS on macOS/Linux, the Windows print spooler on Windows — and
-never talks to a printer driver directly. That is Phase 1 in
-docs/context/build-plan.md ("Printing Feasibility Spike"); this is a first,
-read-only implementation of the detection half of that phase.
+never talks to a printer driver directly. Canon PRINT and other vendor apps
+can therefore remain setup/maintenance companions without becoming required
+runtime dependencies of Printing-MS.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -80,19 +81,71 @@ class CupsPrinterAdapter(PrinterAdapter):
 
 
 class WindowsPrinterAdapter(PrinterAdapter):
-    """Placeholder for the Windows print-spooler adapter (via `win32print`).
-    Not implemented in this scaffold — Phase 1 validation on Windows is
-    still open per docs/context/issues-log.md — but kept as an explicit,
-    honest stub rather than silently falling back to the CUPS adapter."""
+    """Enumerate Windows print queues through the built-in CIM provider.
+
+    PowerShell and Win32_Printer ship with supported Windows versions, so the
+    desktop build does not need a compiled pywin32 dependency just to discover
+    a queue created by Canon PRINT, a vendor driver, or Windows IPP.
+    """
 
     def list_printers(self) -> list[DetectedPrinter]:
-        raise NotImplementedError(
-            "Windows printer detection (win32print) is not yet implemented — "
-            "see docs/context/issues-log.md."
+        command = (
+            "Get-CimInstance Win32_Printer | "
+            "Select-Object Name,Default,WorkOffline,PrinterStatus | "
+            "ConvertTo-Json -Compress"
         )
+        try:
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return []
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return []
+
+        rows = payload if isinstance(payload, list) else [payload]
+        printers: list[DetectedPrinter] = []
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("Name"):
+                continue
+            raw_status = row.get("PrinterStatus")
+            if row.get("WorkOffline") is True or raw_status == 7:
+                state = "offline"
+            elif raw_status == 4:
+                state = "printing"
+            elif raw_status == 3:
+                state = "idle"
+            elif raw_status == 6:
+                state = "error"
+            else:
+                state = "unknown"
+
+            name = str(row["Name"])
+            printers.append(
+                DetectedPrinter(
+                    system_name=name,
+                    display_name=name,
+                    is_default=row.get("Default") is True,
+                    state=state,
+                )
+            )
+        return printers
 
 
-def get_printer_adapter() -> PrinterAdapter:
-    if sys.platform == "win32":
+def get_printer_adapter(platform_name: str | None = None) -> PrinterAdapter:
+    resolved_platform = platform_name
+    if resolved_platform is None:
+        resolved_platform = "windows" if sys.platform == "win32" else "macos" if sys.platform == "darwin" else "linux"
+    if resolved_platform == "windows":
         return WindowsPrinterAdapter()
     return CupsPrinterAdapter()

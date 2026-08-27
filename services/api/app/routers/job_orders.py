@@ -1,28 +1,48 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import json
+from pathlib import Path
+import shutil
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
+from ..core.config import settings
 from ..core.security import require_token
 from ..db.models import (
     BusinessProfile,
     Customer,
     InventoryMovement,
     InventoryMovementKind,
+    JobFile,
     JobOrder,
     JobOrderItem,
     JobOrderMaterialPlan,
     Product,
+    ProductVariant,
 )
 from ..db.session import get_db
 from ..schemas.inventory import InventoryMovementRead
-from ..schemas.job_orders import JobOrderCreate, JobOrderMaterialUsageCreate, JobOrderRead
+from ..modules.document_analyzer.analyzers.base import InvalidDocumentError
+from ..modules.document_analyzer.services.analysis_service import AnalysisService
+from ..modules.document_analyzer.services.pricing_service import PricingService
+from ..modules.document_analyzer.utils.file_detection import (
+    MAX_FILE_SIZE_BYTES,
+    UnsafeArchiveError,
+    UnsupportedFileTypeError,
+)
+from ..schemas.job_orders import AnalyzedJobOrderCreate, JobOrderCreate, JobOrderMaterialUsageCreate, JobOrderRead
 from ..services.product_pricing import price_per_page_for_material, reference_price_per_page
 
 router = APIRouter(prefix="/job-orders", tags=["job-orders"], dependencies=[Depends(require_token)])
+analysis_service = AnalysisService()
+pricing_service = PricingService()
 
 
 def _to_read(job_order: JobOrder) -> JobOrderRead:
@@ -34,6 +54,8 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
         quotation_id=job_order.quotation_id,
         status=job_order.status,
         total=job_order.total,
+        suggested_total=job_order.suggested_total,
+        price_overridden=job_order.price_overridden,
         amount_paid=sum(payment.amount for payment in job_order.payments if payment.verified),
         due_date=job_order.due_date,
         notes=job_order.notes,
@@ -65,6 +87,16 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
             }
             for item in job_order.items
         ],
+        files=[
+            {
+                "id": file.id,
+                "original_filename": file.original_filename,
+                "kind": file.kind,
+                "size_bytes": file.size_bytes,
+                "uploaded_at": file.uploaded_at,
+            }
+            for file in job_order.files
+        ],
         created_at=job_order.created_at,
         updated_at=job_order.updated_at,
     )
@@ -80,6 +112,143 @@ def get_job_order(job_order_id: str, db: Session = Depends(get_db)) -> JobOrderR
     job_order = db.get(JobOrder, job_order_id)
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
+    return _to_read(job_order)
+
+
+@router.get("/{job_order_id}/files/{file_id}")
+def download_job_file(job_order_id: str, file_id: str, db: Session = Depends(get_db)) -> FileResponse:
+    job_file = db.get(JobFile, file_id)
+    if not job_file or job_file.job_order_id != job_order_id:
+        raise HTTPException(status_code=404, detail="Job file not found.")
+    files_root = (settings.resolved_data_dir / "files").resolve()
+    stored_path = (settings.resolved_data_dir / job_file.stored_path).resolve()
+    if files_root not in stored_path.parents or not stored_path.is_file():
+        raise HTTPException(status_code=404, detail="The stored job file is unavailable.")
+    return FileResponse(stored_path, filename=job_file.original_filename)
+
+
+@router.post("/from-analysis", response_model=JobOrderRead, status_code=201)
+async def create_analyzed_job_order(
+    file: UploadFile = File(...),
+    transaction: str = Form(...),
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    try:
+        payload = AnalyzedJobOrderCreate.model_validate_json(transaction)
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail="The transaction details are incomplete or invalid.") from error
+    if payload.price_mode == "custom" and payload.custom_price is None:
+        raise HTTPException(status_code=422, detail="Enter the owner's final price.")
+
+    product = db.get(Product, payload.product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found.")
+    if not product.is_active:
+        raise HTTPException(status_code=409, detail=f"Product is inactive: {product.name}.")
+    variant: ProductVariant | None = None
+    if payload.variant_id:
+        variant = (
+            db.query(ProductVariant)
+            .filter(ProductVariant.product_id == product.id, ProductVariant.variant_id == payload.variant_id)
+            .one_or_none()
+        )
+        if variant is None:
+            raise HTTPException(status_code=404, detail="Variant is not assigned to the selected product.")
+
+    filename = Path(file.filename or "document").name
+    content_type = file.content_type or ""
+    data = await file.read(MAX_FILE_SIZE_BYTES + 1)
+    await file.close()
+    if not data:
+        raise HTTPException(status_code=422, detail="Select a non-empty document.")
+    if len(data) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="Documents must be 25 MB or smaller.")
+    try:
+        analysis = await run_in_threadpool(analysis_service.analyze, filename, data, content_type)
+    except UnsupportedFileTypeError as error:
+        raise HTTPException(status_code=415, detail=str(error)) from error
+    except (InvalidDocumentError, UnsafeArchiveError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    paper_assignment = next(
+        (
+            assignment
+            for assignment in product.material_assignments
+            if assignment.inventory_item.is_active
+            and assignment.inventory_item.paper_size is not None
+            and assignment.inventory_item.paper_size.value == analysis.paper_size.value
+        ),
+        None,
+    )
+    if paper_assignment is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{product.name} is not configured for the detected {analysis.paper_size.value} paper size.",
+        )
+
+    pricing = pricing_service.calculate(analysis, db, product, variant)
+    suggested_total = round(pricing.suggested_price * payload.copies, 2)
+    final_total = suggested_total if payload.price_mode == "suggested" else round(payload.custom_price or 0, 2)
+    paper_quantity = analysis.page_count * payload.copies
+    if "sheet" not in paper_assignment.inventory_item.unit.lower():
+        paper_quantity = 1
+    order_payload = JobOrderCreate(
+        customer_id=payload.customer_id,
+        due_date=payload.due_date,
+        notes=payload.notes,
+        items=[
+            {
+                "product_id": product.id,
+                "variant_label": variant.label if variant else None,
+                "pages_per_copy": analysis.page_count,
+                "copies": payload.copies,
+                "materials": [
+                    {
+                        "inventory_item_id": paper_assignment.inventory_item_id,
+                        "planned_quantity": paper_quantity,
+                    },
+                    *[material.model_dump() for material in payload.other_materials],
+                ],
+            }
+        ],
+    )
+
+    created = create_job_order(order_payload, db)
+    job_order = db.get(JobOrder, created.id)
+    if job_order is None:
+        raise HTTPException(status_code=500, detail="The job order could not be finalized.")
+
+    storage_directory = settings.resolved_data_dir / "files" / job_order.id
+    stored_filename = f"{uuid4().hex}-{filename}"
+    stored_path = storage_directory / stored_filename
+    try:
+        storage_directory.mkdir(parents=True, exist_ok=False)
+        stored_path.write_bytes(data)
+        relative_path = stored_path.relative_to(settings.resolved_data_dir)
+        job_order.suggested_total = suggested_total
+        job_order.price_overridden = payload.price_mode == "custom"
+        job_order.total = final_total
+        billable_quantity = max(analysis.page_count * payload.copies, 1)
+        job_order.items[0].unit_price = round(final_total / billable_quantity, 2)
+        job_order.items[0].line_total = final_total
+        job_order.files.append(
+            JobFile(
+                original_filename=filename,
+                stored_path=str(relative_path),
+                kind="print_ready",
+                size_bytes=len(data),
+            )
+        )
+        db.commit()
+        db.refresh(job_order)
+    except Exception as error:
+        db.rollback()
+        persisted = db.get(JobOrder, job_order.id)
+        if persisted is not None:
+            db.delete(persisted)
+            db.commit()
+        shutil.rmtree(storage_directory, ignore_errors=True)
+        raise HTTPException(status_code=500, detail="The confirmed transaction could not be saved.") from error
     return _to_read(job_order)
 
 

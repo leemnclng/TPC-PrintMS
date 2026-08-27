@@ -15,6 +15,9 @@ class PricingEngine:
         analysis: DocumentAnalysis,
         rules: Iterable[DocumentPricingRule],
         product_overrides: dict[tuple[str, ProductPrintType], float] | None = None,
+        print_type: ProductPrintType | None = None,
+        variant_label: str | None = None,
+        variant_adjustment: float = 0,
     ) -> PricingResult:
         active = [rule for rule in rules if rule.is_active]
         exact = {
@@ -24,10 +27,16 @@ class PricingEngine:
         }
         product_overrides = product_overrides or {}
         rates: dict[ProductPrintType, tuple[float, str]] = {}
-        for print_type in ProductPrintType:
-            override_key = (analysis.paper_size.value, print_type)
+        for rate_print_type in ProductPrintType:
+            override_key = (analysis.paper_size.value, rate_print_type)
             if override_key in product_overrides:
-                rates[print_type] = (product_overrides[override_key], "product")
-            elif print_type in exact:
-                rates[print_type] = (exact[print_type], "paperSize")
-        return calculate_price(analysis, rates)
+                rates[rate_print_type] = (product_overrides[override_key], "product")
+            elif rate_print_type in exact:
+                rates[rate_print_type] = (exact[rate_print_type], "paperSize")
+        return calculate_price(
+            analysis,
+            rates,
+            print_type,
+            variant_label,
+            variant_adjustment,
+        )

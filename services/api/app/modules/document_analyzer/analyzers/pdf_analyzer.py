@@ -4,8 +4,10 @@ import re
 from io import BytesIO
 from statistics import mean
 
-from pypdf import PdfReader
-from pypdf.errors import PdfReadError
+import pymupdf
+from PIL import Image
+from pypdf import PasswordType, PdfReader
+from pypdf.errors import PyPdfError
 
 from ..models.document_analysis import DocumentAnalysis, PageMargins
 from ..models.enums import DocumentFileType, Orientation
@@ -25,11 +27,12 @@ class PdfAnalyzer(DocumentAnalyzer):
             reader = PdfReader(BytesIO(data), strict=False)
             if reader.is_encrypted:
                 try:
-                    reader.decrypt("")
-                except Exception as error:
+                    if reader.decrypt("") == PasswordType.NOT_DECRYPTED:
+                        raise InvalidDocumentError("Password-protected PDFs cannot be analyzed.")
+                except PyPdfError as error:
                     raise InvalidDocumentError("Password-protected PDFs cannot be analyzed.") from error
             pages = list(reader.pages)
-        except (PdfReadError, OSError, ValueError) as error:
+        except (PyPdfError, OSError, ValueError) as error:
             if isinstance(error, InvalidDocumentError):
                 raise
             raise InvalidDocumentError("The selected PDF is damaged or unsupported.") from error
@@ -42,18 +45,22 @@ class PdfAnalyzer(DocumentAnalyzer):
         color_pages = 0
         image_count = 0
         graphic_count = 0
+        text_extraction_failures = 0
         image_metrics: list[ImageColorMetrics] = []
+        page_metrics = self._render_page_metrics(data)
 
-        for page in pages:
+        for page_index, page in enumerate(pages):
             try:
                 texts.append(page.extract_text() or "")
             except Exception:
                 texts.append("")
+                text_extraction_failures += 1
             width_mm = points_to_mm(float(page.mediabox.width))
             height_mm = points_to_mm(float(page.mediabox.height))
             page_sizes.append((width_mm, height_mm))
             orientations.append(classify_orientation(width_mm, height_mm))
-            page_is_colored = self._content_uses_color(page)
+            rendered_metric = page_metrics[page_index] if page_index < len(page_metrics) else None
+            page_is_colored = rendered_metric.is_colored if rendered_metric else self._content_uses_color(page)
 
             try:
                 for image_file in page.images:
@@ -87,9 +94,21 @@ class PdfAnalyzer(DocumentAnalyzer):
             warnings.append("The PDF contains mixed page sizes; the first page sets the pricing paper size.")
         if image_count and not text:
             warnings.append("No embedded text was found; OCR may be needed for scanned pages.")
+        if text_extraction_failures:
+            warnings.append(
+                f"Text could not be extracted from {text_extraction_failures} page(s); preview those pages before pricing."
+            )
+        if len(page_metrics) != len(pages):
+            warnings.append(
+                "Some pages could not be rasterized, so their color and ink coverage use a conservative fallback."
+            )
 
         coverage = round(mean(metric.coverage_percent for metric in image_metrics), 1) if image_metrics else 0.0
-        ink = round(mean(metric.ink_coverage_percent for metric in image_metrics), 1) if image_metrics else 0.0
+        measured_metrics = page_metrics or image_metrics
+        color_coverage = (
+            round(mean(metric.color_coverage_percent for metric in measured_metrics), 1) if measured_metrics else 0.0
+        )
+        ink = round(mean(metric.ink_coverage_percent for metric in measured_metrics), 1) if measured_metrics else 0.0
         bw_pages = len(pages) - color_pages
         return DocumentAnalysis(
             filename=filename,
@@ -108,6 +127,7 @@ class PdfAnalyzer(DocumentAnalyzer):
             image_count=image_count,
             contains_images=image_count > 0,
             image_coverage_percent=coverage,
+            estimated_color_coverage_percent=color_coverage,
             estimated_ink_coverage_percent=ink,
             table_count=0,
             graphic_count=graphic_count,
@@ -116,9 +136,35 @@ class PdfAnalyzer(DocumentAnalyzer):
             bw_pages=bw_pages,
             duplex_compatible=len(pages) > 1 and same_size,
             estimated_print_time_seconds=estimate_print_time(color_pages, bw_pages),
-            confidence=0.9 if text else 0.8,
+            confidence=max(0.5, (0.9 if text else 0.8) - (text_extraction_failures / len(pages)) * 0.3),
             warnings=warnings,
         )
+
+    @staticmethod
+    def _render_page_metrics(data: bytes) -> list[ImageColorMetrics]:
+        metrics: list[ImageColorMetrics] = []
+        try:
+            document = pymupdf.open(stream=data, filetype="pdf")
+            try:
+                for page in document:
+                    longest_edge = max(float(page.rect.width), float(page.rect.height), 1.0)
+                    # The color sampler downsizes to 320 px, so a 640 px
+                    # render preserves antialiasing detail without making
+                    # long documents unnecessarily slow or memory-heavy.
+                    scale = min(0.75, 640 / longest_edge)
+                    pixmap = page.get_pixmap(
+                        matrix=pymupdf.Matrix(scale, scale),
+                        colorspace=pymupdf.csRGB,
+                        alpha=False,
+                        annots=True,
+                    )
+                    image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                    metrics.append(analyze_image_color(image))
+            finally:
+                document.close()
+        except Exception:
+            return metrics
+        return metrics
 
     @staticmethod
     def _content_uses_color(page) -> bool:

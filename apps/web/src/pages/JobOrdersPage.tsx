@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "../components/Button/Button";
 import { PageHeader } from "../components/PageHeader/PageHeader";
 import { DataTable, DataTableColumn } from "../components/DataTable/DataTable";
@@ -11,22 +11,35 @@ import { useResource } from "../hooks/useResource";
 import { api } from "../lib/apiClient";
 import { formatCurrency, formatDate } from "../lib/format";
 import { jobOrderStatusMeta } from "../types/statusMeta";
-import type { Customer, DocumentPricingRule, InventoryItem, JobOrder, Product } from "../types/domain";
+import type { Customer, InventoryItem, JobOrder, Product } from "../types/domain";
 import { JobOrderCreateModal } from "./jobOrders/JobOrderCreateModal";
 
 export function JobOrdersPage() {
   const navigate = useNavigate();
-  const [createOpen, setCreateOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [createOpen, setCreateOpen] = useState(searchParams.get("create") === "1");
   const { data, state, error, reload } = useResource(async () => {
-    const [orders, customers, products, inventoryItems, pricingRules] = await Promise.all([
+    const [orders, customers, products, inventoryItems] = await Promise.all([
       api.get<JobOrder[]>("/job-orders"),
       api.get<Customer[]>("/customers"),
       api.get<Product[]>("/products"),
       api.get<InventoryItem[]>("/inventory-items"),
-      api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
     ]);
-    return { orders, customers, products, inventoryItems, pricingRules };
+    return { orders, customers, products, inventoryItems };
   });
+
+  useEffect(() => {
+    if (searchParams.get("create") === "1") setCreateOpen(true);
+  }, [searchParams]);
+
+  function closeCreate() {
+    setCreateOpen(false);
+    if (searchParams.has("create")) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("create");
+      setSearchParams(nextParams, { replace: true });
+    }
+  }
 
   const columns: DataTableColumn<JobOrder>[] = [
     { key: "number", header: "Order #", render: (r) => r.number, width: "10rem" },
@@ -77,12 +90,11 @@ export function JobOrdersPage() {
           customers={data.customers}
           products={data.products}
           inventoryItems={data.inventoryItems}
-          pricingRules={data.pricingRules}
-          onClose={() => setCreateOpen(false)}
+          onClose={closeCreate}
           onCreated={(order) => {
             setCreateOpen(false);
             reload();
-            navigate(`/job-orders/${order.id}`);
+            navigate(`/print-center?jobOrderId=${encodeURIComponent(order.id)}`);
           }}
         />
       )}

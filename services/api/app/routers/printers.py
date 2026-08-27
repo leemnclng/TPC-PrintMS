@@ -2,16 +2,28 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..core.security import require_token
+from ..core.config import settings
 from ..db.models import Printer
 from ..db.session import get_db
-from ..schemas.printers import PrinterRead
+from ..schemas.printers import PrinterPlatformRead, PrinterRead
 from ..services.printing.adapter import get_printer_adapter
 
 router = APIRouter(prefix="/printers", tags=["printers"], dependencies=[Depends(require_token)])
+
+
+@router.get("/platform", response_model=PrinterPlatformRead)
+def get_printer_platform() -> PrinterPlatformRead:
+    platform_name = settings.resolved_printer_platform
+    return PrinterPlatformRead(
+        platform=platform_name,
+        configured_platform=settings.printer_platform,
+        detection_source=settings.printer_platform_source,
+        adapter="windows_spooler" if platform_name == "windows" else "cups",
+    )
 
 
 @router.get("", response_model=list[PrinterRead])
@@ -24,11 +36,8 @@ def discover_printers(db: Session = Depends(get_db)) -> list[Printer]:
     """Re-reads the OS print queue (CUPS `lpstat` on macOS/Linux) and
     reconciles it with the stored printer list. This is a real detection
     pass, not a mock — see docs/context/build-plan.md Phase 1."""
-    adapter = get_printer_adapter()
-    try:
-        detected = adapter.list_printers()
-    except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    adapter = get_printer_adapter(settings.resolved_printer_platform)
+    detected = adapter.list_printers()
 
     seen_names = set()
     for item in detected:
@@ -48,5 +57,12 @@ def discover_printers(db: Session = Depends(get_db)) -> list[Printer]:
                     last_seen_state=item.state,
                 )
             )
+
+    # Preserve the historical record, but never leave a removed/disconnected
+    # queue looking healthy after a successful discovery pass.
+    for existing in db.query(Printer).all():
+        if existing.system_name not in seen_names:
+            existing.is_default = False
+            existing.last_seen_state = "offline"
     db.commit()
     return db.query(Printer).order_by(Printer.display_name).all()
