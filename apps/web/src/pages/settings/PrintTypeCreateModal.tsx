@@ -14,7 +14,6 @@ interface PrintTypeCreateModalProps {
 export function PrintTypeCreateModal({ open, onClose, onCreated }: PrintTypeCreateModalProps) {
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
-  const [colorMode, setColorMode] = useState<"color" | "grayscale">("color");
   const [appliesInkCoverage, setAppliesInkCoverage] = useState(true);
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -25,7 +24,6 @@ export function PrintTypeCreateModal({ open, onClose, onCreated }: PrintTypeCrea
     if (!open) return;
     setLabel("");
     setDescription("");
-    setColorMode("color");
     setAppliesInkCoverage(true);
     setTouched(false);
     setSaveError(null);
@@ -41,7 +39,7 @@ export function PrintTypeCreateModal({ open, onClose, onCreated }: PrintTypeCrea
       const created = await api.post<PrintTypeDefinition>("/print-types", {
         label: label.trim(),
         description: description.trim() || null,
-        colorMode,
+        colorMode: appliesInkCoverage ? "color" : "grayscale",
         appliesInkCoverage,
       });
       onCreated(created);
@@ -56,7 +54,7 @@ export function PrintTypeCreateModal({ open, onClose, onCreated }: PrintTypeCrea
     <Modal
       open={open}
       title="New print type"
-      description="Add an output type once; its pricing column and product option are created automatically."
+      description="Add a pricing type once; its pricing column and product option are created automatically."
       busy={saving}
       status={saveError ? "error" : saving ? "loading" : "idle"}
       onClose={onClose}
@@ -86,23 +84,6 @@ export function PrintTypeCreateModal({ open, onClose, onCreated }: PrintTypeCrea
             <span className="form-field__message">Optional guidance for owners configuring products.</span>
           </label>
 
-          <label className="form-field">
-            <span>Printer output</span>
-            <select
-              disabled={saving}
-              value={colorMode}
-              onChange={(event) => {
-                const nextMode = event.target.value as "color" | "grayscale";
-                setColorMode(nextMode);
-                if (nextMode === "grayscale") setAppliesInkCoverage(false);
-              }}
-            >
-              <option value="color">Color output</option>
-              <option value="grayscale">Grayscale output</option>
-            </select>
-            <span className="form-field__message">Used automatically when the job reaches Print Center.</span>
-          </label>
-
           <label className="print-type-form__coverage">
             <input
               type="checkbox"
@@ -112,8 +93,8 @@ export function PrintTypeCreateModal({ open, onClose, onCreated }: PrintTypeCrea
               onChange={(event) => setAppliesInkCoverage(event.target.checked)}
             />
             <span>
-              <strong>Price measured ink coverage</strong>
-              <small id="print-type-coverage-description">Add the analyzer’s ink-load adjustment to the configured base rate.</small>
+              <strong>Coverage-aware pricing</strong>
+              <small id="print-type-coverage-description">Add the analyzer’s measured ink-load adjustment to this type's configured base rate. This does not force the physical printer into color or grayscale.</small>
             </span>
           </label>
 

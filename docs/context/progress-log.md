@@ -370,3 +370,9 @@ Chronological notes about app progress.
 - Summary: Consolidated the complete transaction lifecycle into the job-order workspace.
 - Completed: Job creation now opens the new job rather than Print Center. Payment, queueing, print setup, print completion, quality approval, ready, and final completion use focused modals. Replaced seven detail cards with the active lifecycle, two essential summaries, and one collapsed audit pane.
 - Verified: All 20 API tests, renderer/desktop typechecks and builds, renderer lint, route scan, and diff validation pass.
+
+## 2026-08-29 (source-aware automatic print profile)
+
+- Summary: Decoupled commercial print types from physical document rendering.
+- Completed: Printing now derives color preservation from analyzed source content, uses automatic per-page orientation and driver printable margins, leaves quality at the installed driver default, and keeps borderless as a deliberate media-dependent override. Print-type creation now describes pricing behavior only.
+- Verified: All 21 API tests, web/desktop typechecks and production builds, renderer lint, responsive layout rules, and diff validation pass. Physical Canon output still requires the Windows workstation.

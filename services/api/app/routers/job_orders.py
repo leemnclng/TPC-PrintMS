@@ -648,7 +648,8 @@ async def submit_print_attempt(
     _record_status(
         job_order,
         JobOrderStatus.printing,
-        f"Submitted {job_file.original_filename} to {printer.display_name}.{material_note}",
+        f"Submitted {job_file.original_filename} to {printer.display_name}. "
+        f"Document analysis selected {color_mode} output.{material_note}",
     )
     db.commit()
     db.refresh(job_order)
@@ -743,7 +744,15 @@ def _automatic_print_settings(job_order: JobOrder, job_file: JobFile) -> tuple[i
             status_code=422,
             detail="Automatic print submission supports up to 99 copies per job. Split this work into smaller jobs.",
         )
-    color_mode = item.product.print_type_definition.color_mode
+    # Product print type belongs to pricing/workflow. Physical output follows
+    # the analyzed source: any detected color preserves RGB for the driver;
+    # a confirmed monochrome document may be rendered as grayscale. Unknown
+    # legacy analysis stays color-preserving to avoid irreversible data loss.
+    color_mode = (
+        "grayscale"
+        if job_file.detected_color_pages == 0 and (job_file.detected_bw_pages or 0) > 0
+        else "color"
+    )
     configured_paper = next(
         (
             plan.inventory_item.paper_size.value

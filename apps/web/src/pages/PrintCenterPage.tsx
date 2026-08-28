@@ -44,7 +44,7 @@ export function PrintCenterPage() {
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [orientation, setOrientation] = useState<"auto" | "portrait" | "landscape">("auto");
   const [scaling, setScaling] = useState<"fit" | "fill" | "actual_size">("fit");
-  const [quality, setQuality] = useState<"draft" | "standard" | "high">("standard");
+  const [quality, setQuality] = useState<"auto" | "draft" | "standard" | "high">("auto");
   const [borderless, setBorderless] = useState(false);
   const [collate, setCollate] = useState(true);
 
@@ -82,7 +82,11 @@ export function PrintCenterPage() {
   );
   const copies = printItem?.copies ?? 1;
   const pageCount = selectedFile?.detectedPageCount ?? printItem?.pagesPerCopy ?? 1;
-  const colorMode = printItem?.printColorMode ?? "color";
+  const automaticColorMode = selectedFile?.detectedColorPages === 0 && (selectedFile.detectedBwPages ?? 0) > 0
+    ? "B&W document"
+    : selectedFile?.detectedColorPages != null
+      ? "Color content detected"
+      : "Preserve source color";
   const totalSheets = pageCount * copies;
   const paperDeduction = Math.max((paperPlan?.plannedQuantity ?? totalSheets) - (paperPlan?.consumedQuantity ?? 0), 0);
   const defaultPrinters = data?.filter((printer) => printer.isDefault) ?? [];
@@ -99,7 +103,7 @@ export function PrintCenterPage() {
   useEffect(() => {
     setOrientation("auto");
     setScaling("fit");
-    setQuality("standard");
+    setQuality("auto");
     setBorderless(false);
     setCollate(true);
   }, [jobOrderId]);
@@ -315,7 +319,7 @@ export function PrintCenterPage() {
             <div><span className="numeric">AVAILABLE DEVICES</span><h2 id="printer-roster-title">Choose a print queue</h2></div>
             <div className="printer-roster__aside">
               <p>The Windows default stays prominent; alternatives remain available without competing for attention.</p>
-              {nativePlatform === "win32" && selectedPrinter && <Button type="button" variant="secondary" size="sm" onClick={handleOpenPrinterPreferences} loading={openingSettings}>Selected printer preferences</Button>}
+              {nativePlatform === "win32" && selectedPrinter && <Button type="button" variant="secondary" size="sm" onClick={handleOpenPrinterPreferences} loading={openingSettings}>{/canon/i.test(selectedPrinter.displayName) ? "Canon print settings" : "Selected printer settings"}</Button>}
             </div>
           </header>
           <div className="printer-default-pane">
@@ -347,7 +351,7 @@ export function PrintCenterPage() {
                 <div className="print-auto-profile__heading">
                   <span className="numeric">DOCUMENT & PRODUCT PROFILE</span>
                   <strong>Ready from the approved transaction</strong>
-                  <small>Paper, copies, and output mode stay aligned with pricing and inventory.</small>
+                  <small>Paper and copies stay aligned with pricing and inventory; physical output follows the analyzed source.</small>
                 </div>
                 <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{stagedOrder.files.filter((file) => file.kind === "print_ready").map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
                 <dl>
@@ -355,7 +359,7 @@ export function PrintCenterPage() {
                   <div><dt>Copies</dt><dd>{copies.toLocaleString()}</dd></div>
                   <div><dt>Paper deduction</dt><dd>{paperDeduction.toLocaleString()} {paperPlan?.inventoryItemUnit ?? "sheets"}</dd></div>
                   <div><dt>Paper</dt><dd>{mediaSize}</dd></div>
-                  <div><dt>Output</dt><dd>{colorMode === "grayscale" ? "B&W / grayscale" : "Colored"}</dd></div>
+                  <div><dt>Output</dt><dd>Auto · {automaticColorMode}</dd></div>
                   <div><dt>Detected layout</dt><dd>{selectedFile?.detectedOrientation ?? "Mixed / unknown"}</dd></div>
                   <div><dt>Source pages</dt><dd>{selectedFile?.detectedColorPages ?? 0} color · {selectedFile?.detectedBwPages ?? pageCount} B&W</dd></div>
                   <div><dt>Ink load</dt><dd>{selectedFile?.estimatedInkCoveragePercent != null ? `${selectedFile.estimatedInkCoveragePercent.toFixed(1)}%` : "—"}</dd></div>
@@ -366,17 +370,18 @@ export function PrintCenterPage() {
                 <div className="print-controls__intro">
                   <div><span className="numeric">WINDOWS-STYLE CONTROLS</span><strong>Adjust output for this attempt</strong><small>These choices are saved in Print History and sent to the selected driver.</small></div>
                   {nativePlatform === "win32" && selectedPrinter && (
-                    <Button type="button" variant="secondary" size="sm" onClick={handleOpenPrinterPreferences} loading={openingSettings}>Open driver preferences</Button>
+                    <Button type="button" variant="secondary" size="sm" onClick={handleOpenPrinterPreferences} loading={openingSettings}>{/canon/i.test(selectedPrinter.displayName) ? "Open Canon print settings" : "Open driver settings"}</Button>
                   )}
                 </div>
                 <div className="print-controls__grid">
                   <label className="form-field"><span>Orientation</span><select value={orientation} onChange={(event) => setOrientation(event.target.value as typeof orientation)}><option value="auto">Auto per page</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select><small>Auto follows each analyzed page.</small></label>
                   <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="fit">Fit printable area</option><option value="actual_size">Actual size</option><option value="fill">Fill paper (crop edges)</option></select><small>Fit is safest for office documents.</small></label>
-                  <label className="form-field"><span>Print quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select><small>The closest driver resolution is used.</small></label>
-                  <label className="print-toggle"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Borderless output</strong><small>Requires borderless support for {mediaSize} in the selected driver.</small></span></label>
+                  <label className="form-field"><span>Print quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="auto">Automatic · driver default</option><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select><small>Automatic leaves the installed driver's quality unchanged.</small></label>
+                  <label className="print-toggle"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Force borderless output</strong><small>Off fits within printer margins; on requires supported media for {mediaSize}.</small></span></label>
                   <label className="print-toggle"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate copies</strong><small>{copies < 2 ? "Available when printing multiple copies." : "Print one complete document before the next copy."}</small></span></label>
                 </div>
-                <p className="print-controls__driver-note"><strong>Canon-specific paper type, tray, and maintenance settings:</strong> use Windows driver preferences. Printing-MS preserves those driver defaults and applies the controls above to this job.</p>
+                <p className="print-controls__driver-note"><strong>Automatic document profile:</strong> the product's print type remains pricing-only. Analysis preserves color when the source contains color, selects orientation per page, and fits content to the driver's printable area.</p>
+                <p className="print-controls__driver-note"><strong>Canon-specific paper type, tray, and color correction:</strong> use Canon print settings. Automatic quality preserves the installed driver's configured default.</p>
               </fieldset>
               <div className="print-submission__confirm">
                 <p><strong>Submitting also deducts every remaining planned material from Inventory.</strong><span>The request is blocked before printing when stock is insufficient. Failed printer submissions do not deduct anything.</span></p>

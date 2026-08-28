@@ -57,6 +57,9 @@
 .job-print-check > span { display: flex; flex-direction: column; }
 .job-print-check strong { font-size: var(--text-sm); }
 .job-print-check small { color: var(--color-ink-faint); font-size: var(--text-xs); }
+.job-print-auto-note,
+.job-print-driver-note { margin: 0; border-left: 2px solid var(--color-warning); padding-left: var(--space-3); color: var(--color-ink-soft); font-size: var(--text-xs); }
+.job-print-driver-note { border-left-color: var(--color-hairline-strong); }
 .job-payment-form { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .job-payment-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--color-hairline); background: var(--color-paper-2); }
 .job-payment-summary > div { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); border-right: 1px solid var(--color-hairline); padding: var(--space-4) var(--space-5); }

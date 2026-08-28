@@ -7,7 +7,7 @@ param(
     [Parameter(Mandatory = $true)][ValidateSet("A4", "Letter", "Legal")][string]$MediaSize,
     [Parameter(Mandatory = $true)][ValidateSet("auto", "portrait", "landscape")][string]$Orientation,
     [Parameter(Mandatory = $true)][ValidateSet("fit", "fill", "actual_size")][string]$Scaling,
-    [Parameter(Mandatory = $true)][ValidateSet("draft", "standard", "high")][string]$Quality,
+    [Parameter(Mandatory = $true)][ValidateSet("auto", "draft", "standard", "high")][string]$Quality,
     [Parameter(Mandatory = $true)][ValidateSet("true", "false")][string]$Borderless,
     [Parameter(Mandatory = $true)][ValidateSet("true", "false")][string]$Collate
 )
@@ -55,10 +55,12 @@ $document.PrintController = New-Object System.Drawing.Printing.StandardPrintCont
 $document.PrinterSettings.Copies = 1
 $document.PrinterSettings.Collate = $useCollation
 
-$preferredResolutionKind = if ($Quality -eq "draft") { "Draft" } elseif ($Quality -eq "high") { "High" } else { "Medium" }
-$printerResolution = $document.PrinterSettings.PrinterResolutions |
-    Where-Object { $_.Kind.ToString() -eq $preferredResolutionKind } |
-    Select-Object -First 1
+$preferredResolutionKind = if ($Quality -eq "draft") { "Draft" } elseif ($Quality -eq "high") { "High" } elseif ($Quality -eq "standard") { "Medium" } else { $null }
+$printerResolution = if ($null -ne $preferredResolutionKind) {
+    $document.PrinterSettings.PrinterResolutions |
+        Where-Object { $_.Kind.ToString() -eq $preferredResolutionKind } |
+        Select-Object -First 1
+} else { $null }
 if ($null -ne $printerResolution) {
     $document.DefaultPageSettings.PrinterResolution = $printerResolution
 }

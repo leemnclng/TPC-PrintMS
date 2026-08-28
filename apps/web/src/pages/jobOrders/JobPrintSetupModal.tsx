@@ -28,7 +28,7 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
   const [selectedFileId, setSelectedFileId] = useState("");
   const [orientation, setOrientation] = useState<"auto" | "portrait" | "landscape">("auto");
   const [scaling, setScaling] = useState<"fit" | "fill" | "actual_size">("fit");
-  const [quality, setQuality] = useState<"draft" | "standard" | "high">("standard");
+  const [quality, setQuality] = useState<"auto" | "draft" | "standard" | "high">("auto");
   const [borderless, setBorderless] = useState(false);
   const [collate, setCollate] = useState(true);
   const [discovering, setDiscovering] = useState(false);
@@ -42,6 +42,11 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
   const mediaSize = paperPlan?.paperSize ?? selectedFile?.detectedPaperSize ?? "A4";
   const copies = printItem?.copies ?? 1;
   const pages = selectedFile?.detectedPageCount ?? printItem?.pagesPerCopy ?? 1;
+  const automaticColorMode = selectedFile?.detectedColorPages === 0 && (selectedFile.detectedBwPages ?? 0) > 0
+    ? "B&W document"
+    : selectedFile?.detectedColorPages != null
+      ? "Color content detected"
+      : "Preserve source color";
   const selectedPrinter = printers?.find((printer) => printer.id === selectedPrinterId);
   const defaultPrinters = printers?.filter((printer) => printer.isDefault) ?? [];
   const otherPrinters = printers?.filter((printer) => !printer.isDefault) ?? [];
@@ -53,7 +58,7 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
     setSelectedFileId(order.files.find((file) => file.kind === "print_ready")?.id ?? "");
     setOrientation("auto");
     setScaling("fit");
-    setQuality("standard");
+    setQuality("auto");
     setBorderless(false);
     setCollate(true);
     setActionError(null);
@@ -143,18 +148,20 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
             </section>
 
             <section className="job-print-section">
-              <header><div><span className="numeric">02 / OUTPUT</span><h3>Confirm file and settings</h3></div>{window.paperClub?.platform === "win32" && selectedPrinter && <Button type="button" size="sm" variant="secondary" onClick={handleOpenPreferences} loading={openingPreferences}>Driver preferences</Button>}</header>
+              <header><div><span className="numeric">02 / OUTPUT</span><h3>Confirm file and settings</h3></div>{window.paperClub?.platform === "win32" && selectedPrinter && <Button type="button" size="sm" variant="secondary" onClick={handleOpenPreferences} loading={openingPreferences}>{/canon/i.test(selectedPrinter.displayName) ? "Canon print settings" : "Printer settings"}</Button>}</header>
               <div className="job-print-proof">
                 <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{order.files.filter((file) => file.kind === "print_ready").map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
-                <dl><div><dt>Pages</dt><dd>{pages}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Paper</dt><dd>{mediaSize}</dd></div><div><dt>Output</dt><dd>{printItem?.printColorMode === "grayscale" ? "B&W" : "Color"}</dd></div></dl>
+                <dl><div><dt>Pages</dt><dd>{pages}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Paper</dt><dd>{mediaSize}</dd></div><div><dt>Output</dt><dd>Auto · {automaticColorMode}</dd></div></dl>
               </div>
               <div className="job-print-settings">
                 <label className="form-field"><span>Orientation</span><select value={orientation} onChange={(event) => setOrientation(event.target.value as typeof orientation)}><option value="auto">Auto per page</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
                 <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="fit">Fit printable area</option><option value="actual_size">Actual size</option><option value="fill">Fill paper</option></select></label>
-                <label className="form-field"><span>Quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
-                <label className="job-print-check"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Borderless</strong><small>Driver support required</small></span></label>
+                <label className="form-field"><span>Quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="auto">Automatic · driver default</option><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+                <label className="job-print-check"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Force borderless</strong><small>Off uses printer margins automatically</small></span></label>
                 <label className="job-print-check"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate copies</strong><small>Complete sets in order</small></span></label>
               </div>
+              <p className="job-print-auto-note" role="status"><strong>Automatic document profile:</strong> product print type remains pricing-only. Source analysis controls color preservation and page orientation; fitting uses the printer's reported printable area.</p>
+              {window.paperClub?.platform === "win32" && selectedPrinter && <p className="job-print-driver-note"><strong>{/canon/i.test(selectedPrinter.displayName) ? "Canon driver controls" : "Installed driver controls"}:</strong> the driver keeps its media, paper-source, color-correction, and quality defaults unless you explicitly override them here.</p>}
             </section>
             {actionError && <p className="workspace-form__error" role="alert">{actionError}</p>}
           </div>

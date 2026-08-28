@@ -526,7 +526,7 @@ class PrintJob(Base):
     media_size: Mapped[str] = mapped_column(String, default="A4", nullable=False)
     orientation: Mapped[str] = mapped_column(String, default="auto", nullable=False)
     scaling: Mapped[str] = mapped_column(String, default="fit", nullable=False)
-    quality: Mapped[str] = mapped_column(String, default="standard", nullable=False)
+    quality: Mapped[str] = mapped_column(String, default="auto", nullable=False)
     borderless: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     collate: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

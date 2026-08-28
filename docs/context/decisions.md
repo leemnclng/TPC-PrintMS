@@ -386,7 +386,7 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 ### Persist the Analyzer Print Profile and Deduct Plans on Queue Acceptance
 
-- Status: Refined on 2026-08-29 by “Apply Standard Job Settings Through the Installed Printer Driver.”
+- Status: Refined on 2026-08-29 by “Apply Standard Job Settings Through the Installed Printer Driver” and “Separate Commercial Print Type From Physical Output.”
 
 - Decision: Persist page count, detected best-fit paper, orientation, color/B&W pages, coverage, print-time estimate, and confidence on each confirmed print-ready file. Print Center displays an automatic read-only profile; the API derives authoritative copies and product output mode, while printer media comes from the owner-selected paper plan. After a printer accepts the file, deduct every remaining planned material and create job-linked inventory movements in the same database commit.
 - Rationale: Re-entering detected settings can make printing disagree with pricing and paper planning. Queue acceptance is the first reliable application event indicating production has started, while job creation and failed print attempts have not used stock.
@@ -398,10 +398,12 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 ### Treat the Configured B&W Rate as an All-Inclusive Per-Page Price
 
 - Decision: For a selected B&W product at A4, Letter, or Legal size, calculate `configured rate × detected pages`. Do not add measured ink-load or detected-color premiums; add only a variant the owner explicitly selected. Copies continue multiplying the resulting per-copy total in the transaction workflow.
-- Rationale: The owner configures each B&W rate to already cover both paper and ink. Charging coverage again duplicates those costs, and source color is irrelevant when the approved output is grayscale.
-- Impact: Analyzer coverage remains visible for production information, but it cannot change a B&W recommendation. Colored-product coverage pricing remains unchanged, and historical job-order price snapshots are not rewritten.
+- Rationale: The owner configures each B&W rate to already cover both paper and ink. Charging coverage again duplicates those costs, and source color is irrelevant to this commercial price calculation even though physical printing may preserve detected source color.
+- Impact: Analyzer coverage remains visible for production and physical-output decisions, but it cannot change a B&W recommendation. Colored-product coverage pricing remains unchanged, and historical job-order price snapshots are not rewritten.
 
 ### Store Print Types as App-Managed Pricing Definitions
+
+- Status: Refined on 2026-08-29 by “Separate Commercial Print Type From Physical Output”; the catalog's color-mode field remains compatibility metadata and no longer drives print rendering.
 
 - Decision: Replace the fixed product/pricing enums with a `print_types` catalog. Each type owns an immutable key, operator label, printer color mode, active state, ordering, and whether measured ink coverage adjusts its base rate. Seed B&W, Semi-colored, and Colored; allow owners to add more from Configuration.
 - Rationale: A third enum value would solve Semi-colored once but repeat backend, migration, and renderer work for every future type. One shared definition keeps pricing columns, product choices, analyzer behavior, and printer output aligned.
@@ -415,6 +417,8 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 ### Apply Standard Job Settings Through the Installed Printer Driver
 
+- Status: Refined on 2026-08-29 by “Separate Commercial Print Type From Physical Output.”
+
 - Decision: Keep paper, copies, and color mode aligned with the approved transaction, while allowing the owner to choose orientation, scaling, quality, borderless behavior, and collation for each print attempt. Apply those settings through Windows `PrintDocument` or standard CUPS options and retain them in Print History. Open the selected Windows driver's native preferences for Canon-specific media type, tray, and advanced controls.
 - Rationale: Canon and other vendors expose private driver settings that cannot be safely duplicated as fixed app values. The installed OS driver is the supported boundary, while common print-job controls can be applied consistently and audited by Printing-MS.
 - Impact: Canon PRINT remains the setup/maintenance companion. A borderless request fails clearly when the active driver/paper does not expose borderless output, and future capability discovery can narrow options without changing the print-attempt contract.
@@ -424,3 +428,17 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: After analysis confirmation, open the created job order rather than Print Center. Keep payment, queue confirmation, printer/output setup, quality review, ready, and completion actions in focused modals over one compact job workspace.
 - Rationale: Sending the owner between Job Orders and Print Center obscured the next step and duplicated job details across operational pages. One command page keeps the transaction context stable while modals isolate each short decision.
 - Impact: The job workspace shows only the lifecycle command panel, transaction essentials, production proof, and a collapsed audit section. Print Center remains available for device discovery and standalone queue administration, but it is no longer required to complete a job.
+
+### Default Physical Output From the Product but Allow an Owner Override
+
+- Status: Superseded by “Separate Commercial Print Type From Physical Output.”
+
+- Decision: Color/grayscale starts from the selected product's print type, but the owner may deliberately change it for a single print attempt. Paper and copies remain locked to the approved transaction. Canon-specific media, source, and color-correction settings are delegated to the installed Windows Canon driver; Printing-MS does not automate the Canon PRINT/Inkjet Smart Connect UI because it has no documented direct job-handoff API.
+- Rationale: Product configuration should provide the safe default, while an owner must still be able to correct the physical output before printing. Sending RGB or grayscale data explicitly prevents an accidental B&W render from becoming irreversible before the driver receives it.
+- Impact: Print setup shows the configured default and an audited output selector. An override changes only the physical attempt and does not silently recalculate the approved transaction price.
+
+### Separate Commercial Print Type From Physical Output
+
+- Decision: B&W, Semi-colored, Colored, and owner-added print types affect pricing and workflow only. At submission, derive physical color mode from the retained document analysis: preserve RGB if any color was detected or analysis is unknown, and render grayscale only for a confidently monochrome file. Default orientation follows each page, fitting respects the selected driver's printable area, and quality remains driver-managed. Borderless is never inferred silently because it depends on supported paper/media and enlarges/crops the source.
+- Rationale: A B&W price category must not destroy real color in an uploaded file. The analyzer has the evidence required to preserve source intent, while device-specific ink selection, color correction, hard margins, and supported media belong to the installed driver/printer.
+- Impact: Print setup displays a read-only automatic document profile instead of a product-based color selector. Owners may still explicitly override orientation, scaling, quality, or force borderless output when production intent requires it; pricing snapshots remain unchanged.

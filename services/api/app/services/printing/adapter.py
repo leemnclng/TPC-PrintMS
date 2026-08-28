@@ -53,7 +53,7 @@ class PrinterAdapter:
         media_size: str,
         orientation: str = "auto",
         scaling: str = "fit",
-        quality: str = "standard",
+        quality: str = "auto",
         borderless: bool = False,
         collate: bool = True,
     ) -> PrintSubmission:
@@ -117,7 +117,7 @@ class CupsPrinterAdapter(PrinterAdapter):
         media_size: str,
         orientation: str = "auto",
         scaling: str = "fit",
-        quality: str = "standard",
+        quality: str = "auto",
         borderless: bool = False,
         collate: bool = True,
     ) -> PrintSubmission:
@@ -135,11 +135,11 @@ class CupsPrinterAdapter(PrinterAdapter):
             "-o",
             f"print-scaling={'none' if scaling == 'actual_size' else scaling}",
             "-o",
-            f"print-quality={3 if quality == 'draft' else 5 if quality == 'high' else 4}",
-            "-o",
             f"multiple-document-handling={'separate-documents-collated-copies' if collate else 'separate-documents-uncollated-copies'}",
-            str(file_path),
         ]
+        if quality != "auto":
+            command.extend(["-o", f"print-quality={3 if quality == 'draft' else 5 if quality == 'high' else 4}"])
+        command.append(str(file_path))
         if orientation != "auto":
             command[1:1] = ["-o", f"orientation-requested={3 if orientation == 'portrait' else 4}"]
         try:
@@ -227,7 +227,7 @@ class WindowsPrinterAdapter(PrinterAdapter):
         media_size: str,
         orientation: str = "auto",
         scaling: str = "fit",
-        quality: str = "standard",
+        quality: str = "auto",
         borderless: bool = False,
         collate: bool = True,
     ) -> PrintSubmission:

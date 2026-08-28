@@ -1,5 +1,6 @@
 import json
 from io import BytesIO
+from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -14,6 +15,32 @@ from app.db.session import get_db
 from app.modules.document_analyzer.api import router as document_analyzer_router
 from app.routers import customers, inventory, job_orders, products, services, variants
 from app.services.printing.adapter import PrintSubmission, PrintSubmissionError
+
+
+def test_automatic_print_color_follows_analyzed_content_not_product_type() -> None:
+    paper_size = SimpleNamespace(value="A4")
+    material_plan = SimpleNamespace(inventory_item=SimpleNamespace(paper_size=paper_size))
+    order = SimpleNamespace(items=[SimpleNamespace(copies=2, material_plans=[material_plan])])
+
+    monochrome_file = SimpleNamespace(
+        detected_color_pages=0,
+        detected_bw_pages=3,
+        detected_paper_size="A4",
+    )
+    color_file = SimpleNamespace(
+        detected_color_pages=1,
+        detected_bw_pages=2,
+        detected_paper_size="A4",
+    )
+    legacy_file = SimpleNamespace(
+        detected_color_pages=None,
+        detected_bw_pages=None,
+        detected_paper_size="A4",
+    )
+
+    assert job_orders._automatic_print_settings(order, monochrome_file) == (2, "grayscale", "A4")
+    assert job_orders._automatic_print_settings(order, color_file) == (2, "color", "A4")
+    assert job_orders._automatic_print_settings(order, legacy_file) == (2, "color", "A4")
 
 
 def test_job_order_creation_and_material_usage(tmp_path) -> None:
@@ -258,11 +285,11 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     # Detection must remain advisory throughout pricing, inventory, and printing.
     paper = _create_material(client, headers, "Letter transaction paper", "sheet", 100, paper_size="Letter")
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
-    color_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "colored")
+    bw_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "black_and_white")
     assert client.put(
         "/document-analyzer/pricing-rules",
         headers=headers,
-        json={"rules": [{"id": color_rule["id"], "pricePerPage": 5, "isActive": True}]},
+        json={"rules": [{"id": bw_rule["id"], "pricePerPage": 5, "isActive": True}]},
     ).status_code == 200
     service = client.post(
         "/services",
@@ -274,8 +301,8 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
         headers=headers,
         json={
             "serviceId": service["id"],
-            "name": "Letter color document",
-            "printType": "colored",
+            "name": "Letter B&W-priced document",
+            "printType": "black_and_white",
             "isActive": True,
             "variants": [],
             "materialAssignments": [{"inventoryItemId": paper["id"]}],
@@ -396,8 +423,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     print_payload = {
         "printerId": printer_id,
         "jobFileId": order["files"][0]["id"],
-        # Legacy client hints are intentionally wrong; the server must use
-        # the analyzed transaction's authoritative print profile.
+        # Legacy copies, paper, and output hints are non-authoritative.
         "copies": 99,
         "colorMode": "grayscale",
         "mediaSize": "Legal",
@@ -429,6 +455,8 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     after_failure = client.get(f"/job-orders/{order['id']}", headers=headers).json()
     assert after_failure["status"] == "queued"
     assert after_failure["printAttempts"][0]["result"] == "failed"
+    assert after_failure["printAttempts"][0]["colorMode"] == "color"
+    assert after_failure["printAttempts"][0]["quality"] == "auto"
     assert after_failure["items"][0]["materials"][0]["consumedQuantity"] == 0
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 100
 

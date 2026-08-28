@@ -109,14 +109,14 @@ class JobOrderTransitionCreate(CamelModel):
 class PrintSubmissionCreate(CamelModel):
     printer_id: str
     job_file_id: str
-    # Retained as optional compatibility hints for older clients. The server
-    # derives authoritative settings from the analyzed job and product.
+    # Compatibility hints from older clients. Copies/media are resolved from
+    # the transaction and color is resolved from the analyzed source file.
     copies: int | None = Field(default=None, ge=1, le=99)
     color_mode: Literal["color", "grayscale"] | None = None
     media_size: Literal["A4", "Letter", "Legal"] | None = None
     orientation: Literal["auto", "portrait", "landscape"] = "auto"
     scaling: Literal["fit", "fill", "actual_size"] = "fit"
-    quality: Literal["draft", "standard", "high"] = "standard"
+    quality: Literal["auto", "draft", "standard", "high"] = "auto"
     borderless: bool = False
     collate: bool = True
 

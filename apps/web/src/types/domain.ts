@@ -256,7 +256,7 @@ export interface PrintJob {
   mediaSize: string;
   orientation: "auto" | "portrait" | "landscape";
   scaling: "fit" | "fill" | "actual_size";
-  quality: "draft" | "standard" | "high";
+  quality: "auto" | "draft" | "standard" | "high";
   borderless: boolean;
   collate: boolean;
   submittedAt: string;

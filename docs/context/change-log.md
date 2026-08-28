@@ -181,6 +181,10 @@ Track notable app changes by date.
 - Changed: Payment, queueing, printer setup, quality check, ready, and completion now open as modals without leaving the job order.
 - Changed: The job-order workspace now shows only the current lifecycle, transaction essentials, production brief, and a collapsed history/audit pane.
 - Changed: Quick Actions now appears directly below the Overview heading, with New Job Order highlighted as the primary counter workflow.
+- Fixed: B&W product pricing no longer converts a color-containing imported document to grayscale before printing.
+- Changed: Physical color mode now comes from document analysis, with RGB preserved for mixed/color files and grayscale used only for confirmed monochrome files.
+- Changed: Print setup defaults to per-page orientation, fit-to-printable-area scaling, installed-driver quality, and normal driver margins; borderless remains a deliberate supported-media override.
+- Changed: Print types and new-type creation are described as pricing/workflow categories instead of automatic printer color modes.
 - Added: The Overview shortcut opens the complete upload-and-analysis job-order modal in one click.
 - Changed: New Job Order is now a guided transaction flow for customer file upload, configured product/variant selection, analysis, price review, and Print Center handoff.
 - Added: Owners can accept the engine recommendation or set a transaction-only final price while preserving the original suggestion for audit.
