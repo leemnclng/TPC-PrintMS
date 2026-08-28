@@ -4,7 +4,12 @@ param(
     [Parameter(Mandatory = $true)][string]$PrinterName,
     [Parameter(Mandatory = $true)][ValidateRange(1, 99)][int]$Copies,
     [Parameter(Mandatory = $true)][ValidateSet("color", "grayscale")][string]$ColorMode,
-    [Parameter(Mandatory = $true)][ValidateSet("A4", "Letter", "Legal")][string]$MediaSize
+    [Parameter(Mandatory = $true)][ValidateSet("A4", "Letter", "Legal")][string]$MediaSize,
+    [Parameter(Mandatory = $true)][ValidateSet("auto", "portrait", "landscape")][string]$Orientation,
+    [Parameter(Mandatory = $true)][ValidateSet("fit", "fill", "actual_size")][string]$Scaling,
+    [Parameter(Mandatory = $true)][ValidateSet("draft", "standard", "high")][string]$Quality,
+    [Parameter(Mandatory = $true)][ValidateSet("true", "false")][string]$Borderless,
+    [Parameter(Mandatory = $true)][ValidateSet("true", "false")][string]$Collate
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +30,8 @@ if ($imagePaths.Count -eq 0) {
 Add-Type -AssemblyName System.Drawing
 
 $document = New-Object System.Drawing.Printing.PrintDocument
+$useBorderless = ($Borderless -eq "true")
+$useCollation = ($Collate -eq "true")
 $document.DocumentName = $DocumentName
 $document.PrinterSettings.PrinterName = $PrinterName
 if (-not $document.PrinterSettings.IsValid) {
@@ -43,18 +50,42 @@ if ($null -eq $paperSize) {
 $document.DefaultPageSettings.PaperSize = $paperSize
 $document.DefaultPageSettings.Color = ($ColorMode -eq "color")
 $document.DefaultPageSettings.Margins = [System.Drawing.Printing.Margins]::new(0, 0, 0, 0)
+$document.DefaultPageSettings.Landscape = ($Orientation -eq "landscape")
 $document.PrintController = New-Object System.Drawing.Printing.StandardPrintController
 $document.PrinterSettings.Copies = 1
-$document.PrinterSettings.Collate = $true
+$document.PrinterSettings.Collate = $useCollation
+
+$preferredResolutionKind = if ($Quality -eq "draft") { "Draft" } elseif ($Quality -eq "high") { "High" } else { "Medium" }
+$printerResolution = $document.PrinterSettings.PrinterResolutions |
+    Where-Object { $_.Kind.ToString() -eq $preferredResolutionKind } |
+    Select-Object -First 1
+if ($null -ne $printerResolution) {
+    $document.DefaultPageSettings.PrinterResolution = $printerResolution
+}
+
+$printPaths = [System.Collections.Generic.List[string]]::new()
+if ($useCollation) {
+    for ($copy = 0; $copy -lt $Copies; $copy++) {
+        foreach ($imagePath in $imagePaths) { $printPaths.Add($imagePath) }
+    }
+}
+else {
+    foreach ($imagePath in $imagePaths) {
+        for ($copy = 0; $copy -lt $Copies; $copy++) { $printPaths.Add($imagePath) }
+    }
+}
 $script:pageIndex = 0
 
 $document.add_QueryPageSettings({
     param($sender, $eventArgs)
-    $probe = [System.Drawing.Image]::FromFile($imagePaths[$script:pageIndex])
+    $probe = [System.Drawing.Image]::FromFile($printPaths[$script:pageIndex])
     try {
-        $eventArgs.PageSettings.Landscape = ($probe.Width -gt $probe.Height)
+        $eventArgs.PageSettings.Landscape = if ($Orientation -eq "auto") { $probe.Width -gt $probe.Height } else { $Orientation -eq "landscape" }
         $eventArgs.PageSettings.Color = ($ColorMode -eq "color")
         $eventArgs.PageSettings.PaperSize = $paperSize
+        if ($null -ne $printerResolution) {
+            $eventArgs.PageSettings.PrinterResolution = $printerResolution
+        }
     }
     finally {
         $probe.Dispose()
@@ -63,21 +94,37 @@ $document.add_QueryPageSettings({
 
 $document.add_PrintPage({
     param($sender, $eventArgs)
-    $image = [System.Drawing.Image]::FromFile($imagePaths[$script:pageIndex])
+    $image = [System.Drawing.Image]::FromFile($printPaths[$script:pageIndex])
     try {
         $hardMarginX = [Math]::Max(0, [single]$eventArgs.PageSettings.HardMarginX)
         $hardMarginY = [Math]::Max(0, [single]$eventArgs.PageSettings.HardMarginY)
-        $availableWidth = [Math]::Max(1, [single]$eventArgs.PageBounds.Width - (2 * $hardMarginX))
-        $availableHeight = [Math]::Max(1, [single]$eventArgs.PageBounds.Height - (2 * $hardMarginY))
-        $scale = [Math]::Min($availableWidth / $image.Width, $availableHeight / $image.Height)
-        $drawWidth = [single]($image.Width * $scale)
-        $drawHeight = [single]($image.Height * $scale)
-        $left = [single]($hardMarginX + (($availableWidth - $drawWidth) / 2))
-        $top = [single]($hardMarginY + (($availableHeight - $drawHeight) / 2))
+        if ($useBorderless -and ($hardMarginX -gt 0.5 -or $hardMarginY -gt 0.5)) {
+            throw "The selected printer driver does not expose borderless printing for $MediaSize. Open its Windows printing preferences and choose a supported borderless paper type."
+        }
+        $originX = if ($useBorderless) { 0 } else { $hardMarginX }
+        $originY = if ($useBorderless) { 0 } else { $hardMarginY }
+        $availableWidth = [Math]::Max(1, [single]$eventArgs.PageBounds.Width - (2 * $originX))
+        $availableHeight = [Math]::Max(1, [single]$eventArgs.PageBounds.Height - (2 * $originY))
+        if ($Scaling -eq "actual_size") {
+            $drawWidth = [single](100 * $image.Width / [Math]::Max(1, $image.HorizontalResolution))
+            $drawHeight = [single](100 * $image.Height / [Math]::Max(1, $image.VerticalResolution))
+        }
+        else {
+            $fitScale = [Math]::Min($availableWidth / $image.Width, $availableHeight / $image.Height)
+            $fillScale = [Math]::Max($availableWidth / $image.Width, $availableHeight / $image.Height)
+            $scale = if ($Scaling -eq "fill") { $fillScale } else { $fitScale }
+            $drawWidth = [single]($image.Width * $scale)
+            $drawHeight = [single]($image.Height * $scale)
+        }
+        $left = [single]($originX + (($availableWidth - $drawWidth) / 2))
+        $top = [single]($originY + (($availableHeight - $drawHeight) / 2))
         $target = [System.Drawing.RectangleF]::new($left, $top, $drawWidth, $drawHeight)
 
         $eventArgs.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
         $eventArgs.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        if ($Scaling -eq "fill") {
+            $eventArgs.Graphics.SetClip([System.Drawing.RectangleF]::new($originX, $originY, $availableWidth, $availableHeight))
+        }
         $eventArgs.Graphics.DrawImage($image, $target)
     }
     finally {
@@ -85,14 +132,11 @@ $document.add_PrintPage({
     }
 
     $script:pageIndex++
-    $eventArgs.HasMorePages = ($script:pageIndex -lt $imagePaths.Count)
+    $eventArgs.HasMorePages = ($script:pageIndex -lt $printPaths.Count)
 })
 
 try {
-    for ($copy = 0; $copy -lt $Copies; $copy++) {
-        $script:pageIndex = 0
-        $document.Print()
-    }
+    $document.Print()
 }
 finally {
     $document.Dispose()

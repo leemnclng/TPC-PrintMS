@@ -322,6 +322,8 @@ Track product and technical decisions that affect future development.
 
 ### Align Product-Selected Analysis With Product Pricing
 
+- Status: Refined on 2026-08-29 by “Keep Detected Paper Size Advisory in Transactions.”
+
 - Decision: When a product is selected in Document Analyzer, price every page using the product's configured print type and only an active pricing rule tied to one of its assigned paper materials. Resolve product override first, then the global rate for the detected size. Generic analysis continues to price detected color and B&W pages separately.
 - Rationale: Product and job-order pricing already define the requested output mode; using detected source color as the billing mode could ignore a valid product configuration and return ₱0.
 - Impact: Analyzer estimates now match catalog and job-order pricing while still reporting detected color separation as analysis metadata.
@@ -339,6 +341,8 @@ Track product and technical decisions that affect future development.
 - Impact: `/production` now follows the catch-all redirect to Overview, and the page implementation is removed.
 
 ### Price Analysis From Measured Coverage and Product Options
+
+Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Inclusive Per-Page Price.” Coverage-based adjustments now apply only to colored products.
 
 - Decision: Document Analyzer requires a selected product in the UI and optionally accepts one of that product's variants. The estimate is the exact paper-size product rate × pages, plus ink load as the same percentage of the base subtotal, plus a color premium proportional to measured color coverage using the configured colored-rate difference, plus the variant adjustment × pages.
 - Rationale: A flat per-page total ignored how much printable content was actually present and could not represent configured finishing/production variants.
@@ -372,7 +376,7 @@ Track product and technical decisions that affect future development.
 
 - Decision: New transaction analysis is temporary. The system creates the job order and retains its uploaded file only when the owner explicitly proceeds after choosing the engine recommendation or a custom final price.
 - Rationale: Cancelling a recommendation should not create abandoned job orders or orphan customer files, while confirmed pricing needs an auditable engine suggestion and final value.
-- Impact: The creation wizard handles one uploaded file and one product per transaction, the server re-analyzes on confirmation, stores both suggested and final totals, automatically plans detected paper, and routes the saved job to Print Center.
+- Impact: The creation wizard handles one uploaded file and one product per transaction, the server re-analyzes on confirmation, stores both suggested and final totals, automatically plans the owner-selected paper, and routes the saved job to Print Center.
 
 ### Render Windows Print Files Inside Printing-MS
 
@@ -382,7 +386,41 @@ Track product and technical decisions that affect future development.
 
 ### Persist the Analyzer Print Profile and Deduct Plans on Queue Acceptance
 
-- Decision: Persist page count, paper size, orientation, color/B&W pages, coverage, print-time estimate, and confidence on each confirmed print-ready file. Print Center displays an automatic read-only profile; the API derives authoritative copies, product output mode, and paper size. After a printer accepts the file, deduct every remaining planned material and create job-linked inventory movements in the same database commit.
+- Status: Refined on 2026-08-29 by “Apply Standard Job Settings Through the Installed Printer Driver.”
+
+- Decision: Persist page count, detected best-fit paper, orientation, color/B&W pages, coverage, print-time estimate, and confidence on each confirmed print-ready file. Print Center displays an automatic read-only profile; the API derives authoritative copies and product output mode, while printer media comes from the owner-selected paper plan. After a printer accepts the file, deduct every remaining planned material and create job-linked inventory movements in the same database commit.
 - Rationale: Re-entering detected settings can make printing disagree with pricing and paper planning. Queue acceptance is the first reliable application event indicating production has started, while job creation and failed print attempts have not used stock.
 - Alternatives considered: Deduct at job creation; deduct only at completion; continue requiring a separate manual usage modal.
 - Impact: Insufficient stock blocks submission before the printer is called, failures do not change inventory, retries cannot double-deduct because only each plan's remainder is consumed, and legacy/manual remaining usage stays available as a recovery path. Physical printer failures after queue acceptance may require a normal stock adjustment.
+
+## 2026-08-29
+
+### Treat the Configured B&W Rate as an All-Inclusive Per-Page Price
+
+- Decision: For a selected B&W product at A4, Letter, or Legal size, calculate `configured rate × detected pages`. Do not add measured ink-load or detected-color premiums; add only a variant the owner explicitly selected. Copies continue multiplying the resulting per-copy total in the transaction workflow.
+- Rationale: The owner configures each B&W rate to already cover both paper and ink. Charging coverage again duplicates those costs, and source color is irrelevant when the approved output is grayscale.
+- Impact: Analyzer coverage remains visible for production information, but it cannot change a B&W recommendation. Colored-product coverage pricing remains unchanged, and historical job-order price snapshots are not rewritten.
+
+### Store Print Types as App-Managed Pricing Definitions
+
+- Decision: Replace the fixed product/pricing enums with a `print_types` catalog. Each type owns an immutable key, operator label, printer color mode, active state, ordering, and whether measured ink coverage adjusts its base rate. Seed B&W, Semi-colored, and Colored; allow owners to add more from Configuration.
+- Rationale: A third enum value would solve Semi-colored once but repeat backend, migration, and renderer work for every future type. One shared definition keeps pricing columns, product choices, analyzer behavior, and printer output aligned.
+- Impact: Semi-colored uses color output and coverage-based ink pricing by default. Active catalog entries automatically receive a rate for every stocked paper material and appear in product forms. Existing B&W/Colored keys and historical product references are preserved by migration.
+
+### Keep Detected Paper Size Advisory in Transactions
+
+- Decision: Treat analyzed paper size as a best-fit recommendation only. Require the owner to choose one active paper material configured for the product, and use that selection for pricing, material planning, inventory deduction, and printer media.
+- Rationale: Source dimensions help the owner make a decision but cannot know the intended output stock, scaling, or customer request. Blocking on an exact detected-size match prevents valid work.
+- Impact: A size mismatch is shown as non-blocking awareness. The detected size remains durable file evidence, while the selected paper is authoritative for the transaction and print submission.
+
+### Apply Standard Job Settings Through the Installed Printer Driver
+
+- Decision: Keep paper, copies, and color mode aligned with the approved transaction, while allowing the owner to choose orientation, scaling, quality, borderless behavior, and collation for each print attempt. Apply those settings through Windows `PrintDocument` or standard CUPS options and retain them in Print History. Open the selected Windows driver's native preferences for Canon-specific media type, tray, and advanced controls.
+- Rationale: Canon and other vendors expose private driver settings that cannot be safely duplicated as fixed app values. The installed OS driver is the supported boundary, while common print-job controls can be applied consistently and audited by Printing-MS.
+- Impact: Canon PRINT remains the setup/maintenance companion. A borderless request fails clearly when the active driver/paper does not expose borderless output, and future capability discovery can narrow options without changing the print-attempt contract.
+
+### Keep the Entire Transaction Lifecycle on the Job Order Page
+
+- Decision: After analysis confirmation, open the created job order rather than Print Center. Keep payment, queue confirmation, printer/output setup, quality review, ready, and completion actions in focused modals over one compact job workspace.
+- Rationale: Sending the owner between Job Orders and Print Center obscured the next step and duplicated job details across operational pages. One command page keeps the transaction context stable while modals isolate each short decision.
+- Impact: The job workspace shows only the lifecycle command panel, transaction essentials, production proof, and a collapsed audit section. Print Center remains available for device discovery and standalone queue administration, but it is no longer required to complete a job.

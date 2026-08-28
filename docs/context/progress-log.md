@@ -334,3 +334,39 @@ Chronological notes about app progress.
 - Summary: Connected analyzer output through print submission and inventory usage without repeated operator entry.
 - Completed: Confirmed files retain detected pages, paper, orientation, color separation, coverage, timing, and confidence. Print Center shows the derived profile read-only; the API derives its settings independently. Successful queue submission consumes every remaining planned material, blocks on low stock, records job-linked ledger entries, and leaves stock unchanged on failure.
 - Verified: Automated workflow coverage includes persisted analysis metadata, ignored legacy setting hints, low-stock blocking, no deduction on printer failure, one-time deduction on success, and ledger balances.
+
+## 2026-08-29 (all-inclusive B&W analyzer pricing)
+
+- Summary: Removed duplicate ink and detected-color charges from B&W document estimates.
+- Completed: B&W products now price from the exact configured paper-size rate × pages, with copies applied by the transaction and only explicit variants added. Analyzer and transaction breakdowns identify the B&W base as including paper and ink.
+- Verified: A4, Letter, and Legal coverage proves high source ink/color cannot alter B&W pricing. All 20 API tests, web/desktop typechecks, lint, and production builds pass.
+
+## 2026-08-29 (app-managed print types)
+
+- Summary: Added Semi-colored and removed hardcoded print-type limits.
+- Completed: Migrated products and paper pricing to a shared print-type catalog; added automatic rate generation, dynamic pricing/product controls, in-app type creation, analyzer pricing behavior, and authoritative printer color-mode mapping.
+- Verified: Fresh SQLite migration reaches the single Alembic head; all 20 API tests, web/desktop typechecks and builds, and renderer lint pass.
+
+## 2026-08-29 (print-type modal layout)
+
+- Summary: Corrected the New print type modal’s spacing and containment.
+- Completed: Added a padded scrollable form body, compact component width, distinct footer actions, clearer field hierarchy, disabled submission state, and narrow-screen insets.
+- Verified: Renderer lint, TypeScript checks, production build, and diff validation pass.
+
+## 2026-08-29 (advisory document-size workflow)
+
+- Summary: Separated detected document size from the owner's intended print paper.
+- Completed: Added a configured paper selector before analysis, changed the review to show non-blocking best-fit guidance, and made the selection authoritative for pricing, material planning, stock deduction, and printer media while retaining detected size as file evidence.
+- Verified: All 20 API tests, web/desktop typechecks and builds, and renderer lint pass. Regression coverage confirms an A4 source can proceed on owner-selected Letter paper end to end.
+
+## 2026-08-29 (Windows driver-aligned Print Center)
+
+- Summary: Added auditable Windows-style print settings and clarified the printer hierarchy.
+- Completed: Print attempts now apply and retain orientation, scaling, quality, borderless behavior, and collation. Print Center highlights only the OS default printer, groups selectable alternatives under Others, and opens the selected Windows driver's preferences for Canon-specific media and tray controls.
+- Verified: Fresh Alembic migration, all 20 API tests, renderer/desktop typechecks and builds, renderer lint, and diff validation pass.
+
+## 2026-08-29 (single-page job-order workflow)
+
+- Summary: Consolidated the complete transaction lifecycle into the job-order workspace.
+- Completed: Job creation now opens the new job rather than Print Center. Payment, queueing, print setup, print completion, quality approval, ready, and final completion use focused modals. Replaced seven detail cards with the active lifecycle, two essential summaries, and one collapsed audit pane.
+- Verified: All 20 API tests, renderer/desktop typechecks and builds, renderer lint, route scan, and diff validation pass.

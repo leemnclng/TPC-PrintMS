@@ -82,6 +82,8 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "product_name": item.product.name,
                 "service_name": item.product.service.name,
                 "print_type": item.product.print_type,
+                "print_type_label": item.product.print_type_definition.label,
+                "print_color_mode": item.product.print_type_definition.color_mode,
                 "variant_label": item.variant_label,
                 "pages_per_copy": item.pages_per_copy,
                 "copies": item.copies,
@@ -143,6 +145,11 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "copies": attempt.copies,
                 "color_mode": attempt.color_mode,
                 "media_size": attempt.media_size,
+                "orientation": attempt.orientation,
+                "scaling": attempt.scaling,
+                "quality": attempt.quality,
+                "borderless": attempt.borderless,
+                "collate": attempt.collate,
                 "submitted_at": attempt.submitted_at,
                 "result": attempt.result,
                 "operator": attempt.operator,
@@ -252,19 +259,30 @@ async def create_analyzed_job_order(
         (
             assignment
             for assignment in product.material_assignments
-            if assignment.inventory_item.is_active
+            if assignment.inventory_item_id == payload.paper_inventory_item_id
+            and assignment.inventory_item.is_active
             and assignment.inventory_item.paper_size is not None
-            and assignment.inventory_item.paper_size.value == analysis.paper_size.value
         ),
         None,
     )
     if paper_assignment is None:
         raise HTTPException(
             status_code=422,
-            detail=f"{product.name} is not configured for the detected {analysis.paper_size.value} paper size.",
+            detail=f"Select an active paper configured for {product.name}.",
         )
 
-    pricing = pricing_service.calculate(analysis, db, product, variant)
+    pricing = pricing_service.calculate(
+        analysis,
+        db,
+        product,
+        variant,
+        paper_assignment.inventory_item_id,
+    )
+    if not pricing.breakdown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"The selected {paper_assignment.inventory_item.paper_size.value} paper has no active price for {product.name}.",
+        )
     suggested_total = round(pricing.suggested_price * payload.copies, 2)
     final_total = suggested_total if payload.price_mode == "suggested" else round(payload.custom_price or 0, 2)
     paper_quantity = analysis.page_count * payload.copies
@@ -575,6 +593,11 @@ async def submit_print_attempt(
         copies=copies,
         color_mode=color_mode,
         media_size=media_size,
+        orientation=payload.orientation,
+        scaling=payload.scaling,
+        quality=payload.quality,
+        borderless=payload.borderless,
+        collate=payload.collate,
         result=PrintResult.pending,
         operator=owner.owner_name if owner else "Owner",
     )
@@ -591,6 +614,11 @@ async def submit_print_attempt(
             copies,
             color_mode,
             media_size,
+            payload.orientation,
+            payload.scaling,
+            payload.quality,
+            payload.borderless,
+            payload.collate,
         )
     except PrintSubmissionError as error:
         attempt.result = PrintResult.failed
@@ -715,7 +743,7 @@ def _automatic_print_settings(job_order: JobOrder, job_file: JobFile) -> tuple[i
             status_code=422,
             detail="Automatic print submission supports up to 99 copies per job. Split this work into smaller jobs.",
         )
-    color_mode = "grayscale" if item.product.print_type.value == "black_and_white" else "color"
+    color_mode = item.product.print_type_definition.color_mode
     configured_paper = next(
         (
             plan.inventory_item.paper_size.value
@@ -725,7 +753,9 @@ def _automatic_print_settings(job_order: JobOrder, job_file: JobFile) -> tuple[i
         None,
     )
     detected_paper = job_file.detected_paper_size
-    media_size = detected_paper if detected_paper in {"A4", "Letter", "Legal"} else configured_paper
+    media_size = configured_paper or (
+        detected_paper if detected_paper in {"A4", "Letter", "Legal"} else None
+    )
     if media_size not in {"A4", "Letter", "Legal"}:
         raise HTTPException(
             status_code=422,

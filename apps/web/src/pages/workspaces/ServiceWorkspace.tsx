@@ -11,7 +11,7 @@ import { StatusPill } from "../../components/StatusPill/StatusPill";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../lib/apiClient";
 import { formatCurrency, formatProductPrintType } from "../../lib/format";
-import type { DocumentPricingRule, InventoryItem, Product, Service, Variant } from "../../types/domain";
+import type { DocumentPricingRule, InventoryItem, PrintTypeDefinition, Product, Service, Variant } from "../../types/domain";
 import { ProductCreateModal } from "./ProductCreateModal";
 import "./ServiceWorkspace.css";
 
@@ -21,6 +21,7 @@ interface WorkspaceData {
   inventoryItems: InventoryItem[];
   variants: Variant[];
   pricingRules: DocumentPricingRule[];
+  printTypes: PrintTypeDefinition[];
 }
 
 export function ServiceWorkspace() {
@@ -32,15 +33,16 @@ export function ServiceWorkspace() {
     async () => {
       if (!serviceId) throw new Error("Service not found.");
 
-      const [service, products, inventoryItems, variants, pricingRules] = await Promise.all([
+      const [service, products, inventoryItems, variants, pricingRules, printTypes] = await Promise.all([
         api.get<Service>(`/services/${serviceId}`),
         api.get<Product[]>(`/products?service_id=${encodeURIComponent(serviceId)}`),
         api.get<InventoryItem[]>("/inventory-items"),
         api.get<Variant[]>("/variants"),
         api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
+        api.get<PrintTypeDefinition[]>("/print-types"),
       ]);
 
-      return { service, products, inventoryItems, variants, pricingRules };
+      return { service, products, inventoryItems, variants, pricingRules, printTypes };
     },
     [serviceId],
   );
@@ -108,7 +110,7 @@ export function ServiceWorkspace() {
               {
                 key: "printType",
                 header: "Print type",
-                render: (product) => formatProductPrintType(product.printType),
+                render: (product) => product.printTypeLabel || formatProductPrintType(product.printType),
               },
               {
                 key: "variants",
@@ -147,6 +149,7 @@ export function ServiceWorkspace() {
         inventoryItems={data.inventoryItems}
         variants={data.variants}
         pricingRules={data.pricingRules}
+        printTypes={data.printTypes}
         onClose={() => setCreateModalOpen(false)}
         onCreated={(product) => {
           setCreatedProducts((current) => [...current, product]);

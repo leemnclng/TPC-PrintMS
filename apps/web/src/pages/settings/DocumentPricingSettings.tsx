@@ -8,24 +8,36 @@ import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { useResource } from "../../hooks/useResource";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatProductPrintType } from "../../lib/format";
-import type { DocumentPricingRule, InventoryPaperSize, ProductPrintType } from "../../types/domain";
+import type { CSSProperties } from "react";
+import type { DocumentPricingRule, InventoryPaperSize, PrintTypeDefinition } from "../../types/domain";
 import "../SettingsPage.css";
+import { PrintTypeCreateModal } from "./PrintTypeCreateModal";
 
 const PAPER_ORDER: InventoryPaperSize[] = ["A4", "Letter", "Legal"];
-const PRINT_TYPES: ProductPrintType[] = ["black_and_white", "colored"];
-
 export function DocumentPricingSettings() {
   const { data, state, error, reload } = useResource(
-    () => api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
+    async () => {
+      const [rules, printTypes] = await Promise.all([
+        api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
+        api.get<PrintTypeDefinition[]>("/print-types"),
+      ]);
+      return { rules, printTypes };
+    },
   );
   const [rules, setRules] = useState<DocumentPricingRule[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [createTypeOpen, setCreateTypeOpen] = useState(false);
 
   useEffect(() => {
-    if (data) setRules(data);
+    if (data) setRules(data.rules);
   }, [data]);
+
+  const printTypes = data?.printTypes.filter((printType) => printType.isActive) ?? [];
+  const tableColumns = {
+    gridTemplateColumns: `minmax(7rem, 0.55fr) repeat(${Math.max(printTypes.length, 1)}, minmax(12rem, 1fr))`,
+  } satisfies CSSProperties;
 
   function updateRule(id: string, patch: Partial<DocumentPricingRule>) {
     setSaved(false);
@@ -59,7 +71,12 @@ export function DocumentPricingSettings() {
       <Card>
         <CardHeader
           title="Document analyzer pricing"
-          action={<LinkButton to="/document-analyzer" variant="secondary" size="sm">Open analyzer</LinkButton>}
+          action={(
+            <div className="settings-card-actions">
+              <Button type="button" variant="secondary" size="sm" onClick={() => setCreateTypeOpen(true)}>Add print type</Button>
+              <LinkButton to="/document-analyzer" variant="secondary" size="sm">Open analyzer</LinkButton>
+            </div>
+          )}
         />
         <p className="settings-placeholder-text">
           Global per-page rates for each stocked paper size. Products may override their own rate; job orders and
@@ -80,24 +97,27 @@ export function DocumentPricingSettings() {
         {state === "ready" && rules.length > 0 ? (
           <form className="settings-pricing-form" onSubmit={handleSubmit}>
             <div className="settings-pricing-table" role="table" aria-label="Document analyzer per-page pricing rules">
-              <div className="settings-pricing-table__header" role="row">
+              <div className="settings-pricing-table__header" role="row" style={tableColumns}>
                 <span role="columnheader">Paper</span>
-                {PRINT_TYPES.map((printType) => (
-                  <span role="columnheader" key={printType}>{formatProductPrintType(printType)}</span>
+                {printTypes.map((printType) => (
+                  <span role="columnheader" key={printType.key}>
+                    <strong>{printType.label || formatProductPrintType(printType.key)}</strong>
+                    <small>{printType.appliesInkCoverage ? "Base + ink coverage" : "Configured rate only"}</small>
+                  </span>
                 ))}
               </div>
               {PAPER_ORDER.filter((paperSize) => rules.some((rule) => rule.paperSize === paperSize)).map((paperSize) => {
                 const inventoryItemName = rules.find((rule) => rule.paperSize === paperSize)?.inventoryItemName;
                 return (
-                  <div className="settings-pricing-table__row" role="row" key={paperSize}>
+                  <div className="settings-pricing-table__row" role="row" key={paperSize} style={tableColumns}>
                     <strong role="rowheader">
                       {paperSize}
                       {inventoryItemName ? <small> · {inventoryItemName}</small> : null}
                     </strong>
-                    {PRINT_TYPES.map((printType) => {
-                      const rule = rules.find((candidate) => candidate.paperSize === paperSize && candidate.printType === printType);
+                    {printTypes.map((printType) => {
+                      const rule = rules.find((candidate) => candidate.paperSize === paperSize && candidate.printType === printType.key);
                       return rule ? (
-                        <div className="settings-pricing-table__rate" role="cell" key={printType}>
+                        <div className="settings-pricing-table__rate" role="cell" key={printType.key}>
                           <label>
                             <span>₱</span>
                             <input
@@ -106,7 +126,7 @@ export function DocumentPricingSettings() {
                               min="0"
                               step="0.01"
                               value={rule.pricePerPage}
-                              aria-label={`${formatProductPrintType(printType)} rate for ${paperSize}`}
+                              aria-label={`${printType.label} rate for ${paperSize}`}
                               onChange={(event) => updateRule(rule.id, { pricePerPage: Number(event.target.value) })}
                             />
                           </label>
@@ -119,7 +139,7 @@ export function DocumentPricingSettings() {
                             <span>Use</span>
                           </label>
                         </div>
-                      ) : <span role="cell" key={printType}>—</span>;
+                      ) : <span role="cell" key={printType.key}>—</span>;
                     })}
                   </div>
                 );
@@ -133,6 +153,14 @@ export function DocumentPricingSettings() {
           </form>
         ) : null}
       </Card>
+      <PrintTypeCreateModal
+        open={createTypeOpen}
+        onClose={() => setCreateTypeOpen(false)}
+        onCreated={() => {
+          setCreateTypeOpen(false);
+          reload();
+        }}
+      />
     </section>
   );
 }

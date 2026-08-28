@@ -28,7 +28,14 @@ export function formatDateTime(iso: string | null | undefined): string {
 }
 
 export function formatProductPrintType(printType: ProductPrintType): string {
-  return printType === "colored" ? "Colored" : "B&W (Black and white)";
+  if (printType === "black_and_white") return "B&W (Black and white)";
+  if (printType === "semi_colored") return "Semi-colored";
+  if (printType === "colored") return "Colored";
+  return printType
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word[0]?.toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 export function formatFileSize(bytes: number): string {

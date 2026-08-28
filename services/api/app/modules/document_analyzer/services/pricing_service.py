@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.db.models import DocumentPricingRule, InventoryItem, Product, ProductPrintType, ProductVariant
+from app.db.models import DocumentPricingRule, InventoryItem, PrintType, Product, ProductVariant
+from app.services.print_types import ensure_builtin_print_types
 
 from ..models.document_analysis import DocumentAnalysis
 from ..models.pricing_result import PricingResult, PricingRuleRead
@@ -19,6 +20,7 @@ class PricingService:
         fixed paper-size list, this is fully driven by what the owner has
         actually tagged as paper stock in Inventory — see decisions.md "Tie
         Document Pricing to Real Paper Stock"."""
+        print_types = ensure_builtin_print_types(db)
         paper_items = (
             db.query(InventoryItem)
             .filter(InventoryItem.paper_size.isnot(None), InventoryItem.is_active.is_(True))
@@ -27,13 +29,13 @@ class PricingService:
         existing = {(rule.inventory_item_id, rule.print_type) for rule in db.query(DocumentPricingRule).all()}
         created_default = False
         for item in paper_items:
-            for print_type in ProductPrintType:
-                if (item.id, print_type) in existing:
+            for print_type in print_types:
+                if (item.id, print_type.key) in existing:
                     continue
                 db.add(
                     DocumentPricingRule(
                         inventory_item_id=item.id,
-                        print_type=print_type,
+                        print_type=print_type.key,
                         price_per_page=0.0,
                         is_active=True,
                     )
@@ -52,17 +54,35 @@ class PricingService:
         db: Session,
         product: Product | None = None,
         variant: ProductVariant | None = None,
+        paper_inventory_item_id: str | None = None,
     ) -> PricingResult:
         rules = self.ensure_defaults(db)
         usable_rules = [rule for rule in rules if rule.inventory_item.is_active]
-        overrides: dict[tuple[str, ProductPrintType], float] | None = None
+        overrides: dict[tuple[str, str], float] | None = None
+        definition: PrintType | None = None
+        pricing_paper_size = None
         if product is not None:
+            definition = db.get(PrintType, product.print_type)
             assigned_material_ids = {assignment.inventory_item_id for assignment in product.material_assignments}
             usable_rules = [
                 rule
                 for rule in usable_rules
                 if rule.inventory_item_id in assigned_material_ids
             ]
+            if paper_inventory_item_id is not None:
+                usable_rules = [
+                    rule for rule in usable_rules if rule.inventory_item_id == paper_inventory_item_id
+                ]
+                selected_assignment = next(
+                    (
+                        assignment
+                        for assignment in product.material_assignments
+                        if assignment.inventory_item_id == paper_inventory_item_id
+                    ),
+                    None,
+                )
+                if selected_assignment is not None:
+                    pricing_paper_size = selected_assignment.inventory_item.paper_size
             usable_rule_ids = {rule.id for rule in usable_rules if rule.is_active}
             overrides = {
                 (rate.paper_size.value, rate.print_type): rate.price_per_page
@@ -74,8 +94,10 @@ class PricingService:
             usable_rules,
             overrides,
             product.print_type if product is not None else None,
+            definition.applies_ink_coverage if definition is not None else False,
             variant.label if variant is not None else None,
             variant.price_adjustment if variant is not None else 0,
+            pricing_paper_size,
         )
 
     @staticmethod

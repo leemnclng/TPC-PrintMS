@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.db.models import InventoryPaperSize, ProductPrintType
+from app.db.models import InventoryPaperSize
 from app.schemas.common import CamelModel
 
 from .enums import PaperSize
@@ -18,7 +18,7 @@ AdjustmentKind = Literal["inkCoverage", "colorCoverage", "variant"]
 
 class PricingBreakdownItem(CamelModel):
     paper_size: PaperSize
-    print_type: ProductPrintType
+    print_type: str
     pages: int = Field(ge=0)
     rate_per_page: float = Field(ge=0)
     subtotal: float = Field(ge=0)
@@ -44,6 +44,8 @@ class PricingResult(CamelModel):
 class PricingContext(CamelModel):
     product_id: str
     product_name: str
+    print_type_label: str
+    applies_ink_coverage: bool
     variant_id: str | None = None
     variant_name: str | None = None
 
@@ -53,7 +55,7 @@ class PricingRuleRead(CamelModel):
     inventory_item_id: str
     inventory_item_name: str
     paper_size: InventoryPaperSize
-    print_type: ProductPrintType
+    print_type: str
     price_per_page: float = Field(ge=0)
     is_active: bool
 

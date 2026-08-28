@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.core.security import require_token
-from app.db.models import DocumentPricingRule, Product, ProductVariant
+from app.db.models import DocumentPricingRule, Product, ProductMaterialAssignment, ProductVariant
 from app.db.session import get_db
 
 from .analyzers.base import InvalidDocumentError
@@ -35,6 +35,7 @@ async def analyze_document(
     file: UploadFile = File(...),
     product_id: str | None = Form(None),
     variant_id: str | None = Form(None),
+    paper_inventory_item_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ) -> AnalysisResponse:
     product: Product | None = None
@@ -53,6 +54,23 @@ async def analyze_document(
         )
         if variant is None:
             raise HTTPException(status_code=404, detail="Variant is not assigned to the selected product.")
+    if paper_inventory_item_id:
+        if product is None:
+            raise HTTPException(status_code=422, detail="Select a product before selecting print paper.")
+        paper_assignment = (
+            db.query(ProductMaterialAssignment)
+            .filter(
+                ProductMaterialAssignment.product_id == product.id,
+                ProductMaterialAssignment.inventory_item_id == paper_inventory_item_id,
+            )
+            .one_or_none()
+        )
+        if (
+            paper_assignment is None
+            or not paper_assignment.inventory_item.is_active
+            or paper_assignment.inventory_item.paper_size is None
+        ):
+            raise HTTPException(status_code=422, detail="Select an active paper configured for this product.")
 
     filename = Path(file.filename or "document").name
     content_type = file.content_type or ""
@@ -73,13 +91,27 @@ async def analyze_document(
         raise HTTPException(status_code=415, detail=str(error)) from error
     except (InvalidDocumentError, UnsafeArchiveError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    pricing = pricing_service.calculate(
+        analysis,
+        db,
+        product,
+        variant,
+        paper_inventory_item_id,
+    )
+    if paper_inventory_item_id and not pricing.breakdown:
+        raise HTTPException(
+            status_code=422,
+            detail="The selected paper has no active price for this product's print type.",
+        )
     return AnalysisResponse(
         analysis=analysis,
-        pricing=pricing_service.calculate(analysis, db, product, variant),
+        pricing=pricing,
         pricing_context=(
             PricingContext(
                 product_id=product.id,
                 product_name=product.name,
+                print_type_label=product.print_type_definition.label,
+                applies_ink_coverage=product.print_type_definition.applies_ink_coverage,
                 variant_id=variant.variant_id if variant else None,
                 variant_name=variant.label if variant else None,
             )
@@ -92,7 +124,7 @@ async def analyze_document(
 @router.get("/pricing-rules", response_model=list[PricingRuleRead])
 def list_pricing_rules(db: Session = Depends(get_db)) -> list[PricingRuleRead]:
     rules = pricing_service.ensure_defaults(db)
-    rules.sort(key=lambda rule: (rule.paper_size, rule.print_type.value))
+    rules.sort(key=lambda rule: (rule.paper_size.value, rule.print_type_definition.sort_order))
     return [pricing_service.to_read(rule) for rule in rules]
 
 
@@ -114,5 +146,5 @@ def update_pricing_rules(
         rule.is_active = item.is_active
     db.commit()
     all_rules = pricing_service.ensure_defaults(db)
-    all_rules.sort(key=lambda rule: (rule.paper_size, rule.print_type.value))
+    all_rules.sort(key=lambda rule: (rule.paper_size.value, rule.print_type_definition.sort_order))
     return [pricing_service.to_read(rule) for rule in all_rules]

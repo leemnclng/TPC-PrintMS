@@ -28,6 +28,7 @@ export interface PaperClubApiConfig {
 export interface PaperClubBridge {
   getApiConfig: () => Promise<PaperClubApiConfig>;
   openPrinterSettings: () => Promise<void>;
+  openPrinterPreferences: (printerName: string) => Promise<void>;
   platform: NodeJS.Platform | "web";
 }
 

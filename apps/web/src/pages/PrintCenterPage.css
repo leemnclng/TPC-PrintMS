@@ -168,21 +168,36 @@
   line-height: var(--leading-normal);
 }
 
-.printer-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--space-4);
-}
+.printer-roster { border: 1px solid var(--color-hairline-strong); background: var(--color-paper); }
+.printer-roster__heading { display: flex; align-items: end; justify-content: space-between; gap: var(--space-5); padding: var(--space-5); }
+.printer-roster__heading span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .05em; }
+.printer-roster__heading h2 { margin-top: var(--space-1); font-family: var(--font-display); font-size: var(--text-xl); }
+.printer-roster__heading p { max-width: 52ch; margin: 0; color: var(--color-ink-soft); font-size: var(--text-sm); }
+.printer-roster__aside { display: flex; align-items: flex-end; flex-direction: column; gap: var(--space-2); }
+.printer-default-pane { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: var(--space-5); border-block: 1px solid var(--color-accent); border-left: 3px solid var(--color-accent); padding: var(--space-5); background: var(--color-accent-softer); }
+.printer-others-pane { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: var(--space-5); padding: var(--space-5); background: var(--color-neutral-soft); }
+.printer-pane-heading { display: flex; flex-direction: column; align-self: start; }
+.printer-pane-heading span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .06em; }
+.printer-pane-heading strong { margin-top: var(--space-1); font-family: var(--font-display); font-size: var(--text-lg); }
+.printer-pane-heading small { margin-top: var(--space-1); color: var(--color-ink-faint); }
+.printer-pane-empty { align-self: center; margin: 0; color: var(--color-ink-soft); font-size: var(--text-sm); }
+.printer-default-grid { display: grid; max-width: 38rem; grid-template-columns: minmax(0, 1fr); }
+.printer-others-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: var(--space-3); }
 
-.printer-grid > div,
+.printer-default-grid > div,
+.printer-others-grid > div,
 .printer-choice { min-width: 0; }
-.printer-grid .card { height: 100%; }
+.printer-default-grid .card,
+.printer-others-grid .card { height: 100%; }
 .printer-choice { position: relative; cursor: pointer; }
 .printer-choice > input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .printer-choice:focus-within .card { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .printer-choice .card { transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .printer-choice:hover .card { border-color: var(--color-ink-faint); transform: translateY(-1px); }
-.printer-choice .card.is-selected { border-color: var(--color-accent); background: var(--color-accent-softer); box-shadow: inset 0 3px var(--color-accent); }
+.printer-card--featured { background: var(--color-paper); box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 18%, transparent); }
+.printer-card--featured.is-selected { border-color: var(--color-accent); box-shadow: inset 3px 0 var(--color-accent); }
+.printer-card--other { background: color-mix(in oklch, var(--color-paper) 76%, transparent); }
+.printer-card--other.is-selected { border-color: var(--color-ink); box-shadow: inset 3px 0 var(--color-ink); }
 .printer-choice.is-disabled { cursor: not-allowed; opacity: .62; }
 .printer-choice.is-disabled:hover .card { transform: none; }
 .printer-card__selection { margin-top: auto; color: var(--color-accent); font-size: var(--text-xs); }
@@ -203,6 +218,23 @@
 .print-auto-profile dl div:last-child { border-right: 0; }
 .print-auto-profile dt { color: var(--color-ink-faint); font-size: var(--text-xs); text-transform: uppercase; }
 .print-auto-profile dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; text-transform: capitalize; }
+.print-controls { min-width: 0; margin: 0; border: 0; border-top: 1px solid var(--color-hairline-strong); padding: 0; }
+.print-controls > legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.print-controls__intro { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-5); }
+.print-controls__intro > div { display: flex; flex-direction: column; }
+.print-controls__intro span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .05em; }
+.print-controls__intro strong { margin-top: var(--space-1); font-family: var(--font-display); font-size: var(--text-lg); }
+.print-controls__intro small { margin-top: var(--space-1); color: var(--color-ink-faint); }
+.print-controls__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); padding: 0 var(--space-5) var(--space-5); }
+.print-toggle { display: flex; min-height: 5.25rem; align-items: flex-start; gap: var(--space-3); border: 1px solid var(--color-hairline-strong); padding: var(--space-3); background: var(--color-paper); cursor: pointer; }
+.print-toggle:focus-within { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.print-toggle > input { margin-top: .2rem; }
+.print-toggle > span { display: flex; flex-direction: column; }
+.print-toggle strong { font-size: var(--text-sm); }
+.print-toggle small { margin-top: var(--space-1); color: var(--color-ink-faint); }
+.print-toggle:has(input:disabled) { cursor: not-allowed; opacity: .62; }
+.print-controls__driver-note { margin: 0; border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-5); background: var(--color-paper); color: var(--color-ink-soft); font-size: var(--text-xs); }
+.print-controls__driver-note strong { color: var(--color-ink); }
 .print-submission__confirm { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); border-top: 1px solid var(--color-hairline); padding: var(--space-4) var(--space-5); background: var(--color-paper); }
 .print-submission__confirm p { display: flex; max-width: 70ch; flex-direction: column; margin: 0; font-size: var(--text-sm); }
 .print-submission__confirm span { color: var(--color-ink-faint); font-size: var(--text-xs); }
@@ -275,8 +307,13 @@
   .print-center-columns {
     grid-template-columns: minmax(0, 1fr);
   }
+  .printer-roster__heading { align-items: flex-start; flex-direction: column; }
+  .printer-roster__aside { align-items: flex-start; }
+  .printer-default-pane,
+  .printer-others-pane { grid-template-columns: minmax(0, 1fr); }
   .print-auto-profile dl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .print-auto-profile dl div { border-bottom: 1px solid var(--color-hairline); }
+  .print-controls__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 520px) {
@@ -287,6 +324,9 @@
   .print-auto-profile { grid-template-columns: minmax(0, 1fr); }
   .print-auto-profile > .form-field { margin: 0; padding: 0 var(--space-5) var(--space-5); }
   .print-auto-profile dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .print-controls__intro { align-items: stretch; flex-direction: column; }
+  .print-controls__intro > button { align-self: flex-start; }
+  .print-controls__grid { grid-template-columns: minmax(0, 1fr); }
   .print-submission__confirm,
   .print-submission__gate { align-items: stretch; flex-direction: column; }
 }

@@ -42,6 +42,11 @@ export function PrintCenterPage() {
   const [selectedFileId, setSelectedFileId] = useState("");
   const [submittingPrint, setSubmittingPrint] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [orientation, setOrientation] = useState<"auto" | "portrait" | "landscape">("auto");
+  const [scaling, setScaling] = useState<"fit" | "fill" | "actual_size">("fit");
+  const [quality, setQuality] = useState<"draft" | "standard" | "high">("standard");
+  const [borderless, setBorderless] = useState(false);
+  const [collate, setCollate] = useState(true);
 
   const nativePlatform = window.paperClub?.platform;
   const resolvedPlatform = platformInfo?.platform
@@ -70,14 +75,19 @@ export function PrintCenterPage() {
   const paperPlan = printItem?.materials.find((material) => material.paperSize);
   const configuredPaper = paperPlan?.paperSize;
   const detectedPaper = selectedFile?.detectedPaperSize;
-  const mediaSize = detectedPaper === "A4" || detectedPaper === "Letter" || detectedPaper === "Legal"
-    ? detectedPaper
-    : configuredPaper ?? "A4";
+  const mediaSize = configuredPaper ?? (
+    detectedPaper === "A4" || detectedPaper === "Letter" || detectedPaper === "Legal"
+      ? detectedPaper
+      : "A4"
+  );
   const copies = printItem?.copies ?? 1;
   const pageCount = selectedFile?.detectedPageCount ?? printItem?.pagesPerCopy ?? 1;
-  const colorMode = printItem?.printType === "black_and_white" ? "grayscale" : "color";
+  const colorMode = printItem?.printColorMode ?? "color";
   const totalSheets = pageCount * copies;
   const paperDeduction = Math.max((paperPlan?.plannedQuantity ?? totalSheets) - (paperPlan?.consumedQuantity ?? 0), 0);
+  const defaultPrinters = data?.filter((printer) => printer.isDefault) ?? [];
+  const otherPrinters = data?.filter((printer) => !printer.isDefault) ?? [];
+  const selectedPrinter = data?.find((printer) => printer.id === selectedPrinterId);
 
   useEffect(() => {
     if (!stagedOrder) return;
@@ -85,6 +95,14 @@ export function PrintCenterPage() {
     setSelectedFileId(printFile?.id ?? "");
     setSubmissionError(null);
   }, [stagedOrder]);
+
+  useEffect(() => {
+    setOrientation("auto");
+    setScaling("fit");
+    setQuality("standard");
+    setBorderless(false);
+    setCollate(true);
+  }, [jobOrderId]);
 
   useEffect(() => {
     if (!data?.length || selectedPrinterId) return;
@@ -102,6 +120,11 @@ export function PrintCenterPage() {
       await api.post<JobOrder>(`/job-orders/${stagedOrder.id}/print-attempts`, {
         printerId: selectedPrinterId,
         jobFileId: selectedFileId,
+        orientation,
+        scaling,
+        quality,
+        borderless,
+        collate,
       });
       reloadStagedOrder();
       reload();
@@ -140,6 +163,45 @@ export function PrintCenterPage() {
     } finally {
       setOpeningSettings(false);
     }
+  }
+
+  async function handleOpenPrinterPreferences() {
+    setSettingsError(null);
+    if (!window.paperClub || !selectedPrinter) {
+      setSettingsError("Select a printer in the Printing-MS desktop app first.");
+      return;
+    }
+    setOpeningSettings(true);
+    try {
+      await window.paperClub.openPrinterPreferences(selectedPrinter.systemName);
+    } catch {
+      setSettingsError(`Windows printing preferences for ${selectedPrinter.displayName} couldn't be opened.`);
+    } finally {
+      setOpeningSettings(false);
+    }
+  }
+
+  function renderPrinterChoice(printer: Printer, featured = false) {
+    const unavailable = ["offline", "error"].includes(printer.lastSeenState);
+    const selected = selectedPrinterId === printer.id;
+    const card = (
+      <Card className={[featured ? "printer-card--featured" : "printer-card--other", selected ? "is-selected" : ""].filter(Boolean).join(" ")}>
+        <CardHeader title={printer.displayName} meta={featured ? "Default printer" : undefined} />
+        <StatusPill
+          label={printerStateMeta[printer.lastSeenState].label}
+          tone={printerStateMeta[printer.lastSeenState].tone}
+        />
+        <p className="printer-card__queue numeric">{queueLabel} · {printer.systemName}</p>
+        <p className="printer-card__meta">Last seen {formatDate(printer.lastSeenAt)}</p>
+        <strong className="printer-card__selection">{unavailable ? "Unavailable" : selected ? stagedOrder?.status === "queued" ? "Selected for this job" : "Selected printer" : "Select printer"}</strong>
+      </Card>
+    );
+    return (
+      <label className={`printer-choice${unavailable ? " is-disabled" : ""}`} key={printer.id}>
+        <input type="radio" name="printer" value={printer.id} checked={selected} disabled={unavailable} onChange={() => setSelectedPrinterId(printer.id)} />
+        {card}
+      </label>
+    );
   }
 
   return (
@@ -248,27 +310,29 @@ export function PrintCenterPage() {
       )}
 
       {state === "ready" && data && data.length > 0 && (
-        <div className="printer-grid">
-          {data.map((printer) => {
-            const unavailable = ["offline", "error"].includes(printer.lastSeenState);
-            const card = <Card className={selectedPrinterId === printer.id ? "is-selected" : undefined}>
-              <CardHeader title={printer.displayName} meta={printer.isDefault ? "Default" : undefined} />
-              <StatusPill
-                label={printerStateMeta[printer.lastSeenState].label}
-                tone={printerStateMeta[printer.lastSeenState].tone}
-              />
-              <p className="printer-card__queue numeric">{queueLabel} · {printer.systemName}</p>
-              <p className="printer-card__meta">Last seen {formatDate(printer.lastSeenAt)}</p>
-              {stagedOrder?.status === "queued" && <strong className="printer-card__selection">{unavailable ? "Unavailable" : selectedPrinterId === printer.id ? "Selected" : "Select printer"}</strong>}
-            </Card>;
-            return stagedOrder?.status === "queued" ? (
-              <label className={`printer-choice${unavailable ? " is-disabled" : ""}`} key={printer.id}>
-                <input type="radio" name="printer" value={printer.id} checked={selectedPrinterId === printer.id} disabled={unavailable} onChange={() => setSelectedPrinterId(printer.id)} />
-                {card}
-              </label>
-            ) : <div key={printer.id}>{card}</div>;
-          })}
-        </div>
+        <section className="printer-roster" aria-labelledby="printer-roster-title">
+          <header className="printer-roster__heading">
+            <div><span className="numeric">AVAILABLE DEVICES</span><h2 id="printer-roster-title">Choose a print queue</h2></div>
+            <div className="printer-roster__aside">
+              <p>The Windows default stays prominent; alternatives remain available without competing for attention.</p>
+              {nativePlatform === "win32" && selectedPrinter && <Button type="button" variant="secondary" size="sm" onClick={handleOpenPrinterPreferences} loading={openingSettings}>Selected printer preferences</Button>}
+            </div>
+          </header>
+          <div className="printer-default-pane">
+            <div className="printer-pane-heading"><span className="numeric">DEFAULT</span><strong>Primary printer</strong></div>
+            {defaultPrinters.length > 0 ? (
+              <div className="printer-default-grid">{defaultPrinters.map((printer) => renderPrinterChoice(printer, true))}</div>
+            ) : (
+              <p className="printer-pane-empty">Windows has no default printer. Set one in printer settings; available queues remain under Others.</p>
+            )}
+          </div>
+          {otherPrinters.length > 0 && (
+            <div className="printer-others-pane">
+              <div className="printer-pane-heading"><span className="numeric">OTHERS</span><strong>Alternative queues</strong><small>Still selectable for this job</small></div>
+              <div className="printer-others-grid">{otherPrinters.map((printer) => renderPrinterChoice(printer))}</div>
+            </div>
+          )}
+        </section>
       )}
 
       {stagedOrder && (
@@ -281,9 +345,9 @@ export function PrintCenterPage() {
             <form onSubmit={handlePrintSubmit}>
               <div className="print-auto-profile">
                 <div className="print-auto-profile__heading">
-                  <span className="numeric">AUTO-DISCOVERED PRINT PROFILE</span>
-                  <strong>Ready from document analysis</strong>
-                  <small>Printing settings are locked to the approved transaction and selected product.</small>
+                  <span className="numeric">DOCUMENT & PRODUCT PROFILE</span>
+                  <strong>Ready from the approved transaction</strong>
+                  <small>Paper, copies, and output mode stay aligned with pricing and inventory.</small>
                 </div>
                 <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{stagedOrder.files.filter((file) => file.kind === "print_ready").map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
                 <dl>
@@ -292,11 +356,28 @@ export function PrintCenterPage() {
                   <div><dt>Paper deduction</dt><dd>{paperDeduction.toLocaleString()} {paperPlan?.inventoryItemUnit ?? "sheets"}</dd></div>
                   <div><dt>Paper</dt><dd>{mediaSize}</dd></div>
                   <div><dt>Output</dt><dd>{colorMode === "grayscale" ? "B&W / grayscale" : "Colored"}</dd></div>
-                  <div><dt>Orientation</dt><dd>{selectedFile?.detectedOrientation ?? "Auto per page"}</dd></div>
+                  <div><dt>Detected layout</dt><dd>{selectedFile?.detectedOrientation ?? "Mixed / unknown"}</dd></div>
                   <div><dt>Source pages</dt><dd>{selectedFile?.detectedColorPages ?? 0} color · {selectedFile?.detectedBwPages ?? pageCount} B&W</dd></div>
                   <div><dt>Ink load</dt><dd>{selectedFile?.estimatedInkCoveragePercent != null ? `${selectedFile.estimatedInkCoveragePercent.toFixed(1)}%` : "—"}</dd></div>
                 </dl>
               </div>
+              <fieldset className="print-controls">
+                <legend>Print settings</legend>
+                <div className="print-controls__intro">
+                  <div><span className="numeric">WINDOWS-STYLE CONTROLS</span><strong>Adjust output for this attempt</strong><small>These choices are saved in Print History and sent to the selected driver.</small></div>
+                  {nativePlatform === "win32" && selectedPrinter && (
+                    <Button type="button" variant="secondary" size="sm" onClick={handleOpenPrinterPreferences} loading={openingSettings}>Open driver preferences</Button>
+                  )}
+                </div>
+                <div className="print-controls__grid">
+                  <label className="form-field"><span>Orientation</span><select value={orientation} onChange={(event) => setOrientation(event.target.value as typeof orientation)}><option value="auto">Auto per page</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select><small>Auto follows each analyzed page.</small></label>
+                  <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="fit">Fit printable area</option><option value="actual_size">Actual size</option><option value="fill">Fill paper (crop edges)</option></select><small>Fit is safest for office documents.</small></label>
+                  <label className="form-field"><span>Print quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select><small>The closest driver resolution is used.</small></label>
+                  <label className="print-toggle"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Borderless output</strong><small>Requires borderless support for {mediaSize} in the selected driver.</small></span></label>
+                  <label className="print-toggle"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate copies</strong><small>{copies < 2 ? "Available when printing multiple copies." : "Print one complete document before the next copy."}</small></span></label>
+                </div>
+                <p className="print-controls__driver-note"><strong>Canon-specific paper type, tray, and maintenance settings:</strong> use Windows driver preferences. Printing-MS preserves those driver defaults and applies the controls above to this job.</p>
+              </fieldset>
               <div className="print-submission__confirm">
                 <p><strong>Submitting also deducts every remaining planned material from Inventory.</strong><span>The request is blocked before printing when stock is insufficient. Failed printer submissions do not deduct anything.</span></p>
                 <Button variant="primary" type="submit" loading={submittingPrint} disabled={!selectedPrinterId || !selectedFileId}>Print and deduct materials</Button>
@@ -337,7 +418,7 @@ export function PrintCenterPage() {
             <div className="print-history-list">
               {stagedOrder.printAttempts.map((attempt) => (
                 <div key={attempt.id}>
-                  <div><strong>{attempt.printerName}</strong><span>{attempt.filename || "Print-ready file"} · {attempt.copies} {attempt.copies === 1 ? "copy" : "copies"}</span><small>{attempt.errorMessage || `Submitted ${formatDate(attempt.submittedAt)}`}</small></div>
+                  <div><strong>{attempt.printerName}</strong><span>{attempt.filename || "Print-ready file"} · {attempt.copies} {attempt.copies === 1 ? "copy" : "copies"} · {attempt.mediaSize} · {attempt.orientation === "auto" ? "auto orientation" : attempt.orientation} · {attempt.quality}</span><small>{attempt.errorMessage || `Submitted ${formatDate(attempt.submittedAt)}`}</small></div>
                   <StatusPill label={attempt.result === "succeeded" ? "Submitted" : attempt.result} tone={attempt.result === "succeeded" ? "success" : attempt.result === "failed" ? "danger" : "info"} />
                 </div>
               ))}

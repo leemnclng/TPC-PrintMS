@@ -94,7 +94,7 @@ export function JobOrdersPage() {
           onCreated={(order) => {
             setCreateOpen(false);
             reload();
-            navigate(`/print-center?jobOrderId=${encodeURIComponent(order.id)}`);
+            navigate(`/job-orders/${encodeURIComponent(order.id)}`);
           }}
         />
       )}

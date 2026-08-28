@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { execFile } from "node:child_process";
 import path from "node:path";
 import { BackendManager } from "./backendManager";
 
@@ -53,6 +54,23 @@ ipcMain.handle("paper-club:open-printer-settings", async () => {
     return;
   }
   throw new Error("Open your operating system's printer settings to add a printer.");
+});
+
+ipcMain.handle("paper-club:open-printer-preferences", async (_event, printerName: unknown) => {
+  if (process.platform !== "win32") {
+    throw new Error("Per-printer preferences are available through Windows printer drivers.");
+  }
+  if (typeof printerName !== "string" || !printerName.trim() || printerName.length > 260) {
+    throw new Error("A valid Windows printer name is required.");
+  }
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      "rundll32.exe",
+      ["printui.dll,PrintUIEntry", "/e", "/n", printerName],
+      { windowsHide: false },
+      (error) => error ? reject(error) : resolve(),
+    );
+  });
 });
 
 app.whenReady().then(async () => {

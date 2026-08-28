@@ -8,13 +8,18 @@ from PIL import Image
 from pptx import Presentation
 from pypdf import PdfWriter
 import pymupdf
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
+from app.db.models import ProductPrintType
 from app.db.session import get_db
 from app.modules.document_analyzer.api import router
+from app.modules.document_analyzer.models.document_analysis import DocumentAnalysis
+from app.modules.document_analyzer.models.enums import DocumentFileType, Orientation, PaperSize
+from app.modules.document_analyzer.pricing.calculator import calculate_price
 from app.modules.document_analyzer.services.analysis_service import AnalysisService
 from app.routers import inventory, products, services, variants
 
@@ -50,6 +55,47 @@ def test_supported_document_formats_produce_normalized_analysis() -> None:
     pptx = service.analyze("sample.pptx", fixtures["pptx"])
     assert pptx.page_count == 1
     assert pptx.word_count == 2
+
+
+@pytest.mark.parametrize("paper_size", [PaperSize.a4, PaperSize.letter, PaperSize.legal])
+def test_bw_product_rate_already_includes_paper_and_ink_for_every_size(paper_size: PaperSize) -> None:
+    analysis = DocumentAnalysis(
+        filename="four-pages.pdf",
+        file_type=DocumentFileType.pdf,
+        mime_type="application/pdf",
+        file_size_bytes=1024,
+        page_count=4,
+        paper_size=paper_size,
+        orientation=Orientation.portrait,
+        character_count=0,
+        word_count=0,
+        ocr_required=False,
+        image_count=0,
+        contains_images=False,
+        image_coverage_percent=0,
+        estimated_color_coverage_percent=90,
+        estimated_ink_coverage_percent=80,
+        table_count=0,
+        graphic_count=0,
+        color_pages=4,
+        bw_pages=0,
+        duplex_compatible=True,
+        estimated_print_time_seconds=4,
+        confidence=1,
+    )
+
+    pricing = calculate_price(
+        analysis,
+        {
+            ProductPrintType.black_and_white: (3, "paperSize"),
+            ProductPrintType.colored: (10, "paperSize"),
+        },
+        ProductPrintType.black_and_white,
+    )
+
+    assert pricing.base_subtotal == 12
+    assert pricing.suggested_price == 12
+    assert pricing.adjustments == []
 
 
 def test_analyzer_api_and_owner_pricing_rules(tmp_path) -> None:
@@ -95,7 +141,7 @@ def test_analyzer_api_and_owner_pricing_rules(tmp_path) -> None:
     rules_response = client.get("/document-analyzer/pricing-rules", headers=headers)
     assert rules_response.status_code == 200
     rules = rules_response.json()
-    assert len(rules) == 2
+    assert len(rules) == 3
     a4_color = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored")
     assert a4_color["pricePerPage"] == 0
     seed_response = client.put(
@@ -194,6 +240,7 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
     a4_color_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored")
     a4_bw_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "black_and_white")
+    a4_semi_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "semi_colored")
     seed_response = client.put(
         "/document-analyzer/pricing-rules",
         headers=headers,
@@ -201,6 +248,7 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
             "rules": [
                 {"id": a4_color_rule["id"], "pricePerPage": 5, "isActive": True},
                 {"id": a4_bw_rule["id"], "pricePerPage": 2, "isActive": True},
+                {"id": a4_semi_rule["id"], "pricePerPage": 8, "isActive": True},
             ]
         },
     )
@@ -283,11 +331,32 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
         data={"product_id": bw_product["id"]},
         files={"file": ("colored-a4.png", image, "image/png")},
     ).json()
-    assert [item["kind"] for item in bw_with_color["pricing"]["adjustments"]] == [
-        "inkCoverage",
-        "colorCoverage",
-    ]
-    assert bw_with_color["pricing"]["suggestedPrice"] == 6.76
+    assert bw_with_color["pricing"]["baseSubtotal"] == 2
+    assert bw_with_color["pricing"]["adjustments"] == []
+    assert bw_with_color["pricing"]["suggestedPrice"] == 2
+
+    semi_product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Semi-colored document",
+            "printType": "semi_colored",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": material["id"]}],
+            "documentRates": [],
+        },
+    ).json()
+    semi_priced = client.post(
+        "/document-analyzer/analyze",
+        headers=headers,
+        data={"product_id": semi_product["id"]},
+        files={"file": ("colored-a4.png", image, "image/png")},
+    ).json()
+    assert semi_priced["pricing"]["baseSubtotal"] == 8
+    assert semi_priced["pricing"]["adjustments"][0]["kind"] == "inkCoverage"
+    assert semi_priced["pricing"]["suggestedPrice"] == 15.06
 
     # A selected product defines how every page is printed. The analyzer's
     # detected page color is still reported, but it must not switch away

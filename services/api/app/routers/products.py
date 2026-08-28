@@ -7,6 +7,7 @@ from ..core.security import require_token
 from ..db.models import (
     DocumentPricingRule,
     InventoryItem,
+    PrintType,
     Product,
     ProductDocumentRate,
     ProductMaterialAssignment,
@@ -17,6 +18,7 @@ from ..db.models import (
 from ..db.session import get_db
 from ..schemas.products import ProductCreate, ProductRead, ProductUpdate
 from ..services.product_pricing import reference_price_per_page
+from ..services.print_types import ensure_builtin_print_types
 
 router = APIRouter(prefix="/products", tags=["products"], dependencies=[Depends(require_token)])
 
@@ -28,6 +30,9 @@ def _to_read(product: Product, db: Session) -> ProductRead:
         id=product.id,
         service_id=product.service_id,
         service_name=product.service.name,
+        print_type_label=product.print_type_definition.label,
+        print_color_mode=product.print_type_definition.color_mode,
+        print_applies_ink_coverage=product.print_type_definition.applies_ink_coverage,
         name=product.name,
         description=product.description,
         print_type=product.print_type,
@@ -66,6 +71,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
     document_rates = data.pop("document_rates")
     if not db.get(Service, data["service_id"]):
         raise HTTPException(status_code=404, detail="Service not found.")
+    _validate_print_type(data["print_type"], db, require_active=True)
     document_rates = _clean_document_rates(document_rates, data["print_type"], db)
     reference_price = reference_price_per_page(
         data["print_type"],
@@ -104,6 +110,11 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
     document_rates = data.pop("document_rates")
     if not db.get(Service, data["service_id"]):
         raise HTTPException(status_code=404, detail="Service not found.")
+    _validate_print_type(
+        data["print_type"],
+        db,
+        require_active=data["print_type"] != product.print_type,
+    )
     document_rates = _clean_document_rates(document_rates, data["print_type"], db)
     reference_price = reference_price_per_page(
         data["print_type"],
@@ -208,6 +219,16 @@ def _clean_document_rates(document_rates: list[dict], print_type, db: Session) -
     if mismatched := next((rule for rule in rules if rule.print_type != print_type), None):
         raise HTTPException(
             status_code=422,
-            detail=f"A document pricing override must match this product's print type ({print_type.value}).",
+            detail=f"A document pricing override must match this product's print type ({print_type}).",
         )
     return document_rates
+
+
+def _validate_print_type(print_type: str, db: Session, *, require_active: bool) -> PrintType:
+    ensure_builtin_print_types(db)
+    definition = db.get(PrintType, print_type)
+    if definition is None:
+        raise HTTPException(status_code=422, detail="Select a configured print type.")
+    if require_active and not definition.is_active:
+        raise HTTPException(status_code=409, detail=f"Print type is inactive: {definition.label}.")
+    return definition

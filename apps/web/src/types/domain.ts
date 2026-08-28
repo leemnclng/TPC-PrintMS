@@ -59,7 +59,20 @@ export interface ProductMaterialAssignment {
   inventoryItemUnit: string;
 }
 
-export type ProductPrintType = "colored" | "black_and_white";
+/** Print-type keys are configured by the backend catalog, not compiled into the renderer. */
+export type ProductPrintType = string;
+
+export interface PrintTypeDefinition {
+  key: ProductPrintType;
+  label: string;
+  description?: string | null;
+  colorMode: "color" | "grayscale";
+  appliesInkCoverage: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
 
 /** The only paper sizes the shop stocks and prices by — a fixed subset of
  *  `DocumentPaperSize`, which stays the full detection outcome (a scanned
@@ -91,6 +104,9 @@ export interface Product {
   name: string;
   description?: string | null;
   printType: ProductPrintType;
+  printTypeLabel: string;
+  printColorMode: "color" | "grayscale";
+  printAppliesInkCoverage: boolean;
   /** Computed, not stored — the lowest active document-pricing rate among
    *  the product's assigned paper materials for its own print type. */
   pricePerPage: number;
@@ -201,6 +217,8 @@ export interface JobOrderItem {
   productName: string;
   serviceName: string;
   printType: ProductPrintType;
+  printTypeLabel: string;
+  printColorMode: "color" | "grayscale";
   variantLabel?: string | null;
   pagesPerCopy: number;
   copies: number;
@@ -236,6 +254,11 @@ export interface PrintJob {
   copies: number;
   colorMode: "color" | "grayscale";
   mediaSize: string;
+  orientation: "auto" | "portrait" | "landscape";
+  scaling: "fit" | "fill" | "actual_size";
+  quality: "draft" | "standard" | "high";
+  borderless: boolean;
+  collate: boolean;
   submittedAt: string;
   result: "pending" | "succeeded" | "failed" | "cancelled";
   operator?: string | null;
@@ -345,6 +368,8 @@ export interface DocumentPricingAdjustment {
 export interface DocumentPricingContext {
   productId: string;
   productName: string;
+  printTypeLabel: string;
+  appliesInkCoverage: boolean;
   variantId?: string | null;
   variantName?: string | null;
 }

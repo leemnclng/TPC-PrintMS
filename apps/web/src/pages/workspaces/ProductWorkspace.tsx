@@ -24,6 +24,7 @@ import { computeReferencePrice } from "../../lib/productPricing";
 import type {
   DocumentPricingRule,
   InventoryItem,
+  PrintTypeDefinition,
   Product,
   ProductPrintType,
   Service,
@@ -59,14 +60,15 @@ export function ProductWorkspace() {
   const { data, state, error } = useResource(
     async () => {
       if (!serviceId) throw new Error("Service is required.");
-      const [service, product, inventoryItems, variants, pricingRules] = await Promise.all([
+      const [service, product, inventoryItems, variants, pricingRules, printTypes] = await Promise.all([
         api.get<Service>(`/services/${serviceId}`),
         isNew ? Promise.resolve(null) : api.get<Product>(`/products/${productId}`),
         api.get<InventoryItem[]>("/inventory-items"),
         api.get<Variant[]>("/variants"),
         api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
+        api.get<PrintTypeDefinition[]>("/print-types"),
       ]);
-      return { service, product, inventoryItems, variants, pricingRules };
+      return { service, product, inventoryItems, variants, pricingRules, printTypes };
     },
     [serviceId, productId],
   );
@@ -95,7 +97,11 @@ export function ProductWorkspace() {
           pricePerPage: rate.pricePerPage,
         })),
       });
-    } else if (data) setForm(BLANK);
+    } else if (data) {
+      const defaultPrintType = data.printTypes.find((printType) => printType.isActive && printType.key === "black_and_white")
+        ?? data.printTypes.find((printType) => printType.isActive);
+      setForm({ ...BLANK, printType: defaultPrintType?.key ?? BLANK.printType });
+    }
   }, [data]);
 
   async function handleSubmit(e: FormEvent) {
@@ -171,6 +177,10 @@ export function ProductWorkspace() {
     (variant) => variant.isActive || form.variants.some((selection) => selection.variantId === variant.id),
   ) ?? [];
   const pricingRules = data?.pricingRules ?? [];
+  const assignablePrintTypes = data?.printTypes.filter(
+    (printType) => printType.isActive || printType.key === form.printType,
+  ) ?? [];
+  const selectedPrintType = data?.printTypes.find((printType) => printType.key === form.printType);
   const referencePrice = computeReferencePrice(
     form.printType,
     form.documentRates,
@@ -216,8 +226,9 @@ export function ProductWorkspace() {
                   documentRates: [],
                 })}
               >
-                <option value="black_and_white">B&amp;W (Black and white)</option>
-                <option value="colored">Colored</option>
+                {assignablePrintTypes.map((printType) => (
+                  <option key={printType.key} value={printType.key}>{printType.label}</option>
+                ))}
               </select>
               <span className="form-field__message">The output type staff should use for this product.</span>
             </label>
@@ -238,7 +249,7 @@ export function ProductWorkspace() {
             <span>Reference price / page</span>
             <strong className="numeric">{formatCurrency(referencePrice)}</strong>
             <small>
-              Computed from the assigned paper material's {formatProductPrintType(form.printType)} rate below —
+              Computed from the assigned paper material's {selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate below —
               override it, or adjust the global rate in Configuration.
             </small>
           </div>

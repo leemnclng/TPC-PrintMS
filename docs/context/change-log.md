@@ -162,6 +162,24 @@ Track notable app changes by date.
 - Changed: Print Center shows an automatic read-only print profile; copies and output mode come from the approved product transaction, while paper and page details come from analysis.
 - Added: Successful print submission automatically deducts all remaining planned materials and creates job-linked inventory ledger entries.
 - Added: Low stock blocks printing with the required and available quantities; failed printer submissions do not deduct inventory, and retries cannot double-deduct completed plans.
+
+## 2026-08-29
+
+- Fixed: The New print type modal now keeps fields away from its edges, separates actions into a stable footer, and remains usable on narrow windows.
+- Added: Semi-colored is available as a product and paper-pricing type, with color printer output and measured ink-coverage pricing.
+- Added: Configuration can create future print types in-app and automatically exposes a pricing column for each one.
+- Changed: Product forms, analyzer pricing, and Print Center now use shared print-type definitions instead of hardcoded B&W/Colored options.
+- Fixed: B&W document analysis no longer adds ink-load or detected-color surcharges on top of the configured rate.
+- Changed: B&W recommendations now equal the configured paper-size rate × pages × copies, plus only an explicitly selected variant.
+- Changed: Analyzer and transaction breakdowns state that the B&W base already includes paper and ink.
+- Changed: New Job Order now asks the owner which configured paper to print on before analysis; that choice drives the rate, stock plan, deduction, and Print Center media.
+- Changed: Detected document size is labeled “Best fit” and shown as non-blocking guidance even when it differs from the selected print paper.
+- Added: Print Center now offers per-attempt orientation, fit/fill/actual-size scaling, draft/standard/high quality, borderless behavior, and copy collation, with every choice retained in Print History.
+- Added: Windows users can open the selected printer driver's native preferences for Canon-specific paper type, tray, and advanced settings.
+- Changed: The OS default printer is the single prominent device; all other installed queues appear in a subtle, separately labeled Others pane and remain selectable.
+- Changed: Creating a job order now opens that job’s workflow page instead of navigating to Print Center.
+- Changed: Payment, queueing, printer setup, quality check, ready, and completion now open as modals without leaving the job order.
+- Changed: The job-order workspace now shows only the current lifecycle, transaction essentials, production brief, and a collapsed history/audit pane.
 - Changed: Quick Actions now appears directly below the Overview heading, with New Job Order highlighted as the primary counter workflow.
 - Added: The Overview shortcut opens the complete upload-and-analysis job-order modal in one click.
 - Changed: New Job Order is now a guided transaction flow for customer file upload, configured product/variant selection, analysis, price review, and Print Center handoff.

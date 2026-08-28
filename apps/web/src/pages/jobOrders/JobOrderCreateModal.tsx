@@ -27,6 +27,7 @@ interface TransactionForm {
   productId: string;
   productSearch: string;
   variantId: string;
+  paperInventoryItemId: string;
   copies: number;
   customerId: string;
   dueDate: string;
@@ -39,6 +40,7 @@ const blankForm = (): TransactionForm => ({
   productId: "",
   productSearch: "",
   variantId: "",
+  paperInventoryItemId: "",
   copies: 1,
   customerId: "",
   dueDate: "",
@@ -79,8 +81,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
     .filter((item): item is InventoryItem => Boolean(item?.isActive)) ?? [];
   const paperAssignments = assignments.filter((item) => Boolean(item.paperSize));
   const otherAssignments = assignments.filter((item) => !item.paperSize);
-  const detectedPaper = analysis?.analysis.paperSize;
-  const matchedPaper = paperAssignments.find((item) => item.paperSize === detectedPaper);
+  const selectedPaper = paperAssignments.find((item) => item.id === form.paperInventoryItemId);
   const recommendedTotal = analysis ? Math.round(analysis.pricing.suggestedPrice * form.copies * 100) / 100 : 0;
   const parsedCustomPrice = customPrice.trim() === "" ? null : Number(customPrice);
   const finalPrice = priceMode === "suggested" ? recommendedTotal : parsedCustomPrice;
@@ -142,7 +143,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
   }
 
   function selectProduct(productId: string) {
-    setForm((current) => ({ ...current, productId, variantId: "", materials: [] }));
+    setForm((current) => ({ ...current, productId, variantId: "", paperInventoryItemId: "", materials: [] }));
     invalidateAnalysis();
   }
 
@@ -168,7 +169,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
     event.preventDefault();
     setSubmitted(true);
     setError(null);
-    if (!file || !selectedProduct || form.copies < 1 || paperAssignments.length === 0 ||
+    if (!file || !selectedProduct || !selectedPaper || form.copies < 1 ||
       form.materials.some((material) => material.plannedQuantity <= 0)) {
       window.requestAnimationFrame(() => {
         document.querySelector<HTMLElement>(".job-transaction-modal [aria-invalid='true']")?.focus();
@@ -180,6 +181,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
     const body = new FormData();
     body.append("file", file);
     body.append("product_id", selectedProduct.id);
+    body.append("paper_inventory_item_id", selectedPaper.id);
     if (form.variantId) body.append("variant_id", form.variantId);
     try {
       const result = await api.upload<DocumentAnalysisResponse>("/document-analyzer/analyze", body);
@@ -196,7 +198,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
   }
 
   async function handleConfirm() {
-    if (!file || !selectedProduct || !analysis || !matchedPaper || saving) return;
+    if (!file || !selectedProduct || !analysis || !selectedPaper || saving) return;
     if (priceMode === "custom" && (parsedCustomPrice === null || !Number.isFinite(parsedCustomPrice) || parsedCustomPrice < 0)) {
       setError("Enter a valid final price of zero or more.");
       return;
@@ -207,6 +209,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
     body.append("file", file);
     body.append("transaction", JSON.stringify({
       productId: selectedProduct.id,
+      paperInventoryItemId: selectedPaper.id,
       variantId: form.variantId || null,
       customerId: form.customerId || null,
       copies: form.copies,
@@ -229,7 +232,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
   const filteredProducts = activeProducts.filter((product) => {
     if (form.serviceName && product.serviceName !== form.serviceName) return false;
     if (!normalizedSearch || product.id === form.productId) return true;
-    return [product.name, product.serviceName, formatProductPrintType(product.printType)]
+    return [product.name, product.serviceName, product.printTypeLabel || formatProductPrintType(product.printType)]
       .some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
   });
   const prerequisitesMissing = activeProducts.length === 0;
@@ -238,7 +241,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
     <Modal
       open={open}
       title="New job order"
-      description="Nothing is saved until you approve the analyzed price and proceed to printing."
+      description="Nothing is saved until you approve the analyzed price. The new job then opens in its complete workflow."
       onClose={onClose}
       busy={analyzing || saving}
       status={error ? "error" : analyzing || saving ? "loading" : "idle"}
@@ -249,7 +252,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
           <ol>
             <li className={step === "configure" ? "is-active" : "is-complete"}><span>01</span><strong>File & service</strong></li>
             <li className={step === "review" ? "is-active" : ""}><span>02</span><strong>Analysis & price</strong></li>
-            <li><span>03</span><strong>Print setup</strong></li>
+            <li><span>03</span><strong>Job workflow</strong></li>
           </ol>
         </nav>
 
@@ -288,7 +291,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
               analysis={analysis}
               product={selectedProduct}
               copies={form.copies}
-              matchedPaper={matchedPaper}
+              selectedPaper={selectedPaper}
               recommendedTotal={recommendedTotal}
               priceMode={priceMode}
               customPrice={customPrice}
@@ -314,7 +317,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
             <>
               <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Do not proceed</Button>
               <Button type="button" variant="secondary" onClick={() => setStep("configure")} disabled={saving}>Back</Button>
-              <Button type="button" variant="primary" onClick={handleConfirm} loading={saving} disabled={!matchedPaper || finalPrice === null || !Number.isFinite(finalPrice) || finalPrice < 0}>Proceed to printing</Button>
+              <Button type="button" variant="primary" onClick={handleConfirm} loading={saving} disabled={!selectedPaper || finalPrice === null || !Number.isFinite(finalPrice) || finalPrice < 0}>Create job order</Button>
             </>
           )}
         </footer>
@@ -368,9 +371,9 @@ function ConfigureStep(props: ConfigureStepProps) {
       </section>
 
       <section className="transaction-section">
-        <div className="transaction-section__heading"><span className="numeric">02 / SERVICE</span><div><h3>Choose the work to perform</h3><p>Select a service and product; its configured paper and variants drive analysis pricing.</p></div></div>
+        <div className="transaction-section__heading"><span className="numeric">02 / SERVICE</span><div><h3>Choose the work to perform</h3><p>Select the product, print paper, and any variant. The owner’s paper choice drives pricing and printing.</p></div></div>
         <div className="transaction-catalog-controls">
-          <label className="form-field"><span>Service</span><select value={form.serviceName} onChange={(event) => { setForm((current) => ({ ...current, serviceName: event.target.value, productId: "", variantId: "", materials: [] })); invalidateAnalysis(); }}><option value="">All services</option>{services.map((service) => <option key={service} value={service}>{service}</option>)}</select></label>
+          <label className="form-field"><span>Service</span><select value={form.serviceName} onChange={(event) => { setForm((current) => ({ ...current, serviceName: event.target.value, productId: "", variantId: "", paperInventoryItemId: "", materials: [] })); invalidateAnalysis(); }}><option value="">All services</option>{services.map((service) => <option key={service} value={service}>{service}</option>)}</select></label>
           <label className="form-field"><span>Find product</span><input type="search" value={form.productSearch} onChange={(event) => setForm((current) => ({ ...current, productSearch: event.target.value }))} placeholder="Search products" /></label>
         </div>
         <fieldset className="transaction-product-picker" aria-invalid={submitted && !selectedProduct} tabIndex={-1}>
@@ -380,7 +383,7 @@ function ConfigureStep(props: ConfigureStepProps) {
               <label className={`transaction-product-card${product.id === form.productId ? " is-selected" : ""}`} key={product.id}>
                 <input type="radio" name="transaction-product" checked={product.id === form.productId} onChange={() => selectProduct(product.id)} />
                 <span className="transaction-product-card__check" aria-hidden="true" />
-                <span><small>{product.serviceName} · {formatProductPrintType(product.printType)}</small><strong>{product.name}</strong><b>From {formatCurrency(product.pricePerPage)} / page</b></span>
+                <span><small>{product.serviceName} · {product.printTypeLabel || formatProductPrintType(product.printType)}</small><strong>{product.name}</strong><b>From {formatCurrency(product.pricePerPage)} / page</b></span>
               </label>
             ))}
             {filteredProducts.length === 0 && <p className="transaction-product-empty">No products match this service and search.</p>}
@@ -390,17 +393,18 @@ function ConfigureStep(props: ConfigureStepProps) {
 
         {selectedProduct && (
           <div className="transaction-options">
+            <label className="form-field"><span>Print paper</span><select value={form.paperInventoryItemId} onChange={(event) => { setForm((current) => ({ ...current, paperInventoryItemId: event.target.value })); invalidateAnalysis(); }} aria-invalid={submitted && !form.paperInventoryItemId}><option value="">Select paper</option>{paperAssignments.map((item) => <option key={item.id} value={item.id}>{item.paperSize} · {item.name}</option>)}</select><small>This controls pricing, inventory deduction, and printer setup.</small></label>
             <label className="form-field"><span>Variant <small>(optional)</small></span><select value={form.variantId} onChange={(event) => { setForm((current) => ({ ...current, variantId: event.target.value })); invalidateAnalysis(); }} disabled={selectedProduct.variants.length === 0}><option value="">No variant</option>{selectedProduct.variants.map((variant) => <option key={variant.variantId} value={variant.variantId}>{variant.label} · {variant.priceAdjustment >= 0 ? "+" : ""}{formatCurrency(variant.priceAdjustment)} / page</option>)}</select></label>
             <label className="form-field"><span>Copies</span><input type="number" min={1} value={form.copies} onChange={(event) => { setForm((current) => ({ ...current, copies: Number(event.target.value) })); invalidateAnalysis(); }} aria-invalid={submitted && form.copies < 1} /></label>
-            <div className="transaction-paper-summary"><span>Configured paper</span><strong>{paperAssignments.length ? paperAssignments.map((item) => item.paperSize).join(" · ") : "None"}</strong><small>The analyzer will match the document's detected size.</small></div>
           </div>
         )}
         {selectedProduct && paperAssignments.length === 0 && <p className="workspace-form__error" aria-invalid="true" tabIndex={-1}>This product has no active configured paper material.</p>}
+        {submitted && selectedProduct && paperAssignments.length > 0 && !form.paperInventoryItemId && <p className="workspace-form__error">Select the paper the owner will print on.</p>}
       </section>
 
       {selectedProduct && otherAssignments.length > 0 && (
         <section className="transaction-section">
-          <div className="transaction-section__heading"><span className="numeric">03 / MATERIALS</span><div><h3>Plan optional supplies</h3><p>Paper is added from the detected page count. Selected quantities are deducted automatically after successful print submission.</p></div></div>
+          <div className="transaction-section__heading"><span className="numeric">03 / MATERIALS</span><div><h3>Plan optional supplies</h3><p>The chosen paper is planned from the page count and copies. Selected supplies are deducted after successful print submission.</p></div></div>
           <div className="transaction-materials">
             {otherAssignments.map((item) => {
               const selected = form.materials.find((material) => material.inventoryItemId === item.id);
@@ -426,7 +430,7 @@ interface ReviewStepProps {
   analysis: DocumentAnalysisResponse;
   product: Product;
   copies: number;
-  matchedPaper?: InventoryItem;
+  selectedPaper?: InventoryItem;
   recommendedTotal: number;
   priceMode: "suggested" | "custom";
   customPrice: string;
@@ -439,19 +443,20 @@ interface ReviewStepProps {
 }
 
 function ReviewStep(props: ReviewStepProps) {
-  const { analysis, product, copies, matchedPaper, recommendedTotal, priceMode, customPrice, parsedCustomPrice, finalPrice, setStep, setPriceMode, setCustomPrice, setError } = props;
+  const { analysis, product, copies, selectedPaper, recommendedTotal, priceMode, customPrice, parsedCustomPrice, finalPrice, setStep, setPriceMode, setCustomPrice, setError } = props;
+  const detectedMatchesSelection = analysis.analysis.paperSize === selectedPaper?.paperSize;
   return (
     <div className="transaction-review">
       <section className="transaction-analysis-card">
         <header><div><span className="numeric">ANALYSIS COMPLETE</span><h3>{analysis.analysis.filename}</h3></div><Button type="button" variant="ghost" size="sm" onClick={() => setStep("configure")}>Edit setup</Button></header>
         <dl>
-          <div><dt>Pages</dt><dd>{analysis.analysis.pageCount}</dd></div><div><dt>Paper</dt><dd>{analysis.analysis.paperSize}</dd></div><div><dt>Orientation</dt><dd>{analysis.analysis.orientation}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Sheets</dt><dd>{analysis.analysis.pageCount * copies}</dd></div><div><dt>Source pages</dt><dd>{analysis.analysis.colorPages} color · {analysis.analysis.bwPages} B&W</dd></div><div><dt>Ink load</dt><dd>{analysis.analysis.estimatedInkCoveragePercent.toFixed(1)}%</dd></div><div><dt>Print time</dt><dd>~{analysis.analysis.estimatedPrintTimeSeconds * copies}s</dd></div>
+          <div><dt>Pages</dt><dd>{analysis.analysis.pageCount}</dd></div><div><dt>Best fit</dt><dd>{analysis.analysis.paperSize}</dd></div><div><dt>Print paper</dt><dd>{selectedPaper?.paperSize ?? "—"}</dd></div><div><dt>Orientation</dt><dd>{analysis.analysis.orientation}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Sheets</dt><dd>{analysis.analysis.pageCount * copies}</dd></div><div><dt>Source pages</dt><dd>{analysis.analysis.colorPages} color · {analysis.analysis.bwPages} B&W</dd></div><div><dt>Ink load</dt><dd>{analysis.analysis.estimatedInkCoveragePercent.toFixed(1)}%</dd></div><div><dt>Print time</dt><dd>~{analysis.analysis.estimatedPrintTimeSeconds * copies}s</dd></div>
         </dl>
-        {!matchedPaper && <p className="transaction-review__blocker" role="alert">Detected {analysis.analysis.paperSize} paper is not configured for {product.name}. Edit the setup or product configuration before proceeding.</p>}
+        <div className={`transaction-review__fit${detectedMatchesSelection ? " is-matched" : ""}`}><strong>{detectedMatchesSelection ? "Selected paper matches the document’s best fit." : `Document best fits ${analysis.analysis.paperSize}; owner selected ${selectedPaper?.paperSize}.`}</strong><span>{detectedMatchesSelection ? `Printing will use ${selectedPaper?.name}.` : "This is advisory only. Pricing, inventory, and Print Center will use the owner-selected paper."}</span></div>
       </section>
       <section className="transaction-price-card">
         <div className="transaction-price-card__recommendation"><span className="numeric">ENGINE RECOMMENDATION</span><strong>{formatCurrency(recommendedTotal)}</strong><small>{formatCurrency(analysis.pricing.suggestedPrice)} per copy × {copies} {copies === 1 ? "copy" : "copies"}</small></div>
-        <div className="transaction-price-breakdown"><div><span>Base print</span><strong>{formatCurrency(analysis.pricing.baseSubtotal * copies)}</strong></div>{analysis.pricing.adjustments.map((adjustment) => <div key={`${adjustment.kind}-${adjustment.label}`}><span>{adjustment.label}<small>{adjustment.basis}</small></span><strong>{formatCurrency(adjustment.amount * copies)}</strong></div>)}</div>
+        <div className="transaction-price-breakdown"><div><span>{product.printType === "black_and_white" ? "B&W base · paper and ink included" : product.printAppliesInkCoverage ? `${product.printTypeLabel} base` : `${product.printTypeLabel} base · configured rate only`}</span><strong>{formatCurrency(analysis.pricing.baseSubtotal * copies)}</strong></div>{analysis.pricing.adjustments.map((adjustment) => <div key={`${adjustment.kind}-${adjustment.label}`}><span>{adjustment.label}<small>{adjustment.basis}</small></span><strong>{formatCurrency(adjustment.amount * copies)}</strong></div>)}</div>
       </section>
       <fieldset className="transaction-price-choice">
         <legend>Choose the transaction price</legend>

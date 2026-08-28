@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from ..db.models import InventoryPaperSize, JobOrderStatus, PaymentMethod, PrintResult, PrintSides, ProductPrintType
+from ..db.models import InventoryPaperSize, JobOrderStatus, PaymentMethod, PrintResult, PrintSides
 from .common import CamelModel
 
 
@@ -32,6 +32,7 @@ class JobOrderCreate(CamelModel):
 
 class AnalyzedJobOrderCreate(CamelModel):
     product_id: str
+    paper_inventory_item_id: str
     variant_id: str | None = None
     customer_id: str | None = None
     copies: int = Field(ge=1)
@@ -58,7 +59,9 @@ class JobOrderItemRead(CamelModel):
     product_id: str
     product_name: str
     service_name: str
-    print_type: ProductPrintType
+    print_type: str
+    print_type_label: str
+    print_color_mode: str
     variant_label: str | None
     pages_per_copy: int
     copies: int
@@ -111,6 +114,11 @@ class PrintSubmissionCreate(CamelModel):
     copies: int | None = Field(default=None, ge=1, le=99)
     color_mode: Literal["color", "grayscale"] | None = None
     media_size: Literal["A4", "Letter", "Legal"] | None = None
+    orientation: Literal["auto", "portrait", "landscape"] = "auto"
+    scaling: Literal["fit", "fill", "actual_size"] = "fit"
+    quality: Literal["draft", "standard", "high"] = "standard"
+    borderless: bool = False
+    collate: bool = True
 
 
 class PrintAttemptRead(CamelModel):
@@ -122,6 +130,11 @@ class PrintAttemptRead(CamelModel):
     copies: int
     color_mode: str
     media_size: str
+    orientation: str
+    scaling: str
+    quality: str
+    borderless: bool
+    collate: bool
     submitted_at: datetime
     result: PrintResult
     operator: str | None

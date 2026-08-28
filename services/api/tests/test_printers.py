@@ -66,6 +66,11 @@ def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypat
         copies=2,
         color_mode="color",
         media_size="A4",
+        orientation="landscape",
+        scaling="actual_size",
+        quality="high",
+        borderless=True,
+        collate=False,
     )
 
     command = captured["command"]
@@ -78,6 +83,11 @@ def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypat
     assert command[command.index("-Copies") + 1] == "2"
     assert command[command.index("-ColorMode") + 1] == "color"
     assert command[command.index("-MediaSize") + 1] == "A4"
+    assert command[command.index("-Orientation") + 1] == "landscape"
+    assert command[command.index("-Scaling") + 1] == "actual_size"
+    assert command[command.index("-Quality") + 1] == "high"
+    assert command[command.index("-Borderless") + 1] == "true"
+    assert command[command.index("-Collate") + 1] == "false"
     assert len(captured["rendered_pages"]) == 1
     assert submission.external_job_id is None
 

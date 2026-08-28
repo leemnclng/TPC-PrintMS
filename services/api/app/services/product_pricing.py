@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from ..db.models import DocumentPricingRule, InventoryItem, ProductPrintType
+from ..db.models import DocumentPricingRule, InventoryItem
 
 
 def reference_price_per_page(
-    print_type: ProductPrintType,
+    print_type: str,
     document_rate_overrides: dict[str, float],
     inventory_item_ids: list[str],
     db: Session,
@@ -40,7 +40,7 @@ def reference_price_per_page(
 
 
 def price_per_page_for_material(
-    print_type: ProductPrintType,
+    print_type: str,
     document_rate_overrides: dict[str, float],
     inventory_item_id: str,
     db: Session,

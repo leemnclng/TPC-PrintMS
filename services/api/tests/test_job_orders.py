@@ -254,9 +254,11 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     client = TestClient(app)
     headers = {"X-Print-MS-Token": settings.token}
 
-    paper = _create_material(client, headers, "A4 transaction paper", "sheet", 100, paper_size="A4")
+    # The uploaded image is A4, while the owner deliberately chooses Letter.
+    # Detection must remain advisory throughout pricing, inventory, and printing.
+    paper = _create_material(client, headers, "Letter transaction paper", "sheet", 100, paper_size="Letter")
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
-    color_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored")
+    color_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "colored")
     assert client.put(
         "/document-analyzer/pricing-rules",
         headers=headers,
@@ -272,7 +274,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
         headers=headers,
         json={
             "serviceId": service["id"],
-            "name": "A4 color document",
+            "name": "Letter color document",
             "printType": "colored",
             "isActive": True,
             "variants": [],
@@ -286,15 +288,19 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     analysis_response = client.post(
         "/document-analyzer/analyze",
         headers=headers,
-        data={"product_id": product["id"]},
+        data={"product_id": product["id"], "paper_inventory_item_id": paper["id"]},
         files={"file": ("customer-a4.png", document, "image/png")},
     )
     assert analysis_response.status_code == 200
+    assert analysis_response.json()["analysis"]["paperSize"] == "A4"
+    assert analysis_response.json()["pricing"]["baseSubtotal"] == 5
+    assert analysis_response.json()["pricing"]["breakdown"][0]["paperSize"] == "Letter"
     assert client.get("/job-orders", headers=headers).json() == []
     assert not (tmp_path / "app-data" / "files").exists()
 
     transaction = {
         "productId": product["id"],
+        "paperInventoryItemId": paper["id"],
         "copies": 2,
         "priceMode": "custom",
         "customPrice": 25,
@@ -315,6 +321,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert order["items"][0]["pagesPerCopy"] == 1
     assert order["items"][0]["copies"] == 2
     assert order["items"][0]["materials"][0]["plannedQuantity"] == 2
+    assert order["items"][0]["materials"][0]["paperSize"] == "Letter"
     assert order["files"][0]["originalFilename"] == "customer-a4.png"
     assert order["files"][0]["kind"] == "print_ready"
     assert order["files"][0]["detectedPageCount"] == 1
@@ -376,8 +383,10 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
 
     class StubPrintAdapter:
         fail = True
+        calls = []
 
-        def submit_file(self, *_args):
+        def submit_file(self, *args):
+            self.calls.append(args)
             if self.fail:
                 raise PrintSubmissionError("Test queue rejected the first attempt.")
             return PrintSubmission(external_job_id="Canon-42")
@@ -427,7 +436,15 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     printed = client.post(
         f"/job-orders/{order['id']}/print-attempts",
         headers=headers,
-        json={"printerId": printer_id, "jobFileId": order["files"][0]["id"]},
+        json={
+            "printerId": printer_id,
+            "jobFileId": order["files"][0]["id"],
+            "orientation": "landscape",
+            "scaling": "fill",
+            "quality": "high",
+            "borderless": False,
+            "collate": False,
+        },
     )
     assert printed.status_code == 201
     assert printed.json()["status"] == "printing"
@@ -436,7 +453,13 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert printed.json()["printAttempts"][0]["externalJobId"] == "Canon-42"
     assert printed.json()["printAttempts"][0]["copies"] == 2
     assert printed.json()["printAttempts"][0]["colorMode"] == "color"
-    assert printed.json()["printAttempts"][0]["mediaSize"] == "A4"
+    assert printed.json()["printAttempts"][0]["mediaSize"] == "Letter"
+    assert printed.json()["printAttempts"][0]["orientation"] == "landscape"
+    assert printed.json()["printAttempts"][0]["scaling"] == "fill"
+    assert printed.json()["printAttempts"][0]["quality"] == "high"
+    assert printed.json()["printAttempts"][0]["borderless"] is False
+    assert printed.json()["printAttempts"][0]["collate"] is False
+    assert stub_adapter.calls[-1][5:] == ("landscape", "fill", "high", False, False)
     assert printed.json()["items"][0]["materials"][0]["consumedQuantity"] == 2
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 98
     auto_movements = client.get(
@@ -480,6 +503,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
             "transaction": json.dumps(
                 {
                     "productId": product["id"],
+                    "paperInventoryItemId": paper["id"],
                     "copies": 3,
                     "priceMode": "suggested",
                     "otherMaterials": [],

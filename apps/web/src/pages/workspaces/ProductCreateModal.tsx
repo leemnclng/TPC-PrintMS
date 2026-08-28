@@ -18,6 +18,7 @@ import { computeReferencePrice } from "../../lib/productPricing";
 import type {
   DocumentPricingRule,
   InventoryItem,
+  PrintTypeDefinition,
   Product,
   ProductPrintType,
   Service,
@@ -36,11 +37,11 @@ interface ProductFormState {
   documentRates: ProductDocumentRateSelection[];
 }
 
-function blankProduct(): ProductFormState {
+function blankProduct(printType: ProductPrintType = "black_and_white"): ProductFormState {
   return {
     name: "",
     description: "",
-    printType: "black_and_white",
+    printType,
     isActive: true,
     variants: [],
     materialAssignments: [],
@@ -54,6 +55,7 @@ interface ProductCreateModalProps {
   inventoryItems: InventoryItem[];
   variants: Variant[];
   pricingRules: DocumentPricingRule[];
+  printTypes: PrintTypeDefinition[];
   onClose: () => void;
   onCreated: (product: Product) => void;
 }
@@ -64,13 +66,19 @@ export function ProductCreateModal({
   inventoryItems,
   variants,
   pricingRules,
+  printTypes,
   onClose,
   onCreated,
 }: ProductCreateModalProps) {
   const activeInventoryItems = inventoryItems.filter((item) => item.isActive);
   const activeOtherMaterials = activeInventoryItems.filter((item) => !item.paperSize);
   const activeVariants = variants.filter((variant) => variant.isActive);
-  const [form, setForm] = useState<ProductFormState>(blankProduct);
+  const activePrintTypes = printTypes.filter((printType) => printType.isActive);
+  const defaultPrintType = activePrintTypes.find((printType) => printType.key === "black_and_white")?.key
+    ?? activePrintTypes[0]?.key
+    ?? "black_and_white";
+  const [form, setForm] = useState<ProductFormState>(() => blankProduct(defaultPrintType));
+  const selectedPrintType = printTypes.find((printType) => printType.key === form.printType);
   const [nameTouched, setNameTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -93,11 +101,11 @@ export function ProductCreateModal({
     : null;
   useEffect(() => {
     if (!open) return;
-    setForm(blankProduct());
+    setForm(blankProduct(defaultPrintType));
     setNameTouched(false);
     setSubmitted(false);
     setSaveError(null);
-  }, [open]);
+  }, [open, defaultPrintType]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -189,8 +197,9 @@ export function ProductCreateModal({
                   documentRates: [],
                 })}
               >
-                <option value="black_and_white">B&amp;W (Black and white)</option>
-                <option value="colored">Colored</option>
+                {activePrintTypes.map((printType) => (
+                  <option key={printType.key} value={printType.key}>{printType.label}</option>
+                ))}
               </select>
               <span className="form-field__message">Choose the output this product is designed to produce.</span>
             </label>
@@ -212,7 +221,7 @@ export function ProductCreateModal({
             <span>Reference price / page</span>
             <strong className="numeric">{formatCurrency(referencePrice)}</strong>
             <small>
-              Computed from the assigned paper material's {formatProductPrintType(form.printType)} rate below —
+              Computed from the assigned paper material's {selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate below —
               override it, or adjust the global rate in Configuration.
             </small>
           </div>

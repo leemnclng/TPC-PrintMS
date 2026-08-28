@@ -26,7 +26,7 @@ class ProductDocumentRateIn(CamelModel):
 class ProductDocumentRateRead(ProductDocumentRateIn):
     id: str
     paper_size: InventoryPaperSize
-    print_type: ProductPrintType
+    print_type: str
 
 
 class ProductMaterialAssignmentIn(CamelModel):
@@ -43,7 +43,7 @@ class ProductBase(CamelModel):
     service_id: str
     name: str
     description: str | None = None
-    print_type: ProductPrintType = ProductPrintType.black_and_white
+    print_type: str = ProductPrintType.black_and_white.value
     is_active: bool = True
 
 
@@ -62,6 +62,9 @@ class ProductUpdate(ProductBase):
 class ProductRead(ProductBase):
     id: str
     service_name: str
+    print_type_label: str
+    print_color_mode: str
+    print_applies_ink_coverage: bool
     price_per_page: float = Field(ge=0)
     variants: list[ProductVariantRead] = Field(default_factory=list)
     material_assignments: list[ProductMaterialAssignmentRead] = Field(default_factory=list)

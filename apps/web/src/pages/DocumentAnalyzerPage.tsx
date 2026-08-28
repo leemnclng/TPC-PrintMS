@@ -320,7 +320,7 @@ function AnalysisResult({
             <div className="analyzer-pricing__table">
               {pricing.breakdown.map((item) => (
                 <div key={item.printType}>
-                  <span>{pricingContext ? `${pricingContext.productName} base` : formatProductPrintType(item.printType)}{formatRateSourceTag(item.rateSource)}</span>
+                  <span>{pricingContext ? `${pricingContext.printTypeLabel} base${item.printType === "black_and_white" ? " · paper and ink included" : pricingContext.appliesInkCoverage ? "" : " · configured rate only"}` : formatProductPrintType(item.printType)}{formatRateSourceTag(item.rateSource)}</span>
                   <span className="numeric">{item.pages} × {formatCurrency(item.ratePerPage)}</span>
                   <strong className="numeric">{formatCurrency(item.subtotal)}</strong>
                 </div>

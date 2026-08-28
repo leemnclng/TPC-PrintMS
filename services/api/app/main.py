@@ -18,6 +18,7 @@ from .routers import (
     inventory,
     job_orders,
     overview,
+    print_types,
     printers,
     products,
     quotations,
@@ -79,6 +80,7 @@ app.include_router(overview.router)
 app.include_router(customers.router)
 app.include_router(services.router)
 app.include_router(variants.router)
+app.include_router(print_types.router)
 app.include_router(document_analyzer_router)
 app.include_router(products.router)
 app.include_router(inventory.router)

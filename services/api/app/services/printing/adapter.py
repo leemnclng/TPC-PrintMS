@@ -51,6 +51,11 @@ class PrinterAdapter:
         copies: int,
         color_mode: str,
         media_size: str,
+        orientation: str = "auto",
+        scaling: str = "fit",
+        quality: str = "standard",
+        borderless: bool = False,
+        collate: bool = True,
     ) -> PrintSubmission:
         raise NotImplementedError
 
@@ -110,7 +115,13 @@ class CupsPrinterAdapter(PrinterAdapter):
         copies: int,
         color_mode: str,
         media_size: str,
+        orientation: str = "auto",
+        scaling: str = "fit",
+        quality: str = "standard",
+        borderless: bool = False,
+        collate: bool = True,
     ) -> PrintSubmission:
+        media_option = f"{media_size}.Borderless" if borderless else media_size
         command = [
             "lp",
             "-d",
@@ -118,11 +129,19 @@ class CupsPrinterAdapter(PrinterAdapter):
             "-n",
             str(copies),
             "-o",
-            f"media={media_size}",
+            f"media={media_option}",
             "-o",
             f"ColorModel={'Gray' if color_mode == 'grayscale' else 'RGB'}",
+            "-o",
+            f"print-scaling={'none' if scaling == 'actual_size' else scaling}",
+            "-o",
+            f"print-quality={3 if quality == 'draft' else 5 if quality == 'high' else 4}",
+            "-o",
+            f"multiple-document-handling={'separate-documents-collated-copies' if collate else 'separate-documents-uncollated-copies'}",
             str(file_path),
         ]
+        if orientation != "auto":
+            command[1:1] = ["-o", f"orientation-requested={3 if orientation == 'portrait' else 4}"]
         try:
             result = subprocess.run(command, capture_output=True, text=True, timeout=30)
         except FileNotFoundError as error:
@@ -206,6 +225,11 @@ class WindowsPrinterAdapter(PrinterAdapter):
         copies: int,
         color_mode: str,
         media_size: str,
+        orientation: str = "auto",
+        scaling: str = "fit",
+        quality: str = "standard",
+        borderless: bool = False,
+        collate: bool = True,
     ) -> PrintSubmission:
         script_path = Path(__file__).with_name("windows_print.ps1")
         with tempfile.TemporaryDirectory(prefix="printing-ms-pages-") as temporary_directory:
@@ -234,6 +258,16 @@ class WindowsPrinterAdapter(PrinterAdapter):
                 color_mode,
                 "-MediaSize",
                 media_size,
+                "-Orientation",
+                orientation,
+                "-Scaling",
+                scaling,
+                "-Quality",
+                quality,
+                "-Borderless",
+                str(borderless).lower(),
+                "-Collate",
+                str(collate).lower(),
             ]
             try:
                 result = subprocess.run(

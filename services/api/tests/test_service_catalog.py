@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
-from app.routers import inventory, products, services, variants
+from app.routers import inventory, print_types, products, services, variants
 
 
 def test_service_owns_products_and_cannot_be_removed_while_in_use(tmp_path) -> None:
@@ -30,8 +30,28 @@ def test_service_owns_products_and_cannot_be_removed_while_in_use(tmp_path) -> N
     app.include_router(products.router)
     app.include_router(inventory.router)
     app.include_router(variants.router)
+    app.include_router(print_types.router)
     client = TestClient(app)
     headers = {"X-Print-MS-Token": settings.token}
+
+    configured_types = client.get("/print-types", headers=headers).json()
+    assert [item["key"] for item in configured_types] == [
+        "black_and_white",
+        "semi_colored",
+        "colored",
+    ]
+    spot_type_response = client.post(
+        "/print-types",
+        headers=headers,
+        json={
+            "label": "Spot color",
+            "description": "One selected accent color",
+            "colorMode": "color",
+            "appliesInkCoverage": True,
+        },
+    )
+    assert spot_type_response.status_code == 201
+    assert spot_type_response.json()["key"] == "spot_color"
 
     service_response = client.post(
         "/services",
@@ -197,6 +217,23 @@ def test_service_owns_products_and_cannot_be_removed_while_in_use(tmp_path) -> N
     assert products_response.status_code == 200
     assert [item["name"] for item in products_response.json()] == ["Business cards"]
 
+    custom_type_product_response = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Spot-color card",
+            "printType": "spot_color",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": material["id"]}],
+        },
+    )
+    assert custom_type_product_response.status_code == 201
+    custom_type_product = custom_type_product_response.json()
+    assert custom_type_product["printTypeLabel"] == "Spot color"
+    assert custom_type_product["printColorMode"] == "color"
+
     variants_response = client.get("/variants", headers=headers)
     assert variants_response.status_code == 200
     assert variants_response.json()[0]["linkedProductCount"] == 2
@@ -211,6 +248,7 @@ def test_service_owns_products_and_cannot_be_removed_while_in_use(tmp_path) -> N
     assert blocked_delete.status_code == 409
 
     assert client.delete(f"/products/{product['id']}", headers=headers).status_code == 204
+    assert client.delete(f"/products/{custom_type_product['id']}", headers=headers).status_code == 204
     assert client.delete(f"/products/{second_product['id']}", headers=headers).status_code == 204
     assert client.delete(
         f"/variants/{matte['id']}",

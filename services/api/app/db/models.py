@@ -11,7 +11,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -67,8 +67,9 @@ class PrintSides(str, enum.Enum):
 
 
 class ProductPrintType(str, enum.Enum):
-    colored = "colored"
     black_and_white = "black_and_white"
+    semi_colored = "semi_colored"
+    colored = "colored"
 
 
 class InventoryPaperSize(str, enum.Enum):
@@ -157,6 +158,28 @@ class Service(TimestampMixin, Base):
     products: Mapped[list["Product"]] = relationship(back_populates="service")
 
 
+class PrintType(TimestampMixin, Base):
+    """Owner-managed output/pricing type shared by products and paper rates."""
+
+    __tablename__ = "print_types"
+    __table_args__ = (
+        CheckConstraint("color_mode IN ('color', 'grayscale')", name="ck_print_types_color_mode"),
+    )
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    label: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    color_mode: Mapped[str] = mapped_column(String, default="color", nullable=False)
+    applies_ink_coverage: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    products: Mapped[list["Product"]] = relationship(back_populates="print_type_definition")
+    pricing_rules: Mapped[list["DocumentPricingRule"]] = relationship(
+        back_populates="print_type_definition"
+    )
+
+
 class Variant(TimestampMixin, Base):
     """Reusable production/pricing option available to every product."""
 
@@ -180,14 +203,12 @@ class DocumentPricingRule(TimestampMixin, Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     inventory_item_id: Mapped[str] = mapped_column(ForeignKey("inventory_items.id"), nullable=False)
-    print_type: Mapped[ProductPrintType] = mapped_column(
-        Enum(ProductPrintType, name="documentpricingprinttype", create_constraint=True),
-        nullable=False,
-    )
+    print_type: Mapped[str] = mapped_column(ForeignKey("print_types.key"), nullable=False)
     price_per_page: Mapped[float] = mapped_column(Float, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     inventory_item: Mapped["InventoryItem"] = relationship(back_populates="document_pricing_rules")
+    print_type_definition: Mapped["PrintType"] = relationship(back_populates="pricing_rules")
     product_rates: Mapped[list["ProductDocumentRate"]] = relationship(back_populates="pricing_rule")
 
     @property
@@ -202,14 +223,13 @@ class Product(TimestampMixin, Base):
     service_id: Mapped[str] = mapped_column(ForeignKey("services.id"), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    print_type: Mapped[ProductPrintType] = mapped_column(
-        Enum(ProductPrintType, name="productprinttype", create_constraint=True),
-        default=ProductPrintType.black_and_white,
-        nullable=False,
+    print_type: Mapped[str] = mapped_column(
+        ForeignKey("print_types.key"), default=ProductPrintType.black_and_white.value, nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     service: Mapped["Service"] = relationship(back_populates="products")
+    print_type_definition: Mapped["PrintType"] = relationship(back_populates="products")
     variants: Mapped[list["ProductVariant"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
     )
@@ -259,7 +279,7 @@ class ProductDocumentRate(Base):
         return self.pricing_rule.paper_size
 
     @property
-    def print_type(self) -> ProductPrintType:
+    def print_type(self) -> str:
         return self.pricing_rule.print_type
 
 
@@ -504,6 +524,11 @@ class PrintJob(Base):
     copies: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     color_mode: Mapped[str] = mapped_column(String, default="color", nullable=False)
     media_size: Mapped[str] = mapped_column(String, default="A4", nullable=False)
+    orientation: Mapped[str] = mapped_column(String, default="auto", nullable=False)
+    scaling: Mapped[str] = mapped_column(String, default="fit", nullable=False)
+    quality: Mapped[str] = mapped_column(String, default="standard", nullable=False)
+    borderless: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    collate: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     result: Mapped[PrintResult] = mapped_column(Enum(PrintResult), default=PrintResult.pending, nullable=False)
     operator: Mapped[str | None] = mapped_column(String, nullable=True)
