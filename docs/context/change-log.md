@@ -158,6 +158,10 @@ Track notable app changes by date.
 - Fixed: Windows PDF/image printing no longer depends on a default application supporting the `PrintTo` file verb; Printing-MS renders pages and submits them directly through the selected Canon or other installed printer driver.
 - Changed: Windows print submission now applies the chosen copies, color/grayscale mode, paper size, and page orientation; unsupported Office files ask for PDF export instead of emitting a PowerShell stack trace.
 - Fixed: Print History result badges stay readable on one line and operating-system failures are reduced to a concise actionable message.
+- Added: Confirmed files now retain the analyzer's page count, paper size, orientation, color/B&W split, coverage, print-time estimate, and confidence for downstream printing.
+- Changed: Print Center shows an automatic read-only print profile; copies and output mode come from the approved product transaction, while paper and page details come from analysis.
+- Added: Successful print submission automatically deducts all remaining planned materials and creates job-linked inventory ledger entries.
+- Added: Low stock blocks printing with the required and available quantities; failed printer submissions do not deduct inventory, and retries cannot double-deduct completed plans.
 - Changed: Quick Actions now appears directly below the Overview heading, with New Job Order highlighted as the primary counter workflow.
 - Added: The Overview shortcut opens the complete upload-and-analysis job-order modal in one click.
 - Changed: New Job Order is now a guided transaction flow for customer file upload, configured product/variant selection, analysis, price review, and Print Center handoff.

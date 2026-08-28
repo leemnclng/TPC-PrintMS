@@ -73,6 +73,15 @@ class JobFileRead(CamelModel):
     original_filename: str
     kind: str
     size_bytes: int
+    detected_page_count: int | None
+    detected_paper_size: str | None
+    detected_orientation: str | None
+    detected_color_pages: int | None
+    detected_bw_pages: int | None
+    estimated_color_coverage_percent: float | None
+    estimated_ink_coverage_percent: float | None
+    estimated_print_time_seconds: int | None
+    analysis_confidence: float | None
     uploaded_at: datetime
 
 
@@ -97,9 +106,11 @@ class JobOrderTransitionCreate(CamelModel):
 class PrintSubmissionCreate(CamelModel):
     printer_id: str
     job_file_id: str
-    copies: int = Field(ge=1, le=99)
-    color_mode: Literal["color", "grayscale"]
-    media_size: Literal["A4", "Letter", "Legal"]
+    # Retained as optional compatibility hints for older clients. The server
+    # derives authoritative settings from the analyzed job and product.
+    copies: int | None = Field(default=None, ge=1, le=99)
+    color_mode: Literal["color", "grayscale"] | None = None
+    media_size: Literal["A4", "Letter", "Legal"] | None = None
 
 
 class PrintAttemptRead(CamelModel):

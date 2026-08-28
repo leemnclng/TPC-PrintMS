@@ -366,7 +366,7 @@ Track product and technical decisions that affect future development.
 
 - Decision: Use the owner-controlled lifecycle Pending Payment → Paid → Queued → Printing → Quality Check → Ready → Completed. Full verified payment unlocks queueing; a successful OS queue handoff unlocks Printing; physical completion and quality outcomes remain explicit owner confirmations.
 - Rationale: Financial approval, OS submission, and physical print completion are different facts and must not be inferred from one another. Failed OS attempts need an audit record without incorrectly advancing production.
-- Impact: Job workspaces record payments and expose only the valid next action. Print Center submits staged files through the selected OS queue and retains successful/failed attempts. Windows delegates to the registered application's PrintTo handler; CUPS uses `lp`. Advanced capability discovery and OS completion polling remain future work.
+- Impact: Job workspaces record payments and expose only the valid next action. Print Center submits staged files through the selected OS queue and retains successful/failed attempts. Windows renders through `PrintDocument`; CUPS uses `lp`. Advanced capability discovery and OS completion polling remain future work.
 
 ### Persist Only Owner-Confirmed Analyzed Transactions
 
@@ -379,3 +379,10 @@ Track product and technical decisions that affect future development.
 - Decision: Replace Windows shell `PrintTo` submission with local 300-DPI PDF/image rendering and `System.Drawing.Printing.PrintDocument` output to the selected installed queue. Canon PRINT remains available for device setup, scanning, ink checks, and maintenance; Printing-MS does not automate its UI.
 - Rationale: The shell verb requires another desktop application to own the file type and implement `PrintTo`, which caused valid PDFs to fail before reaching the Canon queue. Windows `PrintDocument` accepts page graphics, printer name, copies, color, and supported paper size without that file association.
 - Impact: PDF and image jobs use the Canon or other Windows driver directly, selected options are applied by Printing-MS, temporary page renders are deleted after submission, Office files require export to PDF until a local Office conversion layer exists, and physical Canon output still requires workstation validation.
+
+### Persist the Analyzer Print Profile and Deduct Plans on Queue Acceptance
+
+- Decision: Persist page count, paper size, orientation, color/B&W pages, coverage, print-time estimate, and confidence on each confirmed print-ready file. Print Center displays an automatic read-only profile; the API derives authoritative copies, product output mode, and paper size. After a printer accepts the file, deduct every remaining planned material and create job-linked inventory movements in the same database commit.
+- Rationale: Re-entering detected settings can make printing disagree with pricing and paper planning. Queue acceptance is the first reliable application event indicating production has started, while job creation and failed print attempts have not used stock.
+- Alternatives considered: Deduct at job creation; deduct only at completion; continue requiring a separate manual usage modal.
+- Impact: Insufficient stock blocks submission before the printer is called, failures do not change inventory, retries cannot double-deduct because only each plan's remainder is consumed, and legacy/manual remaining usage stays available as a recovery path. Physical printer failures after queue acceptance may require a normal stock adjustment.

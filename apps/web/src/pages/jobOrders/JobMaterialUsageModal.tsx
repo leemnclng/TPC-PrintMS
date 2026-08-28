@@ -16,12 +16,19 @@ interface Props {
 }
 
 export function JobMaterialUsageModal({ open, order, onClose, onRecorded }: Props) {
-  const plans = order.items.flatMap((item) => item.materials.map((plan) => ({ ...plan, productName: item.productName })));
+  const plans = order.items.flatMap((item) => item.materials
+    .filter((plan) => plan.consumedQuantity + 1e-9 < plan.plannedQuantity)
+    .map((plan) => ({ ...plan, productName: item.productName })));
   const [entries, setEntries] = useState<UsageEntry[]>([]);
   const [note, setNote] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const invalidEntries = entries.some((entry) => {
+    const plan = plans.find((candidate) => candidate.id === entry.materialPlanId);
+    const remaining = plan ? plan.plannedQuantity - plan.consumedQuantity : 0;
+    return entry.quantityUsed <= 0 || entry.quantityUsed > remaining;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -34,7 +41,7 @@ export function JobMaterialUsageModal({ open, order, onClose, onRecorded }: Prop
   function toggle(plan: JobOrderMaterialPlan, selected: boolean) {
     const remaining = Math.max(plan.plannedQuantity - plan.consumedQuantity, 0);
     setEntries((current) => selected
-      ? [...current, { materialPlanId: plan.id, quantityUsed: remaining || 1 }]
+      ? [...current, { materialPlanId: plan.id, quantityUsed: remaining }]
       : current.filter((entry) => entry.materialPlanId !== plan.id));
   }
 
@@ -48,7 +55,7 @@ export function JobMaterialUsageModal({ open, order, onClose, onRecorded }: Prop
     event.preventDefault();
     setSubmitted(true);
     setSaveError(null);
-    if (entries.length === 0 || entries.some((entry) => entry.quantityUsed <= 0)) return;
+    if (entries.length === 0 || invalidEntries) return;
     setSaving(true);
     try {
       await api.post(`/job-orders/${order.id}/material-usage`, {
@@ -93,10 +100,11 @@ export function JobMaterialUsageModal({ open, order, onClose, onRecorded }: Prop
                       <input
                         type="number"
                         min="0.01"
+                        max={Math.max(plan.plannedQuantity - plan.consumedQuantity, 0)}
                         step="0.01"
                         value={entry.quantityUsed}
                         onChange={(event) => updateQuantity(plan.id, Number(event.target.value))}
-                        aria-invalid={submitted && entry.quantityUsed <= 0}
+                        aria-invalid={submitted && (entry.quantityUsed <= 0 || entry.quantityUsed > plan.plannedQuantity - plan.consumedQuantity)}
                       />
                       <span>{plan.inventoryItemUnit}</span>
                     </label>
@@ -107,6 +115,7 @@ export function JobMaterialUsageModal({ open, order, onClose, onRecorded }: Prop
             })}
           </div>
           {submitted && entries.length === 0 && <p className="workspace-form__error">Select at least one material to record.</p>}
+          {submitted && invalidEntries && <p className="workspace-form__error">Enter a quantity greater than zero and no more than the remaining plan.</p>}
           <label className="form-field">
             <span>Usage note</span>
             <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional batch or production note" />

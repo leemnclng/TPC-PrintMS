@@ -46,6 +46,9 @@ export function JobOrderWorkspace() {
   if (!data) return <EmptyState title="Job order not found" description="It may have been removed." />;
   const { order, materialMovements } = data;
   const activeStepIndex = PRODUCTION_STEPS.indexOf(order.status as (typeof PRODUCTION_STEPS)[number]);
+  const hasRemainingMaterials = order.items.some((item) =>
+    item.materials.some((material) => material.consumedQuantity + 1e-9 < material.plannedQuantity));
+  const canRecordFallbackUsage = hasRemainingMaterials && ["printing", "quality_check", "ready", "completed"].includes(order.status);
 
   async function handleTransition(toStatus: "queued" | "quality_check" | "ready" | "completed") {
     setTransitioning(true);
@@ -166,7 +169,7 @@ export function JobOrderWorkspace() {
                   {item.materials.map((material) => (
                     <div key={material.id}>
                       <span>{material.inventoryItemName}</span>
-                      <strong>{material.consumedQuantity.toLocaleString()} / {material.plannedQuantity.toLocaleString()} {material.inventoryItemUnit} used</strong>
+                      <strong>{material.consumedQuantity.toLocaleString()} / {material.plannedQuantity.toLocaleString()} {material.inventoryItemUnit} used{material.consumedQuantity + 1e-9 >= material.plannedQuantity ? " · deducted" : ""}</strong>
                     </div>
                   ))}
                 </div>
@@ -184,7 +187,7 @@ export function JobOrderWorkspace() {
               {order.files.map((file) => (
                 <div key={file.id}>
                   <span className="numeric">{file.kind === "print_ready" ? "READY" : "SOURCE"}</span>
-                  <div><strong>{file.originalFilename}</strong><small>{formatFileSize(file.sizeBytes)} · {formatDate(file.uploadedAt)}</small></div>
+                  <div><strong>{file.originalFilename}</strong><small>{file.detectedPageCount ? `${file.detectedPageCount} pages · ${file.detectedPaperSize ?? "unknown paper"} · ${file.detectedOrientation ?? "unknown orientation"} · ` : ""}{formatFileSize(file.sizeBytes)} · {formatDate(file.uploadedAt)}</small></div>
                 </div>
               ))}
             </div>
@@ -211,14 +214,14 @@ export function JobOrderWorkspace() {
         <Card>
           <CardHeader
             title="Material usage"
-            action={order.items.some((item) => item.materials.length > 0)
-              ? <Button size="sm" onClick={() => setUsageOpen(true)}>Record usage</Button>
+            action={canRecordFallbackUsage
+              ? <Button size="sm" onClick={() => setUsageOpen(true)}>Record remaining</Button>
               : undefined}
           />
           {materialMovements.length === 0 ? (
             <EmptyState
               title="No material usage recorded"
-              description="Materials issued to this job order will appear here with their quantities and resulting stock balances."
+              description="Planned materials will be deducted automatically after the printer accepts this job. Failed print attempts leave inventory unchanged."
             />
           ) : (
             <div className="workspace-movement-list">

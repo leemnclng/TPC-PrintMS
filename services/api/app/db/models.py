@@ -463,6 +463,15 @@ class JobFile(Base):
     stored_path: Mapped[str] = mapped_column(String, nullable=False)
     kind: Mapped[str] = mapped_column(String, default="source", nullable=False)  # source | print_ready
     size_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    detected_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    detected_paper_size: Mapped[str | None] = mapped_column(String, nullable=True)
+    detected_orientation: Mapped[str | None] = mapped_column(String, nullable=True)
+    detected_color_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    detected_bw_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    estimated_color_coverage_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_ink_coverage_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_print_time_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    analysis_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="files")

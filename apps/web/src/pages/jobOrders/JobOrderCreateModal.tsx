@@ -400,7 +400,7 @@ function ConfigureStep(props: ConfigureStepProps) {
 
       {selectedProduct && otherAssignments.length > 0 && (
         <section className="transaction-section">
-          <div className="transaction-section__heading"><span className="numeric">03 / MATERIALS</span><div><h3>Plan optional supplies</h3><p>Paper is added automatically after analysis. Select only additional supplies needed for this job.</p></div></div>
+          <div className="transaction-section__heading"><span className="numeric">03 / MATERIALS</span><div><h3>Plan optional supplies</h3><p>Paper is added from the detected page count. Selected quantities are deducted automatically after successful print submission.</p></div></div>
           <div className="transaction-materials">
             {otherAssignments.map((item) => {
               const selected = form.materials.find((material) => material.inventoryItemId === item.id);
@@ -445,7 +445,7 @@ function ReviewStep(props: ReviewStepProps) {
       <section className="transaction-analysis-card">
         <header><div><span className="numeric">ANALYSIS COMPLETE</span><h3>{analysis.analysis.filename}</h3></div><Button type="button" variant="ghost" size="sm" onClick={() => setStep("configure")}>Edit setup</Button></header>
         <dl>
-          <div><dt>Pages</dt><dd>{analysis.analysis.pageCount}</dd></div><div><dt>Paper</dt><dd>{analysis.analysis.paperSize}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Color</dt><dd>{analysis.analysis.estimatedColorCoveragePercent.toFixed(1)}%</dd></div><div><dt>Ink load</dt><dd>{analysis.analysis.estimatedInkCoveragePercent.toFixed(1)}%</dd></div><div><dt>Product</dt><dd>{product.name}</dd></div>
+          <div><dt>Pages</dt><dd>{analysis.analysis.pageCount}</dd></div><div><dt>Paper</dt><dd>{analysis.analysis.paperSize}</dd></div><div><dt>Orientation</dt><dd>{analysis.analysis.orientation}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Sheets</dt><dd>{analysis.analysis.pageCount * copies}</dd></div><div><dt>Source pages</dt><dd>{analysis.analysis.colorPages} color · {analysis.analysis.bwPages} B&W</dd></div><div><dt>Ink load</dt><dd>{analysis.analysis.estimatedInkCoveragePercent.toFixed(1)}%</dd></div><div><dt>Print time</dt><dd>~{analysis.analysis.estimatedPrintTimeSeconds * copies}s</dd></div>
         </dl>
         {!matchedPaper && <p className="transaction-review__blocker" role="alert">Detected {analysis.analysis.paperSize} paper is not configured for {product.name}. Edit the setup or product configuration before proceeding.</p>}
       </section>

@@ -258,7 +258,7 @@
 .transaction-analysis-card header span,
 .transaction-price-card__recommendation > span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .05em; }
 .transaction-analysis-card h3 { margin-top: var(--space-1); overflow-wrap: anywhere; font-family: var(--font-display); font-size: var(--text-lg); }
-.transaction-analysis-card dl { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--color-hairline); }
+.transaction-analysis-card dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--color-hairline); }
 .transaction-analysis-card dl div { min-width: 0; border-right: 1px solid var(--color-hairline); padding: var(--space-4); }
 .transaction-analysis-card dl div:last-child { border-right: 0; }
 .transaction-analysis-card dt { color: var(--color-ink-faint); font-size: var(--text-xs); text-transform: uppercase; }

@@ -170,6 +170,15 @@ export interface JobFile {
   originalFilename: string;
   kind: "source" | "print_ready";
   sizeBytes: number;
+  detectedPageCount?: number | null;
+  detectedPaperSize?: DocumentPaperSize | null;
+  detectedOrientation?: DocumentOrientation | null;
+  detectedColorPages?: number | null;
+  detectedBwPages?: number | null;
+  estimatedColorCoveragePercent?: number | null;
+  estimatedInkCoveragePercent?: number | null;
+  estimatedPrintTimeSeconds?: number | null;
+  analysisConfidence?: number | null;
   uploadedAt: string;
 }
 

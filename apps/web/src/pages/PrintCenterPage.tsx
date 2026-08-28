@@ -40,9 +40,6 @@ export function PrintCenterPage() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [selectedPrinterId, setSelectedPrinterId] = useState("");
   const [selectedFileId, setSelectedFileId] = useState("");
-  const [copies, setCopies] = useState(1);
-  const [colorMode, setColorMode] = useState<"color" | "grayscale">("color");
-  const [mediaSize, setMediaSize] = useState<"A4" | "Letter" | "Legal">("A4");
   const [submittingPrint, setSubmittingPrint] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
 
@@ -68,16 +65,24 @@ export function PrintCenterPage() {
       : resolvedPlatform === "linux"
         ? "LINUX QUEUE"
         : "OS QUEUE";
+  const printItem = stagedOrder?.items[0];
+  const selectedFile = stagedOrder?.files.find((file) => file.id === selectedFileId);
+  const paperPlan = printItem?.materials.find((material) => material.paperSize);
+  const configuredPaper = paperPlan?.paperSize;
+  const detectedPaper = selectedFile?.detectedPaperSize;
+  const mediaSize = detectedPaper === "A4" || detectedPaper === "Letter" || detectedPaper === "Legal"
+    ? detectedPaper
+    : configuredPaper ?? "A4";
+  const copies = printItem?.copies ?? 1;
+  const pageCount = selectedFile?.detectedPageCount ?? printItem?.pagesPerCopy ?? 1;
+  const colorMode = printItem?.printType === "black_and_white" ? "grayscale" : "color";
+  const totalSheets = pageCount * copies;
+  const paperDeduction = Math.max((paperPlan?.plannedQuantity ?? totalSheets) - (paperPlan?.consumedQuantity ?? 0), 0);
 
   useEffect(() => {
     if (!stagedOrder) return;
-    const item = stagedOrder.items[0];
     const printFile = stagedOrder.files.find((file) => file.kind === "print_ready");
-    const paper = item?.materials.find((material) => material.paperSize)?.paperSize;
     setSelectedFileId(printFile?.id ?? "");
-    setCopies(item?.copies ?? 1);
-    setColorMode(item?.printType === "black_and_white" ? "grayscale" : "color");
-    setMediaSize(paper ?? "A4");
     setSubmissionError(null);
   }, [stagedOrder]);
 
@@ -97,9 +102,6 @@ export function PrintCenterPage() {
       await api.post<JobOrder>(`/job-orders/${stagedOrder.id}/print-attempts`, {
         printerId: selectedPrinterId,
         jobFileId: selectedFileId,
-        copies,
-        colorMode,
-        mediaSize,
       });
       reloadStagedOrder();
       reload();
@@ -277,23 +279,35 @@ export function PrintCenterPage() {
           </header>
           {stagedOrder.status === "queued" ? (
             <form onSubmit={handlePrintSubmit}>
-              <div className="print-submission__fields">
+              <div className="print-auto-profile">
+                <div className="print-auto-profile__heading">
+                  <span className="numeric">AUTO-DISCOVERED PRINT PROFILE</span>
+                  <strong>Ready from document analysis</strong>
+                  <small>Printing settings are locked to the approved transaction and selected product.</small>
+                </div>
                 <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{stagedOrder.files.filter((file) => file.kind === "print_ready").map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
-                <label className="form-field"><span>Copies</span><input type="number" min="1" max="99" value={copies} onChange={(event) => setCopies(Number(event.target.value))} /></label>
-                <label className="form-field"><span>Color mode</span><select value={colorMode} onChange={(event) => setColorMode(event.target.value as "color" | "grayscale")}><option value="color">Color</option><option value="grayscale">Grayscale</option></select></label>
-                <label className="form-field"><span>Paper size</span><select value={mediaSize} onChange={(event) => setMediaSize(event.target.value as "A4" | "Letter" | "Legal")}><option value="A4">A4</option><option value="Letter">Letter</option><option value="Legal">Legal</option></select></label>
+                <dl>
+                  <div><dt>Pages</dt><dd>{pageCount.toLocaleString()}</dd></div>
+                  <div><dt>Copies</dt><dd>{copies.toLocaleString()}</dd></div>
+                  <div><dt>Paper deduction</dt><dd>{paperDeduction.toLocaleString()} {paperPlan?.inventoryItemUnit ?? "sheets"}</dd></div>
+                  <div><dt>Paper</dt><dd>{mediaSize}</dd></div>
+                  <div><dt>Output</dt><dd>{colorMode === "grayscale" ? "B&W / grayscale" : "Colored"}</dd></div>
+                  <div><dt>Orientation</dt><dd>{selectedFile?.detectedOrientation ?? "Auto per page"}</dd></div>
+                  <div><dt>Source pages</dt><dd>{selectedFile?.detectedColorPages ?? 0} color · {selectedFile?.detectedBwPages ?? pageCount} B&W</dd></div>
+                  <div><dt>Ink load</dt><dd>{selectedFile?.estimatedInkCoveragePercent != null ? `${selectedFile.estimatedInkCoveragePercent.toFixed(1)}%` : "—"}</dd></div>
+                </dl>
               </div>
               <div className="print-submission__confirm">
-                <p><strong>This immediately sends the staged file to the operating-system queue.</strong><span>Windows renders PDF or image pages locally, then applies the selected printer, copies, color mode, and paper size through its installed driver.</span></p>
-                <Button variant="primary" type="submit" loading={submittingPrint} disabled={!selectedPrinterId || !selectedFileId || copies < 1 || copies > 99}>Submit to printer</Button>
+                <p><strong>Submitting also deducts every remaining planned material from Inventory.</strong><span>The request is blocked before printing when stock is insufficient. Failed printer submissions do not deduct anything.</span></p>
+                <Button variant="primary" type="submit" loading={submittingPrint} disabled={!selectedPrinterId || !selectedFileId}>Print and deduct materials</Button>
               </div>
               {submissionError && <p className="print-submission__error" role="alert">{submissionError}</p>}
             </form>
           ) : (
             <div className="print-submission__gate">
               <div>
-                <strong>{stagedOrder.status === "pending_payment" ? "Payment is required before printing." : stagedOrder.status === "paid" ? "Queue this paid job before printing." : stagedOrder.status === "printing" ? "The file was submitted. Return to the job when physical printing finishes." : "This job has already moved beyond print submission."}</strong>
-                <span>Production status changes remain deliberate owner confirmations.</span>
+                <strong>{stagedOrder.status === "pending_payment" ? "Payment is required before printing." : stagedOrder.status === "paid" ? "Queue this paid job before printing." : stagedOrder.status === "printing" ? "The file was submitted and planned materials were deducted." : "This job has already moved beyond print submission."}</strong>
+                <span>Production status changes remain deliberate owner confirmations; inventory usage is recorded in the job ledger.</span>
               </div>
               <LinkButton to={`/job-orders/${stagedOrder.id}`} variant="primary">Continue in job order</LinkButton>
             </div>
@@ -309,7 +323,7 @@ export function PrintCenterPage() {
               {stagedOrder.files.map((file) => (
                 <div key={file.id}>
                   <span className="staged-file-list__mark numeric">{file.kind === "print_ready" ? "READY" : "SOURCE"}</span>
-                  <div><strong>{file.originalFilename}</strong><small>{formatFileSize(file.sizeBytes)} · staged {formatDate(file.uploadedAt)}</small></div>
+                  <div><strong>{file.originalFilename}</strong><small>{file.detectedPageCount ? `${file.detectedPageCount} pages · ${file.detectedPaperSize ?? "unknown paper"} · ` : ""}{formatFileSize(file.sizeBytes)} · staged {formatDate(file.uploadedAt)}</small></div>
                 </div>
               ))}
             </div>

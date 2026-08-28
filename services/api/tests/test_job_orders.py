@@ -223,7 +223,7 @@ def test_job_order_creation_and_material_usage(tmp_path) -> None:
         headers=headers,
         json={"entries": [{"materialPlanId": paper_plan["id"], "quantityUsed": 80}]},
     )
-    assert insufficient_response.status_code == 409
+    assert insufficient_response.status_code == 422
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 75
 
 
@@ -317,6 +317,12 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert order["items"][0]["materials"][0]["plannedQuantity"] == 2
     assert order["files"][0]["originalFilename"] == "customer-a4.png"
     assert order["files"][0]["kind"] == "print_ready"
+    assert order["files"][0]["detectedPageCount"] == 1
+    assert order["files"][0]["detectedPaperSize"] == "A4"
+    assert order["files"][0]["detectedOrientation"] == "portrait"
+    assert order["files"][0]["detectedColorPages"] == 1
+    assert order["files"][0]["detectedBwPages"] == 0
+    assert order["files"][0]["estimatedInkCoveragePercent"] is not None
 
     download = client.get(
         f"/job-orders/{order['id']}/files/{order['files'][0]['id']}",
@@ -381,10 +387,30 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     print_payload = {
         "printerId": printer_id,
         "jobFileId": order["files"][0]["id"],
-        "copies": 2,
-        "colorMode": "color",
-        "mediaSize": "A4",
+        # Legacy client hints are intentionally wrong; the server must use
+        # the analyzed transaction's authoritative print profile.
+        "copies": 99,
+        "colorMode": "grayscale",
+        "mediaSize": "Legal",
     }
+    assert client.post(
+        f"/inventory-items/{paper['id']}/adjustments",
+        headers=headers,
+        json={"kind": "stock_out", "quantityDelta": -99, "note": "Simulate low stock"},
+    ).status_code == 201
+    low_stock_print = client.post(
+        f"/job-orders/{order['id']}/print-attempts",
+        headers=headers,
+        json=print_payload,
+    )
+    assert low_stock_print.status_code == 409
+    assert "Required 2 sheet; available 1" in low_stock_print.json()["detail"]
+    assert client.get(f"/job-orders/{order['id']}", headers=headers).json()["printAttempts"] == []
+    assert client.post(
+        f"/inventory-items/{paper['id']}/adjustments",
+        headers=headers,
+        json={"kind": "stock_in", "quantityDelta": 99, "note": "Restore stock"},
+    ).status_code == 201
     failed_print = client.post(
         f"/job-orders/{order['id']}/print-attempts",
         headers=headers,
@@ -394,18 +420,33 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     after_failure = client.get(f"/job-orders/{order['id']}", headers=headers).json()
     assert after_failure["status"] == "queued"
     assert after_failure["printAttempts"][0]["result"] == "failed"
+    assert after_failure["items"][0]["materials"][0]["consumedQuantity"] == 0
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 100
 
     stub_adapter.fail = False
     printed = client.post(
         f"/job-orders/{order['id']}/print-attempts",
         headers=headers,
-        json=print_payload,
+        json={"printerId": printer_id, "jobFileId": order["files"][0]["id"]},
     )
     assert printed.status_code == 201
     assert printed.json()["status"] == "printing"
     assert printed.json()["assignedPrinterId"] == printer_id
     assert printed.json()["printAttempts"][0]["result"] == "succeeded"
     assert printed.json()["printAttempts"][0]["externalJobId"] == "Canon-42"
+    assert printed.json()["printAttempts"][0]["copies"] == 2
+    assert printed.json()["printAttempts"][0]["colorMode"] == "color"
+    assert printed.json()["printAttempts"][0]["mediaSize"] == "A4"
+    assert printed.json()["items"][0]["materials"][0]["consumedQuantity"] == 2
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 98
+    auto_movements = client.get(
+        f"/inventory-movements?job_order_id={order['id']}",
+        headers=headers,
+    ).json()
+    assert len(auto_movements) == 1
+    assert auto_movements[0]["kind"] == "job_usage"
+    assert auto_movements[0]["quantityDelta"] == -2
+    assert "Automatically deducted" in auto_movements[0]["note"]
 
     for current, target in (
         ("printing", "quality_check"),

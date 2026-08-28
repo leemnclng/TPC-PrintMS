@@ -192,7 +192,17 @@
 .print-submission > header span.numeric { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .05em; }
 .print-submission > header h2 { margin-top: var(--space-1); font-family: var(--font-display); font-size: var(--text-xl); }
 .print-submission form { display: flex; flex-direction: column; }
-.print-submission__fields { display: grid; grid-template-columns: minmax(14rem, 1.5fr) repeat(3, minmax(8rem, 1fr)); gap: var(--space-4); padding: var(--space-5); }
+.print-auto-profile { display: grid; grid-template-columns: minmax(15rem, 1fr) minmax(14rem, .7fr); align-items: center; }
+.print-auto-profile__heading { display: flex; min-width: 0; flex-direction: column; padding: var(--space-5); }
+.print-auto-profile__heading span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .05em; }
+.print-auto-profile__heading strong { margin-top: var(--space-1); font-family: var(--font-display); font-size: var(--text-lg); }
+.print-auto-profile__heading small { margin-top: var(--space-1); color: var(--color-ink-faint); }
+.print-auto-profile > .form-field { margin-right: var(--space-5); }
+.print-auto-profile dl { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(8, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--color-hairline); }
+.print-auto-profile dl div { min-width: 0; border-right: 1px solid var(--color-hairline); padding: var(--space-4); }
+.print-auto-profile dl div:last-child { border-right: 0; }
+.print-auto-profile dt { color: var(--color-ink-faint); font-size: var(--text-xs); text-transform: uppercase; }
+.print-auto-profile dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; text-transform: capitalize; }
 .print-submission__confirm { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); border-top: 1px solid var(--color-hairline); padding: var(--space-4) var(--space-5); background: var(--color-paper); }
 .print-submission__confirm p { display: flex; max-width: 70ch; flex-direction: column; margin: 0; font-size: var(--text-sm); }
 .print-submission__confirm span { color: var(--color-ink-faint); font-size: var(--text-xs); }
@@ -265,7 +275,8 @@
   .print-center-columns {
     grid-template-columns: minmax(0, 1fr);
   }
-  .print-submission__fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .print-auto-profile dl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .print-auto-profile dl div { border-bottom: 1px solid var(--color-hairline); }
 }
 
 @media (max-width: 520px) {
@@ -273,7 +284,9 @@
   .staged-print__status > a { grid-column: 2; justify-self: start; }
   .staged-print dl { grid-template-columns: minmax(0, 1fr); }
   .staged-print dl div { border-right: 0; }
-  .print-submission__fields { grid-template-columns: minmax(0, 1fr); }
+  .print-auto-profile { grid-template-columns: minmax(0, 1fr); }
+  .print-auto-profile > .form-field { margin: 0; padding: 0 var(--space-5) var(--space-5); }
+  .print-auto-profile dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .print-submission__confirm,
   .print-submission__gate { align-items: stretch; flex-direction: column; }
 }

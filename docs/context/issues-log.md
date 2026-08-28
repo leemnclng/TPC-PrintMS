@@ -15,7 +15,7 @@ Track known issues, blockers, risks, and follow-up work.
 | 2026-08-15 | UX | Exact dashboard metrics, report definitions, and page-level permissions are deferred. | Open | Initial pages will expose honest placeholders and shared workflow states until business rules and roles are confirmed. |
 | 2026-08-28 | Printing | The replacement Windows GDI submission path has not yet been exercised against the owner's physical Canon printer. | Open | Retry the failed PDF from Print Center on the Windows workstation and verify A4/Letter/Legal, color/grayscale, copies, orientation, margins, and queue acceptance. |
 | 2026-08-15 | Deployment | Packaged (non-dev) builds cannot start the backend yet. | Open | `apps/desktop/src/backendManager.ts` only knows how to run the backend from source via `uv run`; bundling it into a signed platform executable is Phase 7 scope and currently throws a clear error in a packaged build rather than failing silently. |
-| 2026-08-21 | Inventory | Automatic page-to-material quantity rules are not finalized. | Open | Job orders automatically plan the selected paper as `pages × copies`. Rules for ink, finishing, and other supplies still need definition; stock changes only through explicit Record usage confirmation. |
+| 2026-08-21 | Inventory | Analyzer-derived quantity formulas for ink, toner, finishing, and other non-paper supplies are not finalized. | Open | Paper is planned as `pages × copies`, and all planned quantities now deduct automatically after successful print submission. Non-paper quantities still come from the owner during transaction creation until unit-specific formulas are defined. |
 | 2026-08-27 | Documents | Native visual preview is unavailable for DOCX, XLSX, PPTX, and TIFF files. | Open | The result workspace shows an explicit file-proof fallback for these formats. A future local conversion/rendering layer is required for page-accurate previews without sending customer files to an external service. |
 
 ## Resolved Issues
@@ -34,6 +34,7 @@ Track known issues, blockers, risks, and follow-up work.
 | 2026-08-27 | Printing | Windows printer discovery was an explicit unimplemented stub. | Implemented vendor-neutral Windows spooler discovery through the built-in `Win32_Printer` CIM provider, including default and queue-state mapping; no Canon SDK or `pywin32` dependency is required. |
 | 2026-08-28 | Workflow | Canonical job-order statuses and transition rules were not defined. | Adopted the guarded owner workflow Pending Payment → Paid → Queued → Printing → Quality Check → Ready → Completed. Full verified payment, print-ready files, and successful OS submission enforce the production gates. |
 | 2026-08-28 | Printing | Windows PDF submission failed when no application registered a `PrintTo` file verb. | Printing-MS now rasterizes PDF/image pages itself and draws them to the selected Windows queue through `System.Drawing.Printing.PrintDocument`; Canon PRINT remains a setup/maintenance companion rather than an app-to-app dependency. |
+| 2026-08-28 | Inventory | Job material plans required a separate manual deduction after printing. | A successful queue submission now deducts every remaining planned material once, writes job-linked ledger entries, and blocks before printing when stock is insufficient; failed submissions leave stock unchanged. |
 
 ## Template
 

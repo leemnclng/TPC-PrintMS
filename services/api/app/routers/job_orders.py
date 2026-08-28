@@ -110,6 +110,15 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "original_filename": file.original_filename,
                 "kind": file.kind,
                 "size_bytes": file.size_bytes,
+                "detected_page_count": file.detected_page_count,
+                "detected_paper_size": file.detected_paper_size,
+                "detected_orientation": file.detected_orientation,
+                "detected_color_pages": file.detected_color_pages,
+                "detected_bw_pages": file.detected_bw_pages,
+                "estimated_color_coverage_percent": file.estimated_color_coverage_percent,
+                "estimated_ink_coverage_percent": file.estimated_ink_coverage_percent,
+                "estimated_print_time_seconds": file.estimated_print_time_seconds,
+                "analysis_confidence": file.analysis_confidence,
                 "uploaded_at": file.uploaded_at,
             }
             for file in job_order.files
@@ -308,6 +317,15 @@ async def create_analyzed_job_order(
                 stored_path=str(relative_path),
                 kind="print_ready",
                 size_bytes=len(data),
+                detected_page_count=analysis.page_count,
+                detected_paper_size=analysis.paper_size.value,
+                detected_orientation=analysis.orientation.value,
+                detected_color_pages=analysis.color_pages,
+                detected_bw_pages=analysis.bw_pages,
+                estimated_color_coverage_percent=analysis.estimated_color_coverage_percent,
+                estimated_ink_coverage_percent=analysis.estimated_ink_coverage_percent,
+                estimated_print_time_seconds=analysis.estimated_print_time_seconds,
+                analysis_confidence=analysis.confidence,
             )
         )
         db.commit()
@@ -541,19 +559,22 @@ async def submit_print_attempt(
     job_file = db.get(JobFile, payload.job_file_id)
     if not job_file or job_file.job_order_id != job_order.id or job_file.kind != "print_ready":
         raise HTTPException(status_code=404, detail="Print-ready job file not found.")
+    copies, color_mode, media_size = _automatic_print_settings(job_order, job_file)
 
     files_root = (settings.resolved_data_dir / "files").resolve()
     stored_path = (settings.resolved_data_dir / job_file.stored_path).resolve()
     if files_root not in stored_path.parents or not stored_path.is_file():
         raise HTTPException(status_code=404, detail="The staged print file is unavailable.")
+    pending_materials = _remaining_planned_materials(job_order)
+    _validate_material_stock(pending_materials)
     owner = db.query(BusinessProfile).first()
     attempt = PrintJob(
         job_order_id=job_order.id,
         printer_id=printer.id,
         job_file_id=job_file.id,
-        copies=payload.copies,
-        color_mode=payload.color_mode,
-        media_size=payload.media_size,
+        copies=copies,
+        color_mode=color_mode,
+        media_size=media_size,
         result=PrintResult.pending,
         operator=owner.owner_name if owner else "Owner",
     )
@@ -567,9 +588,9 @@ async def submit_print_attempt(
             adapter.submit_file,
             printer.system_name,
             stored_path,
-            payload.copies,
-            payload.color_mode,
-            payload.media_size,
+            copies,
+            color_mode,
+            media_size,
         )
     except PrintSubmissionError as error:
         attempt.result = PrintResult.failed
@@ -585,7 +606,22 @@ async def submit_print_attempt(
     attempt.result = PrintResult.succeeded
     attempt.external_job_id = submission.external_job_id
     job_order.assigned_printer_id = printer.id
-    _record_status(job_order, JobOrderStatus.printing, f"Submitted {job_file.original_filename} to {printer.display_name}.")
+    movements = _deduct_planned_materials(
+        job_order,
+        pending_materials,
+        db,
+        note=f"Automatically deducted after printing {job_file.original_filename} for {job_order.number}",
+    )
+    material_note = (
+        f" Automatically deducted {len(movements)} planned material {('entry' if len(movements) == 1 else 'entries')} from inventory."
+        if movements
+        else " Planned material usage was already fully recorded."
+    )
+    _record_status(
+        job_order,
+        JobOrderStatus.printing,
+        f"Submitted {job_file.original_filename} to {printer.display_name}.{material_note}",
+    )
     db.commit()
     db.refresh(job_order)
     return _to_read(job_order)
@@ -614,6 +650,14 @@ def record_material_usage(
         raise HTTPException(status_code=404, detail=f"Material plan not found: {next(iter(missing_plan_ids))}.")
     if any(plan.job_order_item.job_order_id != job_order_id for plan in plans):
         raise HTTPException(status_code=400, detail=f"A material plan does not belong to {job_order.number}.")
+    for entry in payload.entries:
+        plan = plan_by_id[entry.material_plan_id]
+        remaining = max(plan.planned_quantity - plan.consumed_quantity, 0.0)
+        if entry.quantity_used > remaining:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Only {remaining:g} {plan.inventory_item.unit} remains in the plan for {plan.inventory_item.name}.",
+            )
 
     requested_by_inventory: dict[str, float] = defaultdict(float)
     for entry in payload.entries:
@@ -646,6 +690,93 @@ def record_material_usage(
     for movement in movements:
         db.refresh(movement)
     return [_movement_to_read(movement) for movement in movements]
+
+
+def _remaining_planned_materials(job_order: JobOrder) -> list[tuple[JobOrderMaterialPlan, float]]:
+    remaining: list[tuple[JobOrderMaterialPlan, float]] = []
+    for item in job_order.items:
+        for plan in item.material_plans:
+            quantity = max(plan.planned_quantity - plan.consumed_quantity, 0.0)
+            if quantity > 1e-9:
+                remaining.append((plan, quantity))
+    return remaining
+
+
+def _automatic_print_settings(job_order: JobOrder, job_file: JobFile) -> tuple[int, str, str]:
+    if len(job_order.items) != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="Automatic print setup requires one analyzed product line for the selected file.",
+        )
+    item = job_order.items[0]
+    copies = item.copies
+    if copies > 99:
+        raise HTTPException(
+            status_code=422,
+            detail="Automatic print submission supports up to 99 copies per job. Split this work into smaller jobs.",
+        )
+    color_mode = "grayscale" if item.product.print_type.value == "black_and_white" else "color"
+    configured_paper = next(
+        (
+            plan.inventory_item.paper_size.value
+            for plan in item.material_plans
+            if plan.inventory_item.paper_size is not None
+        ),
+        None,
+    )
+    detected_paper = job_file.detected_paper_size
+    media_size = detected_paper if detected_paper in {"A4", "Letter", "Legal"} else configured_paper
+    if media_size not in {"A4", "Letter", "Legal"}:
+        raise HTTPException(
+            status_code=422,
+            detail="The analyzer could not match this file to an A4, Letter, or Legal material.",
+        )
+    return copies, color_mode, media_size
+
+
+def _validate_material_stock(pending_materials: list[tuple[JobOrderMaterialPlan, float]]) -> None:
+    requested_by_inventory: dict[str, float] = defaultdict(float)
+    item_by_inventory = {}
+    for plan, quantity in pending_materials:
+        requested_by_inventory[plan.inventory_item_id] += quantity
+        item_by_inventory[plan.inventory_item_id] = plan.inventory_item
+    for inventory_item_id, requested_quantity in requested_by_inventory.items():
+        inventory_item = item_by_inventory[inventory_item_id]
+        if requested_quantity > inventory_item.quantity_on_hand:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Not enough {inventory_item.name} to print this job. "
+                    f"Required {requested_quantity:g} {inventory_item.unit}; "
+                    f"available {inventory_item.quantity_on_hand:g}. Restock it and try again."
+                ),
+            )
+
+
+def _deduct_planned_materials(
+    job_order: JobOrder,
+    pending_materials: list[tuple[JobOrderMaterialPlan, float]],
+    db: Session,
+    note: str,
+) -> list[InventoryMovement]:
+    movements: list[InventoryMovement] = []
+    for plan, quantity in pending_materials:
+        inventory_item = plan.inventory_item
+        balance_after = inventory_item.quantity_on_hand - quantity
+        inventory_item.quantity_on_hand = balance_after
+        plan.consumed_quantity += quantity
+        movement = InventoryMovement(
+            inventory_item_id=inventory_item.id,
+            kind=InventoryMovementKind.job_usage,
+            quantity_delta=-quantity,
+            balance_after=balance_after,
+            job_order_id=job_order.id,
+            product_id=plan.job_order_item.product_id,
+            note=note,
+        )
+        db.add(movement)
+        movements.append(movement)
+    return movements
 
 
 def _next_job_order_number(db: Session) -> str:
