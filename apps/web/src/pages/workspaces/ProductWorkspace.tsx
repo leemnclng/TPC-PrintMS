@@ -26,6 +26,7 @@ import type {
   InventoryItem,
   PrintTypeDefinition,
   Product,
+  ProductOperationKind,
   ProductPrintType,
   Service,
   Variant,
@@ -36,6 +37,8 @@ type FormState = {
   name: string;
   description: string;
   printType: ProductPrintType;
+  operationKind: ProductOperationKind;
+  standalonePricePerPage: number | null;
   isActive: boolean;
   variants: ProductVariantSelection[];
   materialAssignments: MaterialSelection[];
@@ -46,6 +49,8 @@ const BLANK: FormState = {
   name: "",
   description: "",
   printType: "black_and_white",
+  operationKind: "printing",
+  standalonePricePerPage: null,
   isActive: true,
   variants: [],
   materialAssignments: [],
@@ -84,6 +89,8 @@ export function ProductWorkspace() {
         name: data.product.name,
         description: data.product.description ?? "",
         printType: data.product.printType,
+        operationKind: data.product.operationKind,
+        standalonePricePerPage: data.product.standalonePricePerPage ?? null,
         isActive: data.product.isActive,
         variants: data.product.variants.map((variant) => ({
           variantId: variant.variantId,
@@ -100,7 +107,7 @@ export function ProductWorkspace() {
     } else if (data) {
       const defaultPrintType = data.printTypes.find((printType) => printType.isActive && printType.key === "black_and_white")
         ?? data.printTypes.find((printType) => printType.isActive);
-      setForm({ ...BLANK, printType: defaultPrintType?.key ?? BLANK.printType });
+      setForm({ ...BLANK, printType: defaultPrintType?.key ?? BLANK.printType, operationKind: data.service.category === "photocopy" ? "photocopy" : "printing" });
     }
   }, [data]);
 
@@ -109,7 +116,8 @@ export function ProductWorkspace() {
     setSaveError(null);
     try {
       if (!serviceId) throw new Error("Service is required.");
-      if (isNew && form.materialAssignments.length === 0) {
+      const isScan = form.operationKind === "scan";
+      if (!isScan && isNew && form.materialAssignments.length === 0) {
         setSaveError("Assign at least one material this product may use.");
         return;
       }
@@ -117,27 +125,31 @@ export function ProductWorkspace() {
         setSaveError("Every material assignment must reference an inventory item.");
         return;
       }
-      if (data?.service.category === "photocopy") {
-        const hasPaperAssignment = (data.pricingRules ?? []).some((rule) =>
+      if (form.operationKind === "photocopy") {
+        const hasPaperAssignment = (data?.pricingRules ?? []).some((rule) =>
           rule.printType === form.printType && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
         if (!hasPaperAssignment) {
           setSaveError("Select at least one paper material for this photocopy product.");
           return;
         }
       }
+      if (isScan && (form.standalonePricePerPage === null || form.standalonePricePerPage < 0)) {
+        setSaveError("Set a valid scan price per page.");
+        return;
+      }
       const variantIds = form.variants.map((variant) => variant.variantId);
       if (new Set(variantIds).size !== variantIds.length) {
         setSaveError("Each global variant can be selected only once.");
         return;
       }
-      const referencePrice = computeReferencePrice(
+      const referencePrice = isScan ? form.standalonePricePerPage ?? 0 : computeReferencePrice(
         form.printType,
         form.documentRates,
         data?.pricingRules ?? [],
         form.materialAssignments,
-        data?.service.category === "photocopy" && form.printType === "black_and_white",
+        form.operationKind === "photocopy" && form.printType === "black_and_white",
       );
-      const requiresStandaloneRate = data?.service.category === "photocopy" && form.printType === "black_and_white";
+      const requiresStandaloneRate = form.operationKind === "photocopy" && form.printType === "black_and_white";
       const materialIds = form.materialAssignments.map((assignment) => assignment.inventoryItemId);
       const selectedPaperRuleIds = (data?.pricingRules ?? [])
         .filter((rule) => rule.printType === form.printType && materialIds.includes(rule.inventoryItemId))
@@ -199,8 +211,9 @@ export function ProductWorkspace() {
     (printType) => printType.isActive || printType.key === form.printType,
   ) ?? [];
   const selectedPrintType = data?.printTypes.find((printType) => printType.key === form.printType);
-  const requiresStandaloneRate = data?.service.category === "photocopy" && form.printType === "black_and_white";
-  const referencePrice = computeReferencePrice(
+  const isScan = form.operationKind === "scan";
+  const requiresStandaloneRate = form.operationKind === "photocopy" && form.printType === "black_and_white";
+  const referencePrice = isScan ? form.standalonePricePerPage ?? 0 : computeReferencePrice(
     form.printType,
     form.documentRates,
     pricingRules,
@@ -235,8 +248,28 @@ export function ProductWorkspace() {
               onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
           </label>
-          <div className="workspace-form__row">
+          {data?.service.category === "photocopy" ? (
             <label className="form-field">
+              <span>Operation</span>
+              <select
+                value={form.operationKind}
+                onChange={(event) => setForm((current) => ({
+                  ...current,
+                  operationKind: event.target.value as ProductOperationKind,
+                  standalonePricePerPage: null,
+                  variants: [],
+                  materialAssignments: [],
+                  documentRates: [],
+                }))}
+              >
+                <option value="photocopy">Photocopy</option>
+                <option value="scan">Scan to softcopy</option>
+              </select>
+              <span className="form-field__message">Changing operation clears incompatible printing configuration.</span>
+            </label>
+          ) : null}
+          <div className="workspace-form__row">
+            {!isScan ? <label className="form-field">
               <span>Print type</span>
               <select
                 value={form.printType}
@@ -251,7 +284,7 @@ export function ProductWorkspace() {
                 ))}
               </select>
               <span className="form-field__message">The output type staff should use for this product.</span>
-            </label>
+            </label> : null}
             <label className="form-field">
               <span>Status</span>
               <select
@@ -266,16 +299,26 @@ export function ProductWorkspace() {
           </div>
 
           <div className="workspace-form__reference-price">
-            <span>Reference price / page</span>
+            <span>{isScan ? "Scan price / page" : "Reference price / page"}</span>
             <strong className="numeric">{formatCurrency(referencePrice)}</strong>
             <small>
-              {requiresStandaloneRate
+              {isScan
+                ? "Standalone scanning rate with no paper, ink, or inventory usage."
+                : requiresStandaloneRate
                 ? "Computed only from this photocopy product's paper rates below."
                 : `Computed from the assigned paper material's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate below.`}
             </small>
           </div>
 
-          <div className="product-setup-grid">
+          {isScan ? (
+            <section className="product-setup-section product-scan-pricing">
+              <div className="product-setup-section__heading"><h3>Softcopy pricing</h3><p>Charge for each page produced by the scanner. The retained output becomes the customer deliverable.</p></div>
+              <label className="form-field">
+                <span>Price per scanned page</span>
+                <input className="numeric" type="number" min="0" step="0.01" value={form.standalonePricePerPage ?? ""} onChange={(event) => setForm((current) => ({ ...current, standalonePricePerPage: event.target.value === "" ? null : Number(event.target.value) }))} />
+              </label>
+            </section>
+          ) : <div className="product-setup-grid">
             <div className="product-setup-grid__configuration">
               <section className="product-setup-section">
                 <div className="product-setup-section__heading">
@@ -361,7 +404,7 @@ export function ProductWorkspace() {
               pricingRules={pricingRules}
               documentRates={form.documentRates}
             />
-          </div>
+          </div>}
 
           <div className="workspace-form__actions">
             <Button type="button" variant="ghost" onClick={() => navigate(`/product-catalog/${serviceId}`)}>

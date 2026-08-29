@@ -212,6 +212,10 @@ Track notable app changes by date.
 - Added: Photocopy jobs require no uploaded document and compute from product, paper, pages, copies, and optional back-to-back pricing.
 - Added: Recording a photocopy job deducts the physical paper used immediately and opens it Ready for payment.
 - Changed: B&W photocopy products use independent per-paper prices; colored photocopy products may use global paper pricing.
+- Changed: The built-in Photocopy service is now presented as Scan or Photocopy and supports separate product operations.
+- Added: Scan products use a standalone custom price per page and cannot assign paper, ink, variants, or printing rates.
+- Added: Scan job creation attaches the scanner-generated PDF/image, verifies the entered page count, and retains the file as a downloadable customer softcopy.
+- Changed: Scan jobs consume no inventory and open Ready for payment and delivery immediately after the output is retained.
 - Added: The Overview shortcut opens the complete upload-and-analysis job-order modal in one click.
 - Changed: New Job Order is now a guided transaction flow for customer file upload, configured product/variant selection, analysis, price review, and Print Center handoff.
 - Added: Owners can accept the engine recommendation or set a transaction-only final price while preserving the original suggestion for audit.

@@ -116,14 +116,14 @@ export function ServiceSettingsWorkspace() {
               onChange={(event) => setCategory(event.target.value as ServiceCategory)}
             >
               <option value="printing">Printing</option>
-              <option value="photocopy">Photocopy</option>
+              <option value="photocopy">Scan or Photocopy</option>
               <option value="custom">Custom</option>
             </select>
             <small className="form-field__message">
               {category === "printing"
                 ? "Uses document upload, analysis, pricing, and computer printing."
                 : category === "photocopy"
-                  ? "Records device-side copies without requiring a customer file."
+                  ? "Supports device-side photocopies and scanner-generated softcopies."
                   : "Catalog category for services whose job workflow will be configured later."}
             </small>
             {!isNew && Boolean(data?.productCount) ? <small className="form-field__message">Remove this service's products before changing its workflow.</small> : null}

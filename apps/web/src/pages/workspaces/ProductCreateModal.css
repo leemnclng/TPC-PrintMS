@@ -132,6 +132,17 @@
   color: var(--color-ink);
 }
 
+.product-scan-pricing {
+  border: 1px solid var(--color-hairline-strong);
+  padding: var(--space-5);
+  background: var(--color-paper-2);
+}
+
+.product-scan-pricing .form-field {
+  max-width: 24rem;
+  margin-top: var(--space-4);
+}
+
 @media (min-width: 40rem) {
   .product-create-form__fields {
     padding: var(--space-6);

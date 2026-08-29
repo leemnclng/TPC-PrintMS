@@ -86,7 +86,7 @@ export function ServiceWorkspace() {
           <div className="service-workspace__section-title">
             <h2 id="service-products-title">Products</h2>
             <StatusPill
-              label={`${service.category === "printing" ? "Printing" : service.category === "photocopy" ? "Photocopy" : "Custom"} · ${service.isActive ? "Active" : "Inactive"}`}
+              label={`${service.category === "printing" ? "Printing" : service.category === "photocopy" ? "Scan or Photocopy" : "Custom"} · ${service.isActive ? "Active" : "Inactive"}`}
               tone={service.isActive ? "success" : "neutral"}
             />
           </div>
@@ -108,9 +108,14 @@ export function ServiceWorkspace() {
             columns={[
               { key: "name", header: "Product", render: (product) => product.name },
               {
+                key: "operation",
+                header: "Operation",
+                render: (product) => product.operationKind === "scan" ? "Scan" : product.operationKind === "photocopy" ? "Photocopy" : "Printing",
+              },
+              {
                 key: "printType",
                 header: "Print type",
-                render: (product) => product.printTypeLabel || formatProductPrintType(product.printType),
+                render: (product) => product.operationKind === "scan" ? "Not applicable" : product.printTypeLabel || formatProductPrintType(product.printType),
               },
               {
                 key: "variants",

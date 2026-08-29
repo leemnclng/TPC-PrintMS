@@ -12,6 +12,16 @@
 .photocopy-duplex input { margin-top: .2rem; accent-color: var(--color-accent); }
 .photocopy-duplex span { display: flex; flex-direction: column; gap: var(--space-1); }
 .photocopy-duplex small { color: var(--color-ink-soft); }
+.scan-output-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.scan-output-dropzone { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); min-height: 5.5rem; border: 1px dashed var(--color-hairline-strong); padding: var(--space-4); background: var(--color-paper-2); cursor: pointer; }
+.scan-output-dropzone:hover { border-color: var(--color-accent); background: var(--color-accent-softer); }
+.scan-output-input:focus-visible + .scan-output-dropzone { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.scan-output-dropzone.is-invalid { border-color: var(--color-danger); }
+.scan-output-dropzone > span:first-child { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border: 1px solid var(--color-hairline); color: var(--color-accent); font-size: var(--text-xs); }
+.scan-output-dropzone > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); }
+.scan-output-dropzone strong, .scan-output-dropzone small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scan-output-dropzone small { color: var(--color-ink-soft); }
+.scan-output-dropzone > b { color: var(--color-accent); font-size: var(--text-sm); }
 .photocopy-quote { position: sticky; top: 0; align-self: start; min-height: 100%; border-left: 1px solid var(--color-hairline); padding: var(--space-6); background: var(--color-paper-2); }
 .photocopy-quote > span { color: var(--color-accent); font-size: var(--text-xs); }
 .photocopy-quote > strong { display: block; margin-top: var(--space-2); color: var(--color-accent); font-family: var(--font-mono); font-size: var(--text-display-s); }

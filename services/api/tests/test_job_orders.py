@@ -56,13 +56,14 @@ def test_automatic_print_color_follows_analyzed_content_not_product_type() -> No
     assert job_orders._automatic_print_settings(order, legacy_file) == (2, "color", "A4")
 
 
-def test_job_order_creation_and_material_usage(tmp_path) -> None:
+def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     engine = create_engine(
         f"sqlite:///{tmp_path / 'job-orders.db'}",
         connect_args={"check_same_thread": False},
     )
     test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "app-data")
 
     def override_db():
         db = test_session()
@@ -280,6 +281,7 @@ def test_job_order_creation_and_material_usage(tmp_path) -> None:
         json={
             "serviceId": photocopy_service["id"],
             "name": "B&W photocopy without a rate",
+            "operationKind": "photocopy",
             "printType": "black_and_white",
             "isActive": True,
             "variants": [],
@@ -294,6 +296,7 @@ def test_job_order_creation_and_material_usage(tmp_path) -> None:
         json={
             "serviceId": photocopy_service["id"],
             "name": "A4 black and white photocopy",
+            "operationKind": "photocopy",
             "printType": "black_and_white",
             "isActive": True,
             "variants": [{"variantId": back_to_back["id"], "priceAdjustment": 1}],
@@ -324,6 +327,81 @@ def test_job_order_creation_and_material_usage(tmp_path) -> None:
     assert photocopy_order["items"][0]["materials"][0]["plannedQuantity"] == 6
     assert photocopy_order["items"][0]["materials"][0]["consumedQuantity"] == 6
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 69
+
+    scan_product_response = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": photocopy_service["id"],
+            "name": "Document scan to PDF",
+            "operationKind": "scan",
+            "standalonePricePerPage": 4,
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [],
+            "documentRates": [],
+        },
+    )
+    assert scan_product_response.status_code == 201
+    scan_product = scan_product_response.json()
+    assert scan_product["operationKind"] == "scan"
+    assert scan_product["pricePerPage"] == 4
+    assert scan_product["materialAssignments"] == []
+    bypass_scan = client.post(
+        "/job-orders",
+        headers=headers,
+        json={"name": "Incomplete scan", "items": [{
+            "productId": scan_product["id"], "pagesPerCopy": 1, "copies": 1, "materials": [],
+        }]},
+    )
+    assert bypass_scan.status_code == 422
+    assert bypass_scan.json()["detail"] == "Create Scan or Photocopy jobs through their operation-specific workflow."
+
+    scan_buffer = BytesIO()
+    Image.new("RGB", (794, 1123), "white").save(scan_buffer, format="PNG")
+    scan_output = scan_buffer.getvalue()
+    mismatch = client.post(
+        "/job-orders/from-scan",
+        headers=headers,
+        data={"transaction": json.dumps({
+            "name": "Reyes contract scan",
+            "serviceId": photocopy_service["id"],
+            "productId": scan_product["id"],
+            "pages": 2,
+        })},
+        files={"file": ("reyes-contract.png", scan_output, "image/png")},
+    )
+    assert mismatch.status_code == 422
+    assert "contains 1 page" in mismatch.json()["detail"]
+
+    scan_response = client.post(
+        "/job-orders/from-scan",
+        headers=headers,
+        data={"transaction": json.dumps({
+            "name": "Reyes contract scan",
+            "serviceId": photocopy_service["id"],
+            "productId": scan_product["id"],
+            "pages": 1,
+        })},
+        files={"file": ("reyes-contract.png", scan_output, "image/png")},
+    )
+    assert scan_response.status_code == 201
+    scan_order = scan_response.json()
+    assert scan_order["workflowCategory"] == "photocopy"
+    assert scan_order["status"] == "ready"
+    assert scan_order["total"] == 4
+    assert scan_order["items"][0]["operationKind"] == "scan"
+    assert scan_order["items"][0]["materials"] == []
+    assert scan_order["files"][0]["kind"] == "scan_output"
+    assert scan_order["files"][0]["detectedPageCount"] == 1
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 69
+    download = client.get(
+        f"/job-orders/{scan_order['id']}/files/{scan_order['files'][0]['id']}",
+        headers=headers,
+    )
+    assert download.status_code == 200
+    assert download.content == scan_output
 
 
 def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tmp_path, monkeypatch) -> None:

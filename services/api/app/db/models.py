@@ -93,6 +93,12 @@ class ServiceCategory(str, enum.Enum):
     custom = "custom"
 
 
+class ProductOperationKind(str, enum.Enum):
+    printing = "printing"
+    photocopy = "photocopy"
+    scan = "scan"
+
+
 class InventoryPaperSize(str, enum.Enum):
     """The only paper sizes the shop stocks and prices by. Deliberately a
     closed set — see decisions.md "Tie Document Pricing to Real Paper Stock"."""
@@ -244,6 +250,10 @@ class DocumentPricingRule(TimestampMixin, Base):
 
 class Product(TimestampMixin, Base):
     __tablename__ = "products"
+    __table_args__ = (
+        CheckConstraint("operation_kind IN ('printing', 'photocopy', 'scan')", name="ck_products_operation_kind"),
+        CheckConstraint("standalone_price_per_page IS NULL OR standalone_price_per_page >= 0", name="ck_products_standalone_price"),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     service_id: Mapped[str] = mapped_column(ForeignKey("services.id"), nullable=False)
@@ -252,6 +262,10 @@ class Product(TimestampMixin, Base):
     print_type: Mapped[str] = mapped_column(
         ForeignKey("print_types.key"), default=ProductPrintType.black_and_white.value, nullable=False
     )
+    operation_kind: Mapped[str] = mapped_column(
+        String, default=ProductOperationKind.printing.value, nullable=False
+    )
+    standalone_price_per_page: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     service: Mapped["Service"] = relationship(back_populates="products")
@@ -442,6 +456,9 @@ class JobOrderItem(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     job_order_id: Mapped[str] = mapped_column(ForeignKey("job_orders.id"), nullable=False)
     product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), nullable=False)
+    operation_kind: Mapped[str] = mapped_column(
+        String, default=ProductOperationKind.printing.value, nullable=False
+    )
     variant_label: Mapped[str | None] = mapped_column(String, nullable=True)
     pages_per_copy: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     copies: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

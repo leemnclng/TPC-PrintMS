@@ -424,3 +424,9 @@ Chronological notes about app progress.
 - Summary: Added category-driven services and a no-file photocopy transaction workflow.
 - Completed: Added Printing, Photocopy, and Custom categories; service-first job intake; independent B&W photocopy paper rates; live page/copy/duplex pricing; immediate physical-sheet deduction; and a photocopy-specific Ready → Paid → Completed workspace.
 - Verified: Fresh and legacy-data migrations reach the single Alembic head; all 28 API tests, renderer/desktop typechecks and builds, renderer lint, and diff validation pass.
+
+## 2026-08-29 (scan transaction workflow)
+
+- Summary: Expanded Photocopy into the combined Scan or Photocopy service.
+- Completed: Added operation-specific products, standalone scan pricing, no-inventory scan validation, scanner-output attachment/page verification, retained softcopy download, and Scan-specific Ready → Paid → Completed job presentation.
+- Verified: Fresh and legacy-photocopy migrations reach the single head; all 28 API tests, renderer/desktop typechecks and builds, renderer lint, and diff validation pass.

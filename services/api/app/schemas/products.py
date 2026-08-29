@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import Field
 
@@ -45,12 +46,14 @@ class ProductBase(CamelModel):
     name: str
     description: str | None = None
     print_type: str = ProductPrintType.black_and_white.value
+    operation_kind: Literal["printing", "photocopy", "scan"] = "printing"
+    standalone_price_per_page: float | None = Field(default=None, ge=0)
     is_active: bool = True
 
 
 class ProductCreate(ProductBase):
     variants: list[ProductVariantIn] = Field(default_factory=list)
-    material_assignments: list[ProductMaterialAssignmentIn] = Field(min_length=1)
+    material_assignments: list[ProductMaterialAssignmentIn] = Field(default_factory=list)
     document_rates: list[ProductDocumentRateIn] = Field(default_factory=list)
 
 

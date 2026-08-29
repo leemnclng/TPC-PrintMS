@@ -20,6 +20,7 @@ Track known issues, blockers, risks, and follow-up work.
 | 2026-08-21 | Inventory | Analyzer-derived quantity formulas for ink, toner, finishing, and other non-paper supplies are not finalized. | Open | Paper is planned as `pages × copies`, and all planned quantities now deduct automatically after successful print submission. Non-paper quantities still come from the owner during transaction creation until unit-specific formulas are defined. |
 | 2026-08-27 | Documents | Native visual preview is unavailable for DOCX, XLSX, PPTX, and TIFF files. | Open | The result workspace shows an explicit file-proof fallback for these formats. A future local conversion/rendering layer is required for page-accurate previews without sending customer files to an external service. |
 | 2026-08-29 | Workflow | Custom service job requirements are not defined. | Open | Custom services can be created and cataloged, but job intake remains disabled until the owner-defined fields, pricing, material timing, and completion states are specified. |
+| 2026-08-29 | Scanning | Direct scanner acquisition is not integrated. | Open | The Scan workflow retains and prices output created through the Canon device/app. A future Windows WIA/TWAIN capability layer is required to initiate acquisition inside Printing-MS and must remain vendor-neutral. |
 
 ## Resolved Issues
 

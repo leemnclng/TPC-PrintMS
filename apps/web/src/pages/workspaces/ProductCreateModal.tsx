@@ -20,6 +20,7 @@ import type {
   InventoryItem,
   PrintTypeDefinition,
   Product,
+  ProductOperationKind,
   ProductPrintType,
   Service,
   Variant,
@@ -31,17 +32,21 @@ interface ProductFormState {
   name: string;
   description: string;
   printType: ProductPrintType;
+  operationKind: ProductOperationKind;
+  standalonePricePerPage: number | null;
   isActive: boolean;
   variants: ProductVariantSelection[];
   materialAssignments: MaterialSelection[];
   documentRates: ProductDocumentRateSelection[];
 }
 
-function blankProduct(printType: ProductPrintType = "black_and_white"): ProductFormState {
+function blankProduct(printType: ProductPrintType = "black_and_white", operationKind: ProductOperationKind = "printing"): ProductFormState {
   return {
     name: "",
     description: "",
     printType,
+    operationKind,
+    standalonePricePerPage: null,
     isActive: true,
     variants: [],
     materialAssignments: [],
@@ -77,7 +82,8 @@ export function ProductCreateModal({
   const defaultPrintType = activePrintTypes.find((printType) => printType.key === "black_and_white")?.key
     ?? activePrintTypes[0]?.key
     ?? "black_and_white";
-  const [form, setForm] = useState<ProductFormState>(() => blankProduct(defaultPrintType));
+  const defaultOperationKind: ProductOperationKind = service.category === "photocopy" ? "photocopy" : "printing";
+  const [form, setForm] = useState<ProductFormState>(() => blankProduct(defaultPrintType, defaultOperationKind));
   const selectedPrintType = printTypes.find((printType) => printType.key === form.printType);
   const [nameTouched, setNameTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -85,8 +91,9 @@ export function ProductCreateModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const materialsRef = useRef<HTMLDivElement>(null);
-  const requiresStandaloneRate = service.category === "photocopy" && form.printType === "black_and_white";
-  const referencePrice = computeReferencePrice(
+  const isScan = form.operationKind === "scan";
+  const requiresStandaloneRate = form.operationKind === "photocopy" && form.printType === "black_and_white";
+  const referencePrice = isScan ? form.standalonePricePerPage ?? 0 : computeReferencePrice(
     form.printType,
     form.documentRates,
     pricingRules,
@@ -96,23 +103,23 @@ export function ProductCreateModal({
 
   const nameError =
     (nameTouched || submitted) && !form.name.trim() ? "Enter a product name before creating the product." : null;
-  const materialsError = submitted && form.materialAssignments.length === 0
+  const materialsError = submitted && !isScan && form.materialAssignments.length === 0
     ? activeInventoryItems.length === 0
       ? "Register an active inventory material before creating this product."
       : "Add at least one material needed to produce this product."
     : null;
   const hasPaperAssignment = pricingRules.some((rule) =>
     rule.printType === form.printType && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
-  const photocopyPaperError = submitted && service.category === "photocopy" && !hasPaperAssignment
+  const photocopyPaperError = submitted && form.operationKind === "photocopy" && !hasPaperAssignment
     ? "Select at least one paper material for this photocopy product."
     : null;
   useEffect(() => {
     if (!open) return;
-    setForm(blankProduct(defaultPrintType));
+    setForm(blankProduct(defaultPrintType, defaultOperationKind));
     setNameTouched(false);
     setSubmitted(false);
     setSaveError(null);
-  }, [open, defaultPrintType]);
+  }, [open, defaultPrintType, defaultOperationKind]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -123,17 +130,19 @@ export function ProductCreateModal({
 
     const hasInvalidVariant = form.variants.some((variant) => referencePrice + variant.priceAdjustment < 0);
     const materialIds = form.materialAssignments.map((assignment) => assignment.inventoryItemId);
-    const hasInvalidMaterial =
+    const hasInvalidMaterial = !isScan && (
       form.materialAssignments.length === 0 ||
       form.materialAssignments.some((assignment) => !assignment.inventoryItemId) ||
-      new Set(materialIds).size !== materialIds.length;
+      new Set(materialIds).size !== materialIds.length);
     const selectedPaperRuleIds = pricingRules
       .filter((rule) => rule.printType === form.printType && materialIds.includes(rule.inventoryItemId))
       .map((rule) => rule.id);
     const missingStandaloneRate = requiresStandaloneRate && selectedPaperRuleIds.some(
       (ruleId) => !form.documentRates.some((rate) => rate.pricingRuleId === ruleId),
     );
-    if (!form.name.trim() || hasInvalidVariant || hasInvalidMaterial || missingStandaloneRate || (service.category === "photocopy" && !hasPaperAssignment)) {
+    const invalidScanPrice = isScan && (form.standalonePricePerPage === null || form.standalonePricePerPage < 0);
+    if (!form.name.trim() || hasInvalidVariant || hasInvalidMaterial || missingStandaloneRate || (form.operationKind === "photocopy" && !hasPaperAssignment) || invalidScanPrice) {
+      if (invalidScanPrice) setSaveError("Set a valid scan price per page.");
       if (missingStandaloneRate) setSaveError("Set a product price for every selected photocopy paper.");
       window.requestAnimationFrame(() => {
         const firstInvalid = formElement.querySelector<HTMLElement>("[aria-invalid='true']");
@@ -200,8 +209,29 @@ export function ProductCreateModal({
             <span className="form-field__message">Optional. Add production details that help identify the product.</span>
           </label>
 
-          <div className="product-create-form__row">
+          {service.category === "photocopy" ? (
             <label className="form-field">
+              <span>Operation</span>
+              <select
+                value={form.operationKind}
+                onChange={(event) => setForm((current) => ({
+                  ...current,
+                  operationKind: event.target.value as ProductOperationKind,
+                  standalonePricePerPage: null,
+                  variants: [],
+                  materialAssignments: [],
+                  documentRates: [],
+                }))}
+              >
+                <option value="photocopy">Photocopy</option>
+                <option value="scan">Scan to softcopy</option>
+              </select>
+              <span className="form-field__message">Determines the requirements collected when creating a job order.</span>
+            </label>
+          ) : null}
+
+          <div className="product-create-form__row">
+            {!isScan ? <label className="form-field">
               <span>Print type</span>
               <select
                 value={form.printType}
@@ -216,7 +246,7 @@ export function ProductCreateModal({
                 ))}
               </select>
               <span className="form-field__message">Choose the output this product is designed to produce.</span>
-            </label>
+            </label> : null}
 
             <label className="form-field">
               <span>Status</span>
@@ -232,16 +262,38 @@ export function ProductCreateModal({
           </div>
 
           <div className="workspace-form__reference-price">
-            <span>Reference price / page</span>
+            <span>{isScan ? "Scan price / page" : "Reference price / page"}</span>
             <strong className="numeric">{formatCurrency(referencePrice)}</strong>
             <small>
-              {requiresStandaloneRate
+              {isScan
+                ? "A standalone service rate with no paper, ink, or printing cost."
+                : requiresStandaloneRate
                 ? "Computed only from this photocopy product's paper rates below."
                 : `Computed from the assigned paper material's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate below.`}
             </small>
           </div>
 
-          <div
+          {isScan ? (
+            <section className="product-setup-section product-scan-pricing">
+              <div className="product-setup-section__heading">
+                <h3>Softcopy pricing</h3>
+                <p>Charge for each page produced by the scanner. This product never plans or deducts inventory.</p>
+              </div>
+              <label className="form-field">
+                <span>Price per scanned page</span>
+                <input
+                  className="numeric"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.standalonePricePerPage ?? ""}
+                  onChange={(event) => setForm((current) => ({ ...current, standalonePricePerPage: event.target.value === "" ? null : Number(event.target.value) }))}
+                  aria-invalid={submitted && (form.standalonePricePerPage === null || form.standalonePricePerPage < 0)}
+                />
+                <span className="form-field__message">The saved scanner output becomes the job's digital deliverable.</span>
+              </label>
+            </section>
+          ) : <div
             ref={materialsRef}
             className="product-setup-grid"
             aria-invalid={Boolean(materialsError || photocopyPaperError)}
@@ -337,7 +389,7 @@ export function ProductCreateModal({
             <span id="product-materials-message" className={photocopyPaperError ? "workspace-form__error" : "visually-hidden"}>
               {photocopyPaperError ?? materialsError ?? "Assigned materials update from the paper and additional-material controls."}
             </span>
-          </div>
+          </div>}
 
           {saveError ? (
             <p className="workspace-form__error" role="alert">

@@ -56,6 +56,7 @@ from ..schemas.job_orders import (
     PaymentCreate,
     PhotocopyJobOrderCreate,
     PrintSubmissionCreate,
+    ScanJobOrderCreate,
 )
 from ..services.printing.adapter import PrintSubmissionError, get_printer_adapter
 from ..services.product_pricing import price_per_page_for_material, reference_price_per_page
@@ -88,6 +89,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "product_id": item.product_id,
                 "product_name": item.product.name,
                 "service_name": item.product.service.name,
+                "operation_kind": item.operation_kind,
                 "print_type": item.product.print_type,
                 "print_type_label": item.product.print_type_definition.label,
                 "print_color_mode": item.product.print_type_definition.color_mode,
@@ -215,6 +217,8 @@ def create_photocopy_job_order(
         raise HTTPException(status_code=404, detail="Photocopy product not found in the selected service.")
     if not product.is_active:
         raise HTTPException(status_code=409, detail=f"Product is inactive: {product.name}.")
+    if product.operation_kind != "photocopy":
+        raise HTTPException(status_code=422, detail="Select a Photocopy product for this transaction.")
     paper_assignment = next(
         (
             assignment
@@ -268,7 +272,7 @@ def create_photocopy_job_order(
             ),
         )
 
-    created = create_job_order(
+    created = _create_job_order(
         JobOrderCreate(
             name=payload.name,
             customer_id=payload.customer_id,
@@ -291,6 +295,7 @@ def create_photocopy_job_order(
             ],
         ),
         db,
+        allow_device_side=True,
     )
     job_order = db.get(JobOrder, created.id)
     if job_order is None:
@@ -310,6 +315,108 @@ def create_photocopy_job_order(
     )
     db.commit()
     db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.post("/from-scan", response_model=JobOrderRead, status_code=201)
+async def create_scan_job_order(
+    file: UploadFile = File(...),
+    transaction: str = Form(...),
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    try:
+        payload = ScanJobOrderCreate.model_validate_json(transaction)
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail="The scan transaction details are incomplete or invalid.") from error
+
+    service = db.get(Service, payload.service_id)
+    if not service or service.category != "photocopy":
+        raise HTTPException(status_code=422, detail="Select the Scan or Photocopy service.")
+    if not service.is_active:
+        raise HTTPException(status_code=409, detail=f"Service is inactive: {service.name}.")
+    product = db.get(Product, payload.product_id)
+    if not product or product.service_id != service.id or product.operation_kind != "scan":
+        raise HTTPException(status_code=422, detail="Select an active Scan product from this service.")
+    if not product.is_active:
+        raise HTTPException(status_code=409, detail=f"Product is inactive: {product.name}.")
+    if product.standalone_price_per_page is None:
+        raise HTTPException(status_code=422, detail="Set this product's scan price per page before creating a job.")
+
+    filename = Path(file.filename or "scan-output").name
+    content_type = file.content_type or ""
+    data = await file.read(MAX_FILE_SIZE_BYTES + 1)
+    await file.close()
+    if not data:
+        raise HTTPException(status_code=422, detail="Attach the non-empty softcopy produced by the scanner.")
+    if len(data) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="Scan outputs must be 25 MB or smaller.")
+    try:
+        analysis = await run_in_threadpool(analysis_service.analyze, filename, data, content_type)
+    except UnsupportedFileTypeError as error:
+        raise HTTPException(status_code=415, detail="Attach a PDF or image scan output.") from error
+    except (InvalidDocumentError, UnsafeArchiveError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if analysis.page_count != payload.pages:
+        raise HTTPException(
+            status_code=422,
+            detail=f"The attached softcopy contains {analysis.page_count} page(s). Update the billable page count to match.",
+        )
+
+    created = _create_job_order(
+        JobOrderCreate(
+            name=payload.name,
+            customer_id=payload.customer_id,
+            due_date=payload.due_date,
+            notes=payload.notes,
+            items=[{
+                "product_id": product.id,
+                "pages_per_copy": payload.pages,
+                "copies": 1,
+                "materials": [],
+            }],
+        ),
+        db,
+        allow_device_side=True,
+    )
+    job_order = db.get(JobOrder, created.id)
+    if job_order is None:
+        raise HTTPException(status_code=500, detail="The scan job could not be finalized.")
+
+    storage_directory = settings.resolved_data_dir / "files" / job_order.id
+    stored_filename = f"{uuid4().hex}-{filename}"
+    stored_path = storage_directory / stored_filename
+    try:
+        storage_directory.mkdir(parents=True, exist_ok=False)
+        stored_path.write_bytes(data)
+        relative_path = stored_path.relative_to(settings.resolved_data_dir)
+        job_order.files.append(
+            JobFile(
+                original_filename=filename,
+                stored_path=str(relative_path),
+                kind="scan_output",
+                size_bytes=len(data),
+                detected_page_count=analysis.page_count,
+                detected_paper_size=analysis.paper_size.value,
+                detected_orientation=analysis.orientation.value,
+                detected_color_pages=analysis.color_pages,
+                detected_bw_pages=analysis.bw_pages,
+                estimated_color_coverage_percent=analysis.estimated_color_coverage_percent,
+                estimated_ink_coverage_percent=analysis.estimated_ink_coverage_percent,
+                analysis_confidence=analysis.confidence,
+            )
+        )
+        job_order.suggested_total = job_order.total
+        _record_status(job_order, JobOrderStatus.ready, "Scanner softcopy attached; ready for payment and delivery.")
+        db.commit()
+        db.refresh(job_order)
+    except Exception as error:
+        db.rollback()
+        persisted = db.get(JobOrder, job_order.id)
+        if persisted is not None:
+            db.delete(persisted)
+            db.commit()
+        shutil.rmtree(storage_directory, ignore_errors=True)
+        raise HTTPException(status_code=500, detail="The scan output could not be saved.") from error
     return _to_read(job_order)
 
 
@@ -363,7 +470,7 @@ async def create_analyzed_job_order(
     product = db.get(Product, payload.product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found.")
-    if product.service.category != "printing":
+    if product.service.category != "printing" or product.operation_kind != "printing":
         raise HTTPException(
             status_code=422,
             detail="Uploaded-document jobs require a service in the Printing category.",
@@ -453,7 +560,7 @@ async def create_analyzed_job_order(
         ],
     )
 
-    created = create_job_order(order_payload, db)
+    created = _create_job_order(order_payload, db)
     job_order = db.get(JobOrder, created.id)
     if job_order is None:
         raise HTTPException(status_code=500, detail="The job order could not be finalized.")
@@ -507,6 +614,15 @@ async def create_analyzed_job_order(
 
 @router.post("", response_model=JobOrderRead, status_code=201)
 def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> JobOrderRead:
+    return _create_job_order(payload, db)
+
+
+def _create_job_order(
+    payload: JobOrderCreate,
+    db: Session,
+    *,
+    allow_device_side: bool = False,
+) -> JobOrderRead:
     job_name = payload.name.strip()
     if not job_name:
         raise HTTPException(status_code=422, detail="Enter a name for this job order.")
@@ -527,6 +643,12 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
         if not product.is_active:
             raise HTTPException(status_code=409, detail=f"Product is inactive: {product.name}.")
         variant_label = item_payload.variant_label.strip() if item_payload.variant_label else None
+        if product.operation_kind in {"photocopy", "scan"} and not allow_device_side:
+            raise HTTPException(status_code=422, detail="Create Scan or Photocopy jobs through their operation-specific workflow.")
+        if product.operation_kind == "scan":
+            if variant_label or item_payload.materials:
+                raise HTTPException(status_code=422, detail="Scan products cannot use print variants or inventory materials.")
+            continue
         if variant_label and variant_label not in {variant.label for variant in product.variants}:
             raise HTTPException(status_code=400, detail=f"Variant is not available for {product.name}.")
         material_ids = [material.inventory_item_id for material in item_payload.materials]
@@ -569,7 +691,7 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
                 overrides,
                 material_id,
                 db,
-                require_override=product.service.category == "photocopy" and product.print_type == "black_and_white",
+                require_override=product.operation_kind == "photocopy" and product.print_type == "black_and_white",
             ) is not None
         ]
         if active_paper_ids and not configured_paper_ids:
@@ -613,13 +735,13 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
                 if assignment.inventory_item_id == material_id
             ) is not None
         ]
-        reference_price = (
+        reference_price = product.standalone_price_per_page if product.operation_kind == "scan" else (
             price_per_page_for_material(
                 product.print_type,
                 overrides,
                 priced_material_ids[0],
                 db,
-                require_override=product.service.category == "photocopy" and product.print_type == "black_and_white",
+                require_override=product.operation_kind == "photocopy" and product.print_type == "black_and_white",
             )
             if priced_material_ids
             else reference_price_per_page(
@@ -627,7 +749,7 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
                 overrides,
                 [assignment.inventory_item_id for assignment in product.material_assignments],
                 db,
-                require_override=product.service.category == "photocopy" and product.print_type == "black_and_white",
+                require_override=product.operation_kind == "photocopy" and product.print_type == "black_and_white",
             )
         )
         reference_price = reference_price if reference_price is not None else 0.0
@@ -640,6 +762,7 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
         line_total = round(unit_price * item_payload.pages_per_copy * item_payload.copies, 2)
         item = JobOrderItem(
             product_id=item_payload.product_id,
+            operation_kind=product.operation_kind,
             variant_label=variant_label,
             pages_per_copy=item_payload.pages_per_copy,
             copies=item_payload.copies,

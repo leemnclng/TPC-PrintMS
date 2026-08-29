@@ -26,7 +26,7 @@ export function ProductCatalogPage() {
         </div>
       ),
     },
-    { key: "category", header: "Workflow", render: (r) => <StatusPill label={r.category === "printing" ? "Printing" : r.category === "photocopy" ? "Photocopy" : "Custom"} tone={r.category === "custom" ? "neutral" : "info"} /> },
+    { key: "category", header: "Workflow", render: (r) => <StatusPill label={r.category === "printing" ? "Printing" : r.category === "photocopy" ? "Scan or Photocopy" : "Custom"} tone={r.category === "custom" ? "neutral" : "info"} /> },
     { key: "products", header: "Products", numeric: true, align: "right", render: (r) => r.productCount },
     {
       key: "status",

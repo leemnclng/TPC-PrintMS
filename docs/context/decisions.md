@@ -490,3 +490,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Persist a service workflow category: Printing, Photocopy, or Custom. Choose the service before opening job creation. Printing retains file analysis; Photocopy records device-side page/copy inputs without a file; Custom has no implied workflow until one is implemented.
 - Rationale: Requirements differ by how work is physically produced. Asking for a document during photocopy creates false evidence, while treating arbitrary custom services as printing would silently impose the wrong process.
 - Impact: Existing services migrate as Printing. Photocopy B&W pricing is product-specific per paper, color may use global pricing, paper deducts when the completed device-side transaction is recorded, and the job begins Ready for payment.
+
+### Model Scan and Photocopy as Product Operations in One Service
+
+- Decision: Present the built-in category as Scan or Photocopy, then persist the specific operation on products and snapshot it on job lines. Photocopy retains paper-based configuration; Scan uses one standalone per-page rate, no inventory, and a retained scanner output.
+- Rationale: Both operations originate at the multifunction printer, but their inputs, costs, and deliverables differ. Treating scanning as printing would fabricate paper/ink usage, while relying on the current product value would let later catalog edits rewrite historical workflow meaning.
+- Impact: Existing photocopy products and jobs migrate as Photocopy. Owners add Scan products in the same service, attach the Canon-generated PDF/image during job creation, and can download the retained softcopy from the job workspace. Direct WIA/TWAIN acquisition remains separate future integration work.

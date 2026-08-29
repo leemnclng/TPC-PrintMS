@@ -37,12 +37,18 @@ def _to_read(product: Product, db: Session) -> ProductRead:
         name=product.name,
         description=product.description,
         print_type=product.print_type,
-        price_per_page=reference_price_per_page(
-            product.print_type,
-            overrides,
-            material_ids,
-            db,
-            require_override=_requires_standalone_rate(product.service, product.print_type),
+        operation_kind=product.operation_kind,
+        standalone_price_per_page=product.standalone_price_per_page,
+        price_per_page=(
+            product.standalone_price_per_page or 0.0
+            if product.operation_kind == "scan"
+            else reference_price_per_page(
+                product.print_type,
+                overrides,
+                material_ids,
+                db,
+                require_override=_requires_standalone_rate(product.operation_kind, product.print_type),
+            )
         ),
         is_active=product.is_active,
         variants=product.variants,
@@ -79,17 +85,18 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
     service = db.get(Service, data["service_id"])
     if not service:
         raise HTTPException(status_code=404, detail="Service not found.")
+    _validate_operation(service, data["operation_kind"], data["standalone_price_per_page"], variants, material_assignments, document_rates)
     _validate_print_type(data["print_type"], db, require_active=True)
     document_rates = _clean_document_rates(document_rates, data["print_type"], db)
     _validate_material_assignments(material_assignments, db, require_active=True)
-    _validate_photocopy_materials(service, material_assignments, db)
-    _validate_standalone_rates(service, data["print_type"], material_assignments, document_rates, db)
-    reference_price = reference_price_per_page(
+    _validate_photocopy_materials(data["operation_kind"], material_assignments, db)
+    _validate_standalone_rates(data["operation_kind"], data["print_type"], material_assignments, document_rates, db)
+    reference_price = data["standalone_price_per_page"] if data["operation_kind"] == "scan" else reference_price_per_page(
         data["print_type"],
         {rate["pricing_rule_id"]: rate["price_per_page"] for rate in document_rates},
         [assignment["inventory_item_id"] for assignment in material_assignments],
         db,
-        require_override=_requires_standalone_rate(service, data["print_type"]),
+        require_override=_requires_standalone_rate(data["operation_kind"], data["print_type"]),
     )
     variants = _clean_variants(variants, reference_price, db, require_active=True)
     product = Product(**data)
@@ -122,6 +129,7 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
     service = db.get(Service, data["service_id"])
     if not service:
         raise HTTPException(status_code=404, detail="Service not found.")
+    _validate_operation(service, data["operation_kind"], data["standalone_price_per_page"], variants, material_assignments, document_rates)
     _validate_print_type(
         data["print_type"],
         db,
@@ -129,14 +137,14 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
     )
     document_rates = _clean_document_rates(document_rates, data["print_type"], db)
     _validate_material_assignments(material_assignments, db)
-    _validate_photocopy_materials(service, material_assignments, db)
-    _validate_standalone_rates(service, data["print_type"], material_assignments, document_rates, db)
-    reference_price = reference_price_per_page(
+    _validate_photocopy_materials(data["operation_kind"], material_assignments, db)
+    _validate_standalone_rates(data["operation_kind"], data["print_type"], material_assignments, document_rates, db)
+    reference_price = data["standalone_price_per_page"] if data["operation_kind"] == "scan" else reference_price_per_page(
         data["print_type"],
         {rate["pricing_rule_id"]: rate["price_per_page"] for rate in document_rates},
         [assignment["inventory_item_id"] for assignment in material_assignments],
         db,
-        require_override=_requires_standalone_rate(service, data["print_type"]),
+        require_override=_requires_standalone_rate(data["operation_kind"], data["print_type"]),
     )
     existing_variant_ids = {variant.variant_id for variant in product.variants}
     variants = _clean_variants(
@@ -249,16 +257,41 @@ def _validate_print_type(print_type: str, db: Session, *, require_active: bool) 
     return definition
 
 
-def _requires_standalone_rate(service: Service, print_type: str) -> bool:
-    return service.category == "photocopy" and print_type == "black_and_white"
+def _requires_standalone_rate(operation_kind: str, print_type: str) -> bool:
+    return operation_kind == "photocopy" and print_type == "black_and_white"
+
+
+def _validate_operation(
+    service: Service,
+    operation_kind: str,
+    standalone_price_per_page: float | None,
+    variants: list[dict],
+    material_assignments: list[dict],
+    document_rates: list[dict],
+) -> None:
+    if service.category == "photocopy" and operation_kind not in {"photocopy", "scan"}:
+        raise HTTPException(status_code=422, detail="Choose Photocopy or Scan for this combined service.")
+    if service.category == "printing" and operation_kind != "printing":
+        raise HTTPException(status_code=422, detail="Printing services can only contain printing products.")
+    if operation_kind in {"photocopy", "scan"} and service.category != "photocopy":
+        raise HTTPException(status_code=422, detail="Scan and photocopy products require the Scan or Photocopy service category.")
+    if operation_kind == "scan":
+        if standalone_price_per_page is None:
+            raise HTTPException(status_code=422, detail="Set the scan price per page.")
+        if variants or material_assignments or document_rates:
+            raise HTTPException(status_code=422, detail="Scan products cannot use print variants, paper, ink, or document pricing rules.")
+    elif standalone_price_per_page is not None:
+        raise HTTPException(status_code=422, detail="A standalone scan price can only be set on a Scan product.")
+    if operation_kind == "printing" and not material_assignments:
+        raise HTTPException(status_code=422, detail="Assign at least one material needed to produce this printing product.")
 
 
 def _validate_photocopy_materials(
-    service: Service,
+    operation_kind: str,
     material_assignments: list[dict],
     db: Session,
 ) -> None:
-    if service.category != "photocopy":
+    if operation_kind != "photocopy":
         return
     assignment_ids = [entry["inventory_item_id"] for entry in material_assignments]
     has_paper = db.query(InventoryItem).filter(
@@ -270,13 +303,13 @@ def _validate_photocopy_materials(
 
 
 def _validate_standalone_rates(
-    service: Service,
+    operation_kind: str,
     print_type: str,
     material_assignments: list[dict],
     document_rates: list[dict],
     db: Session,
 ) -> None:
-    if not _requires_standalone_rate(service, print_type):
+    if not _requires_standalone_rate(operation_kind, print_type):
         return
     assignment_ids = [entry["inventory_item_id"] for entry in material_assignments]
     paper_ids = {

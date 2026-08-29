@@ -68,6 +68,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function download(path: string): Promise<Blob> {
+  const { baseUrl, token } = await resolveConfig();
+  const response = await fetch(`${baseUrl}${path}`, { headers: { "X-Print-MS-Token": token } });
+  if (!response.ok) throw new ApiError(response.status, "The retained file could not be downloaded.");
+  return response.blob();
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
@@ -76,5 +83,6 @@ export const api = {
     request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
   upload: <T>(path: string, body: FormData) =>
     request<T>(path, { method: "POST", body }),
+  download,
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };

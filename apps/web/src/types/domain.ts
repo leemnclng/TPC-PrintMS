@@ -18,6 +18,7 @@ export type JobOrderStatus =
 
 export type SourceChannel = "messenger" | "gmail" | "form" | "walk_in" | "phone" | "other";
 export type ServiceCategory = "printing" | "photocopy" | "custom";
+export type ProductOperationKind = "printing" | "photocopy" | "scan";
 
 export type PrinterState = "idle" | "printing" | "offline" | "error" | "unknown";
 
@@ -107,6 +108,8 @@ export interface Product {
   name: string;
   description?: string | null;
   printType: ProductPrintType;
+  operationKind: ProductOperationKind;
+  standalonePricePerPage?: number | null;
   printTypeLabel: string;
   printColorMode: "color" | "grayscale";
   printAppliesInkCoverage: boolean;
@@ -189,7 +192,7 @@ export interface JobOrder {
 export interface JobFile {
   id: string;
   originalFilename: string;
-  kind: "source" | "print_ready";
+  kind: "source" | "print_ready" | "scan_output";
   sizeBytes: number;
   detectedPageCount?: number | null;
   detectedPaperSize?: DocumentPaperSize | null;
@@ -221,6 +224,7 @@ export interface JobOrderItem {
   productId: string;
   productName: string;
   serviceName: string;
+  operationKind: ProductOperationKind;
   printType: ProductPrintType;
   printTypeLabel: string;
   printColorMode: "color" | "grayscale";

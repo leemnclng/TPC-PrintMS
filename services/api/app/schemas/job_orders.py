@@ -20,7 +20,7 @@ class JobOrderItemCreate(CamelModel):
     pages_per_copy: int = Field(ge=1)
     copies: int = Field(ge=1)
     print_sides: PrintSides = PrintSides.single_sided
-    materials: list[JobOrderMaterialPlanCreate] = Field(min_length=1)
+    materials: list[JobOrderMaterialPlanCreate] = Field(default_factory=list)
 
 
 class JobOrderCreate(CamelModel):
@@ -59,6 +59,16 @@ class PhotocopyJobOrderCreate(CamelModel):
     notes: str | None = None
 
 
+class ScanJobOrderCreate(CamelModel):
+    name: str = Field(min_length=1, max_length=100)
+    service_id: str
+    product_id: str
+    pages: int = Field(ge=1, le=100000)
+    customer_id: str | None = None
+    due_date: datetime | None = None
+    notes: str | None = None
+
+
 class JobOrderMaterialPlanRead(CamelModel):
     id: str
     inventory_item_id: str
@@ -75,6 +85,7 @@ class JobOrderItemRead(CamelModel):
     product_id: str
     product_name: str
     service_name: str
+    operation_kind: Literal["printing", "photocopy", "scan"]
     print_type: str
     print_type_label: str
     print_color_mode: str
