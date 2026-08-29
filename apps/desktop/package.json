@@ -26,6 +26,10 @@
     ],
     "extraResources": [
       {
+        "from": "resources/windows_scan.ps1",
+        "to": "scanner/windows_scan.ps1"
+      },
+      {
         "from": "../../services/api",
         "to": "backend",
         "filter": ["!.venv", "!__pycache__", "!**/__pycache__/**"]

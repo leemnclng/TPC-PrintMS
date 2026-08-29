@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { BackendManager } from "./backendManager";
+import { acquireScannerPage } from "./scannerAcquisition";
 
 const backend = new BackendManager();
 let backendReady: Promise<void> | null = null;
@@ -72,6 +73,8 @@ ipcMain.handle("paper-club:open-printer-preferences", async (_event, printerName
     );
   });
 });
+
+ipcMain.handle("paper-club:acquire-scanner-page", async () => acquireScannerPage());
 
 app.whenReady().then(async () => {
   if (process.platform === "darwin" && !app.isPackaged) {

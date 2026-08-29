@@ -20,12 +20,13 @@ Track known issues, blockers, risks, and follow-up work.
 | 2026-08-21 | Inventory | Analyzer-derived quantity formulas for ink, toner, finishing, and other non-paper supplies are not finalized. | Open | Paper is planned as `pages × copies`, and all planned quantities now deduct automatically after successful print submission. Non-paper quantities still come from the owner during transaction creation until unit-specific formulas are defined. |
 | 2026-08-27 | Documents | Native visual preview is unavailable for DOCX, XLSX, PPTX, and TIFF files. | Open | The result workspace shows an explicit file-proof fallback for these formats. A future local conversion/rendering layer is required for page-accurate previews without sending customer files to an external service. |
 | 2026-08-29 | Workflow | Custom service job requirements are not defined. | Open | Custom services can be created and cataloged, but job intake remains disabled until the owner-defined fields, pricing, material timing, and completion states are specified. |
-| 2026-08-29 | Scanning | Direct scanner acquisition is not integrated. | Open | The Scan workflow retains and prices output created through the Canon device/app. A future Windows WIA/TWAIN capability layer is required to initiate acquisition inside Printing-MS and must remain vendor-neutral. |
+| 2026-08-29 | Scanning | Windows WIA acquisition has not yet been exercised against the owner's physical Canon scanner. | Open | Validate USB/network discovery, flatbed/ADF choice, color, DPI, cropping, cancellation, multiple pages, and driver-error recovery on the Canon workstation. Canon MP/WIA drivers must be installed. |
 
 ## Resolved Issues
 
 | Date | Area | Issue | Resolution |
 | --- | --- | --- | --- |
+| 2026-08-29 | Scanning | Scan job creation required a scanner output to be attached manually and asked the owner to re-enter its page count. | Printing-MS now launches the installed Windows WIA scanner UI, receives and previews each acquired page, derives the page count, combines multiple captures, and retains the resulting softcopy. Manual import is recovery-only. |
 | 2026-08-15 | Printing | Print-host operating systems and separate-agent approach were undecided. | Printing-MS will be a Windows/macOS desktop application using OS printer queues, with no separate customer-installed print agent. |
 | 2026-08-21 | Desktop | Electron logged unsupported `Autofill.enable` and `Autofill.setAddresses` DevTools protocol requests on every development launch. | Detached DevTools no longer opens automatically; it is opt-in with `PRINTING_MS_OPEN_DEVTOOLS=1`. |
 | 2026-08-21 | Services | Opening a service returned 404 because its workspace called a nonexistent nested products endpoint. | The workspace now uses the backend's supported `/products?service_id={id}` filter. |

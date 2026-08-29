@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 from uuid import uuid4
 
+import pymupdf
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
@@ -318,10 +319,67 @@ def create_photocopy_job_order(
     return _to_read(job_order)
 
 
+async def _read_scan_outputs(uploaded_files: list[UploadFile]) -> tuple[str, bytes, str]:
+    if not uploaded_files:
+        raise HTTPException(status_code=422, detail="Acquire at least one page from the scanner.")
+    if len(uploaded_files) > 1000:
+        raise HTTPException(status_code=422, detail="A scan job can contain at most 1,000 acquired files.")
+
+    sources: list[tuple[str, bytes, str]] = []
+    total_size = 0
+    for uploaded_file in uploaded_files:
+        filename = Path(uploaded_file.filename or "scan-page").name
+        content_type = uploaded_file.content_type or ""
+        remaining = MAX_FILE_SIZE_BYTES - total_size
+        data = await uploaded_file.read(remaining + 1)
+        await uploaded_file.close()
+        if not data:
+            raise HTTPException(status_code=422, detail=f"The scanner returned an empty page: {filename}.")
+        total_size += len(data)
+        if total_size > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(status_code=413, detail="The combined scan output must be 25 MB or smaller.")
+        try:
+            await run_in_threadpool(analysis_service.analyze, filename, data, content_type)
+        except UnsupportedFileTypeError as error:
+            raise HTTPException(status_code=415, detail="Scanner outputs must be PDF or image files.") from error
+        except (InvalidDocumentError, UnsafeArchiveError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if Path(filename).suffix.lower() not in {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}:
+            raise HTTPException(status_code=415, detail="Scanner outputs must be PDF or image files.")
+        sources.append((filename, data, content_type))
+
+    if len(sources) == 1:
+        return sources[0]
+
+    combined = pymupdf.open()
+    try:
+        for filename, data, _content_type in sources:
+            suffix = Path(filename).suffix.lower()
+            source = pymupdf.open(stream=data, filetype=suffix.removeprefix("."))
+            try:
+                if suffix == ".pdf":
+                    combined.insert_pdf(source)
+                else:
+                    image_pdf_data = source.convert_to_pdf()
+                    image_pdf = pymupdf.open(stream=image_pdf_data, filetype="pdf")
+                    try:
+                        combined.insert_pdf(image_pdf)
+                    finally:
+                        image_pdf.close()
+            finally:
+                source.close()
+        return "scanner-output.pdf", combined.tobytes(garbage=4, deflate=True), "application/pdf"
+    except Exception as error:
+        raise HTTPException(status_code=422, detail="The acquired scanner pages could not be combined into a PDF.") from error
+    finally:
+        combined.close()
+
+
 @router.post("/from-scan", response_model=JobOrderRead, status_code=201)
 async def create_scan_job_order(
-    file: UploadFile = File(...),
     transaction: str = Form(...),
+    files: list[UploadFile] | None = File(default=None),
+    file: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
 ) -> JobOrderRead:
     try:
@@ -342,26 +400,14 @@ async def create_scan_job_order(
     if product.standalone_price_per_page is None:
         raise HTTPException(status_code=422, detail="Set this product's scan price per page before creating a job.")
 
-    filename = Path(file.filename or "scan-output").name
-    content_type = file.content_type or ""
-    data = await file.read(MAX_FILE_SIZE_BYTES + 1)
-    await file.close()
-    if not data:
-        raise HTTPException(status_code=422, detail="Attach the non-empty softcopy produced by the scanner.")
-    if len(data) > MAX_FILE_SIZE_BYTES:
-        raise HTTPException(status_code=413, detail="Scan outputs must be 25 MB or smaller.")
+    uploaded_files = [*(files or []), *([file] if file else [])]
+    filename, data, content_type = await _read_scan_outputs(uploaded_files)
     try:
         analysis = await run_in_threadpool(analysis_service.analyze, filename, data, content_type)
     except UnsupportedFileTypeError as error:
-        raise HTTPException(status_code=415, detail="Attach a PDF or image scan output.") from error
+        raise HTTPException(status_code=415, detail="The acquired scanner output must be a PDF or image.") from error
     except (InvalidDocumentError, UnsafeArchiveError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    if analysis.page_count != payload.pages:
-        raise HTTPException(
-            status_code=422,
-            detail=f"The attached softcopy contains {analysis.page_count} page(s). Update the billable page count to match.",
-        )
-
     created = _create_job_order(
         JobOrderCreate(
             name=payload.name,
@@ -370,7 +416,7 @@ async def create_scan_job_order(
             notes=payload.notes,
             items=[{
                 "product_id": product.id,
-                "pages_per_copy": payload.pages,
+                "pages_per_copy": analysis.page_count,
                 "copies": 1,
                 "materials": [],
             }],

@@ -361,19 +361,17 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     scan_buffer = BytesIO()
     Image.new("RGB", (794, 1123), "white").save(scan_buffer, format="PNG")
     scan_output = scan_buffer.getvalue()
-    mismatch = client.post(
+    empty_scan = client.post(
         "/job-orders/from-scan",
         headers=headers,
         data={"transaction": json.dumps({
             "name": "Reyes contract scan",
             "serviceId": photocopy_service["id"],
             "productId": scan_product["id"],
-            "pages": 2,
         })},
-        files={"file": ("reyes-contract.png", scan_output, "image/png")},
     )
-    assert mismatch.status_code == 422
-    assert "contains 1 page" in mismatch.json()["detail"]
+    assert empty_scan.status_code == 422
+    assert empty_scan.json()["detail"] == "Acquire at least one page from the scanner."
 
     scan_response = client.post(
         "/job-orders/from-scan",
@@ -382,26 +380,30 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
             "name": "Reyes contract scan",
             "serviceId": photocopy_service["id"],
             "productId": scan_product["id"],
-            "pages": 1,
         })},
-        files={"file": ("reyes-contract.png", scan_output, "image/png")},
+        files=[
+            ("files", ("reyes-contract-front.png", scan_output, "image/png")),
+            ("files", ("reyes-contract-back.png", scan_output, "image/png")),
+        ],
     )
     assert scan_response.status_code == 201
     scan_order = scan_response.json()
     assert scan_order["workflowCategory"] == "photocopy"
     assert scan_order["status"] == "ready"
-    assert scan_order["total"] == 4
+    assert scan_order["total"] == 8
     assert scan_order["items"][0]["operationKind"] == "scan"
     assert scan_order["items"][0]["materials"] == []
     assert scan_order["files"][0]["kind"] == "scan_output"
-    assert scan_order["files"][0]["detectedPageCount"] == 1
+    assert scan_order["items"][0]["pagesPerCopy"] == 2
+    assert scan_order["files"][0]["originalFilename"] == "scanner-output.pdf"
+    assert scan_order["files"][0]["detectedPageCount"] == 2
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 69
     download = client.get(
         f"/job-orders/{scan_order['id']}/files/{scan_order['files'][0]['id']}",
         headers=headers,
     )
     assert download.status_code == 200
-    assert download.content == scan_output
+    assert download.content.startswith(b"%PDF-")
 
 
 def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tmp_path, monkeypatch) -> None:

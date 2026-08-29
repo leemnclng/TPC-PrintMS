@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Button } from "../../components/Button/Button";
 import { LinkButton } from "../../components/Button/LinkButton";
 import { PageHeader } from "../../components/PageHeader/PageHeader";
 import { Card, CardHeader } from "../../components/Card/Card";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
+import { Modal } from "../../components/Modal/Modal";
+import { PdfViewer } from "../../components/PdfViewer/PdfViewer";
 import { EmptyState } from "../../components/EmptyState/EmptyState";
 import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
@@ -12,7 +14,7 @@ import { useResource } from "../../hooks/useResource";
 import { api } from "../../lib/apiClient";
 import { formatCurrency, formatDate, formatDateTime, formatFileSize } from "../../lib/format";
 import { jobOrderStatusMeta } from "../../types/statusMeta";
-import type { InventoryMovement, JobOrder, JobOrderStatus } from "../../types/domain";
+import type { InventoryMovement, JobFile, JobOrder, JobOrderStatus } from "../../types/domain";
 import { JobMaterialUsageModal } from "../jobOrders/JobMaterialUsageModal";
 import { JobPaymentModal } from "../jobOrders/JobPaymentModal";
 import { JobPrintSetupModal } from "../jobOrders/JobPrintSetupModal";
@@ -42,6 +44,7 @@ export function JobOrderWorkspace() {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const [transitionTarget, setTransitionTarget] = useState<TransitionTarget | null>(null);
+  const [scanPreviewOpen, setScanPreviewOpen] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const { data, state, error, reload } = useResource(async () => {
     const [order, materialMovements] = await Promise.all([
@@ -150,7 +153,7 @@ export function JobOrderWorkspace() {
         </Card>
 
         <Card>
-          <CardHeader title="Production brief" meta={isScan ? "Digital deliverable" : `${usedMaterials}/${plannedMaterials.length} materials used`} action={isScan && scanOutput ? <Button size="sm" variant="secondary" onClick={downloadScanOutput}>Download softcopy</Button> : undefined} />
+          <CardHeader title="Production brief" meta={isScan ? "Digital deliverable" : `${usedMaterials}/${plannedMaterials.length} materials used`} action={isScan && scanOutput ? <div className="job-softcopy-actions"><Button size="sm" variant="secondary" onClick={() => setScanPreviewOpen(true)}>View softcopy</Button><Button size="sm" variant="ghost" onClick={downloadScanOutput}>Download</Button></div> : undefined} />
           <div className="job-production-brief">
             {order.items.map((item) => (
               <div key={item.id}><strong>{item.productName}</strong><span>{item.variantLabel ? `${item.variantLabel} · ` : ""}{item.pagesPerCopy} pages × {item.copies} copies</span></div>
@@ -192,6 +195,57 @@ export function JobOrderWorkspace() {
       <JobTransitionModal open={transitionTarget !== null} order={order} targetStatus={transitionTarget ?? "queued"} onClose={() => setTransitionTarget(null)} onTransitioned={handleUpdated} />
       <JobPrintSetupModal open={printOpen} order={order} onClose={() => { setPrintOpen(false); reload(); }} onPrinted={handleUpdated} />
       <JobMaterialUsageModal open={usageOpen} order={order} onClose={() => setUsageOpen(false)} onRecorded={() => { setUsageOpen(false); reload(); }} />
+      {scanOutput ? <ScanOutputPreviewModal open={scanPreviewOpen} orderId={order.id} jobFile={scanOutput} onClose={() => setScanPreviewOpen(false)} /> : null}
     </>
+  );
+}
+
+function ScanOutputPreviewModal({ open, orderId, jobFile, onClose }: { open: boolean; orderId: string; jobFile: JobFile; onClose: () => void }) {
+  const [previewFile, setPreviewFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loadVersion, setLoadVersion] = useState(0);
+
+  useEffect(() => {
+    if (!open) return;
+    let disposed = false;
+    let objectUrl: string | null = null;
+    setLoading(true);
+    setError(null);
+    setPreviewFile(null);
+    setPreviewUrl(null);
+    api.download(`/job-orders/${orderId}/files/${jobFile.id}`)
+      .then((blob) => {
+        if (disposed) return;
+        const file = new File([blob], jobFile.originalFilename, { type: blob.type });
+        objectUrl = URL.createObjectURL(file);
+        setPreviewFile(file);
+        setPreviewUrl(objectUrl);
+      })
+      .catch((caught) => {
+        if (!disposed) setError(caught instanceof Error ? caught.message : "The scan preview could not be loaded.");
+      })
+      .finally(() => {
+        if (!disposed) setLoading(false);
+      });
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [jobFile.id, jobFile.originalFilename, loadVersion, open, orderId]);
+
+  const isPdf = previewFile?.type === "application/pdf" || jobFile.originalFilename.toLowerCase().endsWith(".pdf");
+  const imageCanRender = previewFile?.type.startsWith("image/") && !previewFile.type.includes("tiff");
+  return (
+    <Modal open={open} title="Scanned document" description={`${jobFile.originalFilename} · ${jobFile.detectedPageCount ?? 1} scanned pages`} onClose={onClose} busy={loading} status={error ? "error" : loading ? "loading" : "idle"} className="scan-softcopy-modal">
+      <div className="scan-softcopy-preview">
+        {loading ? <div className="scan-softcopy-preview__status" role="status">Loading retained softcopy…</div> : null}
+        {error ? <div className="scan-softcopy-preview__status" role="alert"><strong>Preview unavailable</strong><p>{error}</p><Button type="button" variant="secondary" onClick={() => setLoadVersion((current) => current + 1)}>Retry</Button></div> : null}
+        {previewFile && previewUrl && isPdf ? <PdfViewer file={previewFile} filename={jobFile.originalFilename} downloadUrl={previewUrl} /> : null}
+        {previewFile && previewUrl && imageCanRender ? <div className="scan-softcopy-preview__image"><img src={previewUrl} alt={`Scanned document ${jobFile.originalFilename}`} /></div> : null}
+        {previewFile && previewUrl && !isPdf && !imageCanRender ? <div className="scan-softcopy-preview__status"><strong>Preview is not available for this image format.</strong><a href={previewUrl} download={jobFile.originalFilename}>Download softcopy</a></div> : null}
+      </div>
+    </Modal>
   );
 }

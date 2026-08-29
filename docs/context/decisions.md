@@ -495,4 +495,10 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 - Decision: Present the built-in category as Scan or Photocopy, then persist the specific operation on products and snapshot it on job lines. Photocopy retains paper-based configuration; Scan uses one standalone per-page rate, no inventory, and a retained scanner output.
 - Rationale: Both operations originate at the multifunction printer, but their inputs, costs, and deliverables differ. Treating scanning as printing would fabricate paper/ink usage, while relying on the current product value would let later catalog edits rewrite historical workflow meaning.
-- Impact: Existing photocopy products and jobs migrate as Photocopy. Owners add Scan products in the same service, attach the Canon-generated PDF/image during job creation, and can download the retained softcopy from the job workspace. Direct WIA/TWAIN acquisition remains separate future integration work.
+- Impact: Existing photocopy products and jobs migrate as Photocopy. Owners add Scan products in the same service, acquire or recover a scanner output during job creation, and can view or download the retained softcopy from the job workspace.
+
+### Acquire Scans Through the Installed Windows WIA Driver
+
+- Decision: Start scanning from a narrowly scoped Electron IPC operation backed by Windows Image Acquisition. Let the WIA/vendor dialog choose the scanner and control source, color, resolution, size, and cropping; return only the captured page bytes to the renderer. Repeat acquisition for more pages, combine them server-side, and keep manual file import as recovery.
+- Rationale: Canon documents the printer as usable from WIA-compliant Windows applications, while Canon PRINT does not expose a supported app-to-app acquisition handoff. WIA keeps Printing-MS vendor-neutral and makes the captured document available for preview, automatic page pricing, retention, and delivery.
+- Impact: Direct acquisition is Windows-only and requires the installed scanner/MP driver. Cancelling creates no page or job, multiple captures become one retained PDF, the owner no longer enters page count, and physical Canon validation remains required.

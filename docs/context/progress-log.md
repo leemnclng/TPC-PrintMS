@@ -430,3 +430,9 @@ Chronological notes about app progress.
 - Summary: Expanded Photocopy into the combined Scan or Photocopy service.
 - Completed: Added operation-specific products, standalone scan pricing, no-inventory scan validation, scanner-output attachment/page verification, retained softcopy download, and Scan-specific Ready → Paid → Completed job presentation.
 - Verified: Fresh and legacy-photocopy migrations reach the single head; all 28 API tests, renderer/desktop typechecks and builds, renderer lint, and diff validation pass.
+
+## 2026-08-29 (direct Windows scan acquisition)
+
+- Summary: Replaced upload-first Scan intake with scanner-first acquisition and retained in-app preview.
+- Completed: Added a narrow Electron-to-WIA bridge, installed-driver acquisition UI, repeated page capture, automatic page counting/pricing, multi-page PDF composition, recovery import, pre-confirmation previews, and an authenticated saved-softcopy viewer.
+- Verified: All 28 API tests and renderer/desktop typechecks and lint pass. Physical Canon WIA validation remains required on Windows.

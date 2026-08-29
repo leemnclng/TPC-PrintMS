@@ -214,7 +214,9 @@ Track notable app changes by date.
 - Changed: B&W photocopy products use independent per-paper prices; colored photocopy products may use global paper pricing.
 - Changed: The built-in Photocopy service is now presented as Scan or Photocopy and supports separate product operations.
 - Added: Scan products use a standalone custom price per page and cannot assign paper, ink, variants, or printing rates.
-- Added: Scan job creation attaches the scanner-generated PDF/image, verifies the entered page count, and retains the file as a downloadable customer softcopy.
+- Changed: Scan job creation now starts the installed Windows scanner through WIA, previews acquired pages, and derives its billable page count without manual entry.
+- Added: Multiple scanner captures are combined into one retained PDF; saved scan outputs can be viewed and downloaded inside the job workspace.
+- Changed: Importing an existing scanner PDF/image remains available only as a recovery option when direct acquisition is unavailable.
 - Changed: Scan jobs consume no inventory and open Ready for payment and delivery immediately after the output is retained.
 - Added: The Overview shortcut opens the complete upload-and-analysis job-order modal in one click.
 - Changed: New Job Order is now a guided transaction flow for customer file upload, configured product/variant selection, analysis, price review, and Print Center handoff.

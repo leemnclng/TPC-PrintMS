@@ -12,7 +12,7 @@ interface Props {
 
 const CATEGORY_COPY = {
   printing: { code: "DOC", label: "Printing", detail: "Upload, analyze, price, and send a document to the printer." },
-  photocopy: { code: "SCAN", label: "Scan or Photocopy", detail: "Record device-side copies or attach the scanner-generated softcopy." },
+  photocopy: { code: "SCAN", label: "Scan or Photocopy", detail: "Record device-side copies or acquire a softcopy from the Windows scanner." },
   custom: { code: "NEW", label: "Custom", detail: "Catalog category ready for a future workflow." },
 } as const;
 

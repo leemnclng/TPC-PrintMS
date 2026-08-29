@@ -63,7 +63,6 @@ class ScanJobOrderCreate(CamelModel):
     name: str = Field(min_length=1, max_length=100)
     service_id: str
     product_id: str
-    pages: int = Field(ge=1, le=100000)
     customer_id: str | None = None
     due_date: datetime | None = None
     notes: str | None = None

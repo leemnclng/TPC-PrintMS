@@ -29,6 +29,15 @@ export interface PaperClubBridge {
   getApiConfig: () => Promise<PaperClubApiConfig>;
   openPrinterSettings: () => Promise<void>;
   openPrinterPreferences: (printerName: string) => Promise<void>;
+  acquireScannerPage: () => Promise<{
+    status: "acquired" | "cancelled";
+    file?: {
+      filename: string;
+      mimeType: string;
+      sizeBytes: number;
+      base64: string;
+    };
+  }>;
   platform: NodeJS.Platform | "web";
 }
 
