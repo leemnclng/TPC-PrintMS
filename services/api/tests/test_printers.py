@@ -297,8 +297,10 @@ def test_print_activity_returns_queued_and_attention_jobs(tmp_path) -> None:
         printer = Printer(system_name="Canon queue", display_name="Canon G4770 series")
         ready = JobOrder(name="Ready thesis", number="JOB-0000000001", status=JobOrderStatus.queued, total=10)
         printing = JobOrder(name="Color invitations", number="JOB-0000000002", status=JobOrderStatus.printing, total=20)
-        # A scan job also sits in `queued` while awaiting acquisition, but it
-        # never touches a printer and must not surface here as "Ready to print".
+        # A scan job also sits in `queued` while awaiting acquisition; it never
+        # touches a printer, so it must surface with its own "awaiting_scan"
+        # state rather than defaulting to the print-only "ready" ("Ready to
+        # print") the generic query used to produce for it.
         scanning = JobOrder(name="Reyes contract scan", number="JOB-0000000003", status=JobOrderStatus.queued, total=0)
         db.add_all([printer, ready, printing, scanning])
         db.flush()
@@ -328,14 +330,24 @@ def test_print_activity_returns_queued_and_attention_jobs(tmp_path) -> None:
 
     assert response.status_code == 200
     jobs = response.json()["jobs"]
-    assert [job["jobNumber"] for job in jobs] == ["JOB-0000000002", "JOB-0000000001"]
+    job_numbers = [job["jobNumber"] for job in jobs]
+    # The attention item always sorts first; "ready" and "awaiting_scan" tie on
+    # both sort keys (no attention, no submission), so only their pair — not a
+    # specific order between them — is guaranteed.
+    assert job_numbers[0] == "JOB-0000000002"
+    assert set(job_numbers[1:]) == {"JOB-0000000001", "JOB-0000000003"}
     assert jobs[0]["state"] == "released"
     assert jobs[0]["jobName"] == "Color invitations"
     assert jobs[0]["attentionRequired"] is True
     assert jobs[0]["pagesPrinted"] == 3
-    assert jobs[1]["state"] == "ready"
-    assert jobs[1]["attentionRequired"] is False
-    assert "JOB-0000000003" not in [job["jobNumber"] for job in jobs]
+    ready_job = next(job for job in jobs if job["jobNumber"] == "JOB-0000000001")
+    assert ready_job["state"] == "ready"
+    assert ready_job["attentionRequired"] is False
+    scan_job = next(job for job in jobs if job["jobNumber"] == "JOB-0000000003")
+    assert scan_job["state"] == "awaiting_scan"
+    assert scan_job["attentionRequired"] is False
+    assert scan_job["printerName"] is None
+    assert scan_job["filename"] is None
 
 
 def test_discovery_reconciles_connected_and_removed_queues(tmp_path, monkeypatch) -> None:

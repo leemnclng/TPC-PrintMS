@@ -68,6 +68,7 @@ class PrintActivityJobRead(CamelModel):
         "error",
         "released",
         "awaiting_reinsert",
+        "awaiting_scan",
     ]
     pages_printed: int | None
     total_pages: int | None

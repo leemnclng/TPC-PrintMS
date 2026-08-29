@@ -19,18 +19,15 @@ router = APIRouter(prefix="/printers", tags=["printers"], dependencies=[Depends(
 
 @router.get("/print-activity", response_model=PrintActivityRead)
 def list_print_activity(db: Session = Depends(get_db)) -> PrintActivityRead:
-    """Return every job waiting for or currently moving through a printer.
+    """Return every job waiting on production, printing or scanning.
 
     A released spooler item intentionally remains an attention state until the
     owner advances the job into the Ready step; spooler release is not proof
-    that the physical sheet exited successfully.
+    that the physical sheet exited successfully. A scan job never touches a
+    printer, but it belongs in the same "queued work" feed while it waits to
+    be scanned; Photocopy never queues here at all, since it is recorded
+    entirely on the device with no digital step.
     """
-    # Scan jobs also sit in `queued` while awaiting acquisition, but they never
-    # touch a printer — without this filter they showed up here defaulting to
-    # state "ready" ("Ready to print"), even though nothing was ever printed.
-    # Excluding by non-existence (rather than joining/requiring a "printing"
-    # item) keeps an item-less job order — never produced outside tests, but
-    # not ruled out by the schema either — treated as printing by default.
     orders = (
         db.query(JobOrder)
         .filter(JobOrder.status.in_([JobOrderStatus.queued, JobOrderStatus.printing]))
@@ -38,7 +35,7 @@ def list_print_activity(db: Session = Depends(get_db)) -> PrintActivityRead:
             ~exists().where(
                 and_(
                     JobOrderItem.job_order_id == JobOrder.id,
-                    JobOrderItem.operation_kind != "printing",
+                    JobOrderItem.operation_kind == "photocopy",
                 )
             )
         )
@@ -47,6 +44,26 @@ def list_print_activity(db: Session = Depends(get_db)) -> PrintActivityRead:
     )
     activity: list[PrintActivityJobRead] = []
     for order in orders:
+        operation_kind = order.items[0].operation_kind if order.items else "printing"
+        if operation_kind == "scan":
+            activity.append(
+                PrintActivityJobRead(
+                    job_order_id=order.id,
+                    job_number=order.number,
+                    job_name=order.name,
+                    job_status=order.status.value,
+                    attempt_id=None,
+                    printer_name=None,
+                    filename=None,
+                    state="awaiting_scan",
+                    pages_printed=None,
+                    total_pages=None,
+                    duplex_pass=None,
+                    submitted_at=None,
+                    attention_required=False,
+                )
+            )
+            continue
         attempt = max(order.print_jobs, key=lambda item: item.submitted_at, default=None)
         state = "ready"
         attention_required = False

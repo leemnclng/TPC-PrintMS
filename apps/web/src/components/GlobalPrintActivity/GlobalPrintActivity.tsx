@@ -16,6 +16,7 @@ const stateCopy: Record<PrintActivityState, string> = {
   error: "Print needs attention",
   released: "Check the finished print",
   awaiting_reinsert: "Reinsert paper for back sides",
+  awaiting_scan: "Ready to scan",
 };
 
 function progressFor(job: PrintActivityJob) {
@@ -87,7 +88,7 @@ export function GlobalPrintActivity() {
       <Modal
         open={open}
         title="Print activity"
-        description="Queued work and jobs currently moving through the printer."
+        description="Queued work, plus jobs currently moving through the printer or waiting to be scanned."
         onClose={() => setOpen(false)}
         className="global-print-activity__modal"
       >
@@ -107,12 +108,12 @@ export function GlobalPrintActivity() {
                   <b>{stateCopy[job.state]}</b>
                 </span>
                 <span className="global-print-activity__job-detail">
-                  {job.filename ?? "No file submitted yet"}
+                  {job.state === "awaiting_scan" ? "Awaiting scanner acquisition" : job.filename ?? "No file submitted yet"}
                   {job.printerName ? ` · ${job.printerName}` : ""}
                 </span>
                 <span className="global-print-activity__job-meta">
                   {jobProgress != null ? `${job.pagesPrinted} of ${job.totalPages} pages · ` : ""}
-                  {job.submittedAt ? formatDateTime(job.submittedAt) : "Waiting for print setup"}
+                  {job.state === "awaiting_scan" ? "Waiting for scan setup" : job.submittedAt ? formatDateTime(job.submittedAt) : "Waiting for print setup"}
                   <em>Open job →</em>
                 </span>
                 {jobProgress != null && <span className="global-print-activity__job-progress"><i style={{ width: `${jobProgress}%` }} /></span>}

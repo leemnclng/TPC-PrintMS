@@ -319,7 +319,8 @@ export type PrintActivityState =
   | "paused"
   | "error"
   | "released"
-  | "awaiting_reinsert";
+  | "awaiting_reinsert"
+  | "awaiting_scan";
 
 export interface PrintActivityJob {
   jobOrderId: string;
