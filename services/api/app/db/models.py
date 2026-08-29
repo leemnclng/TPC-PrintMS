@@ -11,7 +11,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -26,6 +26,19 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
+
+
+class JobOrderNumberSequence(Base):
+    """Single-row, transactional sequence for durable display numbers.
+
+    The UUID remains the database identity. This counter only produces the
+    owner-facing JOB-0000000001 reference and therefore survives deletions.
+    """
+
+    __tablename__ = "job_order_number_sequence"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    next_value: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class SourceChannel(str, enum.Enum):
@@ -48,12 +61,14 @@ class QuotationStatus(str, enum.Enum):
 
 
 class JobOrderStatus(str, enum.Enum):
-    pending_payment = "pending_payment"
-    paid = "paid"
+    # A job order is placed directly into the print queue on creation; there
+    # is no separate pre-print payment gate. Quality inspection is not its
+    # own status — it lives inside the Ready step (re-print loops back to
+    # queued), and payment is collected there before the job is marked paid.
     queued = "queued"
     printing = "printing"
-    quality_check = "quality_check"
     ready = "ready"
+    paid = "paid"
     released = "released"
     delivered = "delivered"
     completed = "completed"
@@ -188,6 +203,7 @@ class Variant(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     label: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requires_manual_duplex: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     product_variants: Mapped[list["ProductVariant"]] = relationship(back_populates="variant")
@@ -257,6 +273,10 @@ class ProductVariant(Base):
     @property
     def label(self) -> str:
         return self.variant.label
+
+    @property
+    def requires_manual_duplex(self) -> bool:
+        return self.variant.requires_manual_duplex
 
 
 class ProductDocumentRate(Base):
@@ -376,10 +396,11 @@ class JobOrder(TimestampMixin, Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     number: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
     customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
     quotation_id: Mapped[str | None] = mapped_column(ForeignKey("quotations.id"), nullable=True)
     status: Mapped[JobOrderStatus] = mapped_column(
-        Enum(JobOrderStatus), default=JobOrderStatus.pending_payment, nullable=False
+        Enum(JobOrderStatus), default=JobOrderStatus.queued, nullable=False
     )
     total: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     suggested_total: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
@@ -416,6 +437,7 @@ class JobOrderItem(Base):
     print_sides: Mapped[PrintSides] = mapped_column(
         Enum(PrintSides), default=PrintSides.single_sided, nullable=False
     )
+    requires_manual_duplex: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship(back_populates="job_order_items")
@@ -514,6 +536,36 @@ class Printer(Base):
     print_jobs: Mapped[list["PrintJob"]] = relationship(back_populates="printer")
 
 
+class ObservedPrintJob(Base):
+    """A job seen in the host OS spooler, including work submitted outside
+    Printing-MS. These records are intentionally not job-order attempts until
+    the owner can establish a trustworthy relationship."""
+
+    __tablename__ = "observed_print_jobs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    spooler_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    os_job_id: Mapped[str] = mapped_column(String, nullable=False)
+    printer_name: Mapped[str] = mapped_column(String, nullable=False)
+    document_name: Mapped[str] = mapped_column(String, nullable=False)
+    owner: Mapped[str | None] = mapped_column(String, nullable=True)
+    driver_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    total_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pages_printed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="queued", nullable=False)
+    raw_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_status: Mapped[str] = mapped_column(String, default="unreviewed", nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    linked_job_order_id: Mapped[str | None] = mapped_column(
+        ForeignKey("job_orders.id"), unique=True, nullable=True
+    )
+
+
 class PrintJob(Base):
     __tablename__ = "print_jobs"
 
@@ -525,14 +577,21 @@ class PrintJob(Base):
     color_mode: Mapped[str] = mapped_column(String, default="color", nullable=False)
     media_size: Mapped[str] = mapped_column(String, default="A4", nullable=False)
     orientation: Mapped[str] = mapped_column(String, default="auto", nullable=False)
-    scaling: Mapped[str] = mapped_column(String, default="fit", nullable=False)
+    scaling: Mapped[str] = mapped_column(String, default="auto", nullable=False)
     quality: Mapped[str] = mapped_column(String, default="auto", nullable=False)
     borderless: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     collate: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    duplex_pass: Mapped[str] = mapped_column(String, default="simplex", nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     result: Mapped[PrintResult] = mapped_column(Enum(PrintResult), default=PrintResult.pending, nullable=False)
     operator: Mapped[str | None] = mapped_column(String, nullable=True)
     external_job_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    spooler_key: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    spooler_status: Mapped[str] = mapped_column(String, default="submitted", nullable=False)
+    spooler_pages_printed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    spooler_total_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    spooler_last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    spooler_released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="print_jobs")

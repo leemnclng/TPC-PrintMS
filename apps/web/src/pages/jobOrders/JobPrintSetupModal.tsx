@@ -27,21 +27,33 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
   const [selectedPrinterId, setSelectedPrinterId] = useState("");
   const [selectedFileId, setSelectedFileId] = useState("");
   const [orientation, setOrientation] = useState<"auto" | "portrait" | "landscape">("auto");
-  const [scaling, setScaling] = useState<"fit" | "fill" | "actual_size">("fit");
+  const [scaling, setScaling] = useState<"auto" | "fit" | "fill" | "actual_size">("auto");
   const [quality, setQuality] = useState<"auto" | "draft" | "standard" | "high">("auto");
   const [borderless, setBorderless] = useState(false);
   const [collate, setCollate] = useState(true);
+  const [workingOrder, setWorkingOrder] = useState(order);
+  const [paperReinserted, setPaperReinserted] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [openingPreferences, setOpeningPreferences] = useState(false);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const printItem = order.items[0];
-  const selectedFile = order.files.find((file) => file.id === selectedFileId);
+  const printItem = workingOrder.items[0];
+  const selectedFile = workingOrder.files.find((file) => file.id === selectedFileId);
   const paperPlan = printItem?.materials.find((material) => material.paperSize);
   const mediaSize = paperPlan?.paperSize ?? selectedFile?.detectedPaperSize ?? "A4";
   const copies = printItem?.copies ?? 1;
   const pages = selectedFile?.detectedPageCount ?? printItem?.pagesPerCopy ?? 1;
+  const completedFrontPass = workingOrder.printAttempts.find(
+    (attempt) => attempt.result === "succeeded" && attempt.duplexPass === "front",
+  );
+  const manualDuplex = Boolean(printItem?.requiresManualDuplex && pages > 1);
+  const duplexPass: "simplex" | "front" | "back" = manualDuplex
+    ? completedFrontPass ? "back" : "front"
+    : "simplex";
+  const sheetsPerCopy = manualDuplex ? Math.ceil(pages / 2) : pages;
+  const frontPages = Math.ceil(pages / 2);
+  const backPages = Math.floor(pages / 2);
   const automaticColorMode = selectedFile?.detectedColorPages === 0 && (selectedFile.detectedBwPages ?? 0) > 0
     ? "B&W document"
     : selectedFile?.detectedColorPages != null
@@ -54,15 +66,29 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    setWorkingOrder(order);
     setSelectedPrinterId("");
     setSelectedFileId(order.files.find((file) => file.kind === "print_ready")?.id ?? "");
     setOrientation("auto");
-    setScaling("fit");
+    setScaling("auto");
     setQuality("auto");
     setBorderless(false);
     setCollate(true);
+    setPaperReinserted(false);
     setActionError(null);
-  }, [open, order.id, order.files]);
+    const priorFront = order.printAttempts.find(
+      (attempt) => attempt.result === "succeeded" && attempt.duplexPass === "front",
+    );
+    if (priorFront) {
+      setSelectedPrinterId(priorFront.printerId);
+      setSelectedFileId(priorFront.jobFileId ?? order.files.find((file) => file.kind === "print_ready")?.id ?? "");
+      setOrientation(priorFront.orientation);
+      setScaling(priorFront.scaling);
+      setQuality(priorFront.quality);
+      setBorderless(priorFront.borderless);
+      setCollate(priorFront.collate);
+    }
+  }, [open, order]);
 
   useEffect(() => {
     if (!open || !printers?.length || selectedPrinterId) return;
@@ -103,7 +129,7 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
     setSaving(true);
     setActionError(null);
     try {
-      onPrinted(await api.post<JobOrder>(`/job-orders/${order.id}/print-attempts`, {
+      const updated = await api.post<JobOrder>(`/job-orders/${order.id}/print-attempts`, {
         printerId: selectedPrinterId,
         jobFileId: selectedFileId,
         orientation,
@@ -111,7 +137,14 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
         quality,
         borderless,
         collate,
-      }));
+        duplexPass,
+      });
+      if (updated.status === "queued" && duplexPass === "front") {
+        setWorkingOrder(updated);
+        setPaperReinserted(false);
+      } else {
+        onPrinted(updated);
+      }
     } catch (caught) {
       setActionError(caught instanceof ApiError ? caught.message : "The print job could not be submitted.");
     } finally {
@@ -133,10 +166,32 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
   }
 
   return (
-    <Modal open={open} title="Print setup" description={`${order.number} · Choose the printer and output settings without leaving this job order.`} onClose={onClose} busy={saving} status={actionError ? "error" : saving ? "loading" : "idle"} className="job-print-modal">
+    <Modal open={open} title={manualDuplex ? "Supervised back-to-back printing" : "Print setup"} description={`${order.name} · ${order.number} · ${manualDuplex ? "Complete both physical passes without losing the job context." : "Choose the printer and output settings without leaving this job order."}`} onClose={onClose} busy={saving} status={actionError ? "error" : saving ? "loading" : "idle"} className="job-print-modal">
       {state === "loading" ? <LoadingState label="Reading printers…" /> : state === "error" ? <ErrorState title="Printers unavailable" description={printerError ?? undefined} onRetry={reload} /> : (
         <form className="job-print-form" onSubmit={handleSubmit}>
+          {manualDuplex && (
+            <nav className="duplex-progress" aria-label="Manual duplex progress">
+              <ol>
+                <li className={duplexPass === "front" ? "is-active" : "is-complete"}><span>01</span><strong>Front sides</strong></li>
+                <li className={duplexPass === "back" ? paperReinserted ? "is-complete" : "is-active" : ""}><span>02</span><strong>Reload stack</strong></li>
+                <li className={duplexPass === "back" && paperReinserted ? "is-active" : ""}><span>03</span><strong>Back sides</strong></li>
+              </ol>
+            </nav>
+          )}
           <div className="job-print-body">
+            {duplexPass === "back" ? (
+              <ManualDuplexReload
+                printer={selectedPrinter}
+                filename={selectedFile?.originalFilename ?? "Print-ready file"}
+                paperSize={mediaSize}
+                copies={copies}
+                sheetsPerCopy={sheetsPerCopy}
+                backPages={backPages}
+                paperReinserted={paperReinserted}
+                onPaperReinserted={setPaperReinserted}
+              />
+            ) : (
+            <>
             <section className="job-print-section">
               <header><div><span className="numeric">01 / DEVICE</span><h3>Select a printer</h3></div><Button type="button" size="sm" variant="secondary" onClick={handleDiscover} loading={discovering}>Refresh</Button></header>
               {!printers?.length ? <p className="job-print-empty">No printers found. Add the Canon or another device in Windows, then refresh.</p> : (
@@ -150,27 +205,73 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
             <section className="job-print-section">
               <header><div><span className="numeric">02 / OUTPUT</span><h3>Confirm file and settings</h3></div>{window.paperClub?.platform === "win32" && selectedPrinter && <Button type="button" size="sm" variant="secondary" onClick={handleOpenPreferences} loading={openingPreferences}>{/canon/i.test(selectedPrinter.displayName) ? "Canon print settings" : "Printer settings"}</Button>}</header>
               <div className="job-print-proof">
-                <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{order.files.filter((file) => file.kind === "print_ready").map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
+                <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{workingOrder.files.filter((file) => file.kind === "print_ready").map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
                 <dl><div><dt>Pages</dt><dd>{pages}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Paper</dt><dd>{mediaSize}</dd></div><div><dt>Output</dt><dd>Auto · {automaticColorMode}</dd></div></dl>
               </div>
               <div className="job-print-settings">
                 <label className="form-field"><span>Orientation</span><select value={orientation} onChange={(event) => setOrientation(event.target.value as typeof orientation)}><option value="auto">Auto per page</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
-                <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="fit">Fit printable area</option><option value="actual_size">Actual size</option><option value="fill">Fill paper</option></select></label>
+                <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="auto">Automatic · preserve size</option><option value="fit">Fit printable area</option><option value="actual_size">Actual size · allow clipping</option><option value="fill">Fill paper · crop edges</option></select></label>
                 <label className="form-field"><span>Quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="auto">Automatic · driver default</option><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
                 <label className="job-print-check"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Force borderless</strong><small>Off uses printer margins automatically</small></span></label>
                 <label className="job-print-check"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate copies</strong><small>Complete sets in order</small></span></label>
               </div>
-              <p className="job-print-auto-note" role="status"><strong>Automatic document profile:</strong> product print type remains pricing-only. Source analysis controls color preservation and page orientation; fitting uses the printer's reported printable area.</p>
+              <p className="job-print-auto-note" role="status"><strong>Automatic document profile:</strong> product print type remains pricing-only. Source analysis controls color and orientation; original dimensions and document margins are preserved, shrinking only when the printer's physical area requires it.</p>
               {window.paperClub?.platform === "win32" && selectedPrinter && <p className="job-print-driver-note"><strong>{/canon/i.test(selectedPrinter.displayName) ? "Canon driver controls" : "Installed driver controls"}:</strong> the driver keeps its media, paper-source, color-correction, and quality defaults unless you explicitly override them here.</p>}
             </section>
+            {manualDuplex && <div className="duplex-supervision-note"><span className="numeric">SUPERVISED OUTPUT</span><strong>This submission prints front sides only.</strong><p>{frontPages} front-side {frontPages === 1 ? "page" : "pages"} per copy will print first. Keep the output stack together; this modal will then pause for reinsertion before any back side is sent.</p></div>}
+            </>
+            )}
             {actionError && <p className="workspace-form__error" role="alert">{actionError}</p>}
           </div>
           <footer className="job-order-form__actions">
             <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-            <Button type="submit" variant="primary" loading={saving} disabled={!selectedPrinterId || !selectedFileId}>Print and deduct materials</Button>
+            <Button type="submit" variant="primary" loading={saving} disabled={!selectedPrinterId || !selectedFileId || (duplexPass === "back" && !paperReinserted)}>{duplexPass === "front" ? "Print front sides" : duplexPass === "back" ? "Print back sides and deduct materials" : "Print and deduct materials"}</Button>
           </footer>
         </form>
       )}
     </Modal>
+  );
+}
+
+function ManualDuplexReload({
+  printer,
+  filename,
+  paperSize,
+  copies,
+  sheetsPerCopy,
+  backPages,
+  paperReinserted,
+  onPaperReinserted,
+}: {
+  printer?: Printer;
+  filename: string;
+  paperSize: string;
+  copies: number;
+  sheetsPerCopy: number;
+  backPages: number;
+  paperReinserted: boolean;
+  onPaperReinserted: (value: boolean) => void;
+}) {
+  const canon = /canon/i.test(printer?.displayName ?? "");
+  return (
+    <section className="duplex-reload" aria-labelledby="duplex-reload-title">
+      <header>
+        <span className="duplex-reload__status" aria-hidden="true">1/2</span>
+        <div><span className="numeric">FRONT PASS SUBMITTED</span><h3 id="duplex-reload-title">Wait, then reload the complete stack</h3><p>Do not continue until every front side has finished printing.</p></div>
+      </header>
+      <dl>
+        <div><dt>Document</dt><dd>{filename}</dd></div>
+        <div><dt>Printer</dt><dd>{printer?.displayName ?? "Selected printer"}</dd></div>
+        <div><dt>Stack</dt><dd>{sheetsPerCopy * copies} {paperSize} sheets</dd></div>
+        <div><dt>Back pass</dt><dd>{backPages} pages × {copies} copies</dd></div>
+      </dl>
+      <ol className="duplex-reload__instructions">
+        <li><span>01</span><div><strong>Collect the full output stack</strong><p>Keep every sheet in the order it leaves the printer. Do not shuffle or reverse individual sheets.</p></div></li>
+        <li><span>02</span><div><strong>Rotate the stack 180 degrees</strong><p>Turn the complete stack end-for-end while keeping its page order intact.</p></div></li>
+        <li><span>03</span><div><strong>Reload printed side facing down</strong><p>{canon ? "Place it in the Canon rear tray, align both paper guides, and confirm the paper setting on the printer." : "Use the same input tray. If its loading diagram differs, follow the installed printer driver's manual-duplex direction."}</p></div></li>
+      </ol>
+      <label className="duplex-reload__confirm"><input type="checkbox" checked={paperReinserted} onChange={(event) => onPaperReinserted(event.target.checked)} /><span><strong>The front pass is physically finished and the stack is reinserted correctly.</strong><small>The back-side button stays locked until this is confirmed.</small></span></label>
+      <p className="duplex-reload__warning"><strong>Stay near the printer.</strong> The back pass is intentionally a separate submission. Inventory is deducted only after it is accepted.</p>
+    </section>
   );
 }

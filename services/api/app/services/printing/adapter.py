@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -52,10 +53,12 @@ class PrinterAdapter:
         color_mode: str,
         media_size: str,
         orientation: str = "auto",
-        scaling: str = "fit",
+        scaling: str = "auto",
         quality: str = "auto",
         borderless: bool = False,
         collate: bool = True,
+        tracking_id: str | None = None,
+        duplex_pass: str = "simplex",
     ) -> PrintSubmission:
         raise NotImplementedError
 
@@ -116,10 +119,12 @@ class CupsPrinterAdapter(PrinterAdapter):
         color_mode: str,
         media_size: str,
         orientation: str = "auto",
-        scaling: str = "fit",
+        scaling: str = "auto",
         quality: str = "auto",
         borderless: bool = False,
         collate: bool = True,
+        tracking_id: str | None = None,
+        duplex_pass: str = "simplex",
     ) -> PrintSubmission:
         media_option = f"{media_size}.Borderless" if borderless else media_size
         command = [
@@ -139,6 +144,10 @@ class CupsPrinterAdapter(PrinterAdapter):
         ]
         if quality != "auto":
             command.extend(["-o", f"print-quality={3 if quality == 'draft' else 5 if quality == 'high' else 4}"])
+        if duplex_pass == "front":
+            command.extend(["-o", "page-set=odd"])
+        elif duplex_pass == "back":
+            command.extend(["-o", "page-set=even", "-o", "outputorder=reverse"])
         command.append(str(file_path))
         if orientation != "auto":
             command[1:1] = ["-o", f"orientation-requested={3 if orientation == 'portrait' else 4}"]
@@ -226,10 +235,12 @@ class WindowsPrinterAdapter(PrinterAdapter):
         color_mode: str,
         media_size: str,
         orientation: str = "auto",
-        scaling: str = "fit",
+        scaling: str = "auto",
         quality: str = "auto",
         borderless: bool = False,
         collate: bool = True,
+        tracking_id: str | None = None,
+        duplex_pass: str = "simplex",
     ) -> PrintSubmission:
         script_path = Path(__file__).with_name("windows_print.ps1")
         with tempfile.TemporaryDirectory(prefix="printing-ms-pages-") as temporary_directory:
@@ -237,6 +248,9 @@ class WindowsPrinterAdapter(PrinterAdapter):
                 file_path,
                 Path(temporary_directory),
                 grayscale=color_mode == "grayscale",
+            )
+            print_directory, selected_page_count = _prepare_windows_print_pass(
+                Path(temporary_directory), page_count, duplex_pass
             )
             command = [
                 "powershell.exe",
@@ -247,9 +261,11 @@ class WindowsPrinterAdapter(PrinterAdapter):
                 "-File",
                 str(script_path),
                 "-ImageDirectory",
-                temporary_directory,
+                str(print_directory),
                 "-DocumentName",
                 file_path.name,
+                "-TrackingId",
+                tracking_id or "",
                 "-PrinterName",
                 printer_name,
                 "-Copies",
@@ -274,7 +290,7 @@ class WindowsPrinterAdapter(PrinterAdapter):
                     command,
                     capture_output=True,
                     text=True,
-                    timeout=max(60, page_count * copies * 15),
+                    timeout=max(60, selected_page_count * copies * 15),
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             except FileNotFoundError as error:
@@ -285,6 +301,45 @@ class WindowsPrinterAdapter(PrinterAdapter):
                 detail = _windows_print_error(result.stderr, result.stdout)
                 raise PrintSubmissionError(detail)
         return PrintSubmission()
+
+
+def _prepare_windows_print_pass(
+    rendered_directory: Path,
+    page_count: int,
+    duplex_pass: str,
+) -> tuple[Path, int]:
+    """Build the exact physical feed order for a supervised duplex pass.
+
+    Fronts print odd pages in document order. After the Canon-style
+    printed-side-down, 180-degree stack rotation, backs print even pages in
+    reverse order. An odd final page needs a blank feed before the remaining
+    backs so sheet alignment is preserved.
+    """
+
+    if duplex_pass == "simplex":
+        return rendered_directory, page_count
+    if duplex_pass not in {"front", "back"}:
+        raise PrintSubmissionError("The requested manual-duplex pass is invalid.")
+
+    pages = sorted(rendered_directory.glob("page-*.png"))
+    selected = pages[::2] if duplex_pass == "front" else list(reversed(pages[1::2]))
+    pass_directory = rendered_directory / f"{duplex_pass}-pass"
+    pass_directory.mkdir()
+    sequence = 1
+
+    if duplex_pass == "back" and page_count % 2 == 1:
+        with Image.open(pages[-1]) as source:
+            blank = Image.new("RGB", source.size, "white")
+            try:
+                blank.save(pass_directory / f"page-{sequence:05d}.png", dpi=(300, 300))
+            finally:
+                blank.close()
+        sequence += 1
+
+    for source_path in selected:
+        shutil.copy2(source_path, pass_directory / f"page-{sequence:05d}.png")
+        sequence += 1
+    return pass_directory, sequence - 1
 
 
 _WINDOWS_IMAGE_SUFFIXES = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}

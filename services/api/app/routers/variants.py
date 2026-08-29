@@ -17,6 +17,7 @@ def _to_read(variant: Variant) -> VariantRead:
         id=variant.id,
         label=variant.label,
         description=variant.description,
+        requires_manual_duplex=variant.requires_manual_duplex,
         is_active=variant.is_active,
         linked_product_count=len(variant.product_variants),
         created_at=variant.created_at,
@@ -41,6 +42,7 @@ def create_variant(payload: VariantCreate, db: Session = Depends(get_db)) -> Var
     variant = Variant(
         label=label,
         description=(payload.description or "").strip() or None,
+        requires_manual_duplex=payload.requires_manual_duplex,
         is_active=payload.is_active,
     )
     db.add(variant)
@@ -66,6 +68,7 @@ def update_variant(variant_id: str, payload: VariantUpdate, db: Session = Depend
         raise HTTPException(status_code=409, detail="A global variant with this name already exists.")
     variant.label = label
     variant.description = (payload.description or "").strip() or None
+    variant.requires_manual_duplex = payload.requires_manual_duplex
     variant.is_active = payload.is_active
     db.commit()
     db.refresh(variant)

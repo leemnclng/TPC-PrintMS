@@ -126,7 +126,7 @@ export function VariantsWorkspace() {
                     <small>{variant.linkedProductCount === 1 ? "linked product" : "linked products"}</small>
                   </div>
                   <StatusPill
-                    label={variant.isActive ? "Active" : "Inactive"}
+                    label={!variant.isActive ? "Inactive" : variant.requiresManualDuplex ? "Supervised duplex" : "Active"}
                     tone={variant.isActive ? "success" : "neutral"}
                   />
                   <div className="service-variants-list__actions">

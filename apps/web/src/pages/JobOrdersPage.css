@@ -1,0 +1,18 @@
+.job-order-identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.job-order-identity strong {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-order-identity small {
+  color: var(--color-ink-faint);
+  font-size: var(--text-xs);
+}

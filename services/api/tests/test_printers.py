@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pymupdf
 import pytest
@@ -10,13 +12,20 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from PIL import Image
 
 from app.core.config import settings
 from app.db.base import Base
-from app.db.models import Printer
+from app.db.models import JobOrder, JobOrderStatus, ObservedPrintJob, Printer, PrintJob, PrintResult
 from app.db.session import get_db
 from app.routers import printers
-from app.services.printing.adapter import DetectedPrinter, PrintSubmissionError, WindowsPrinterAdapter
+from app.services.printing.adapter import (
+    DetectedPrinter,
+    PrintSubmissionError,
+    WindowsPrinterAdapter,
+    _prepare_windows_print_pass,
+)
+from app.services.printing.spooler_monitor import ingest_spooler_event
 
 
 def test_windows_adapter_reads_vendor_neutral_spooler_queues(monkeypatch) -> None:
@@ -71,6 +80,7 @@ def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypat
         quality="high",
         borderless=True,
         collate=False,
+        tracking_id="attempt-123",
     )
 
     command = captured["command"]
@@ -88,6 +98,7 @@ def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypat
     assert command[command.index("-Quality") + 1] == "high"
     assert command[command.index("-Borderless") + 1] == "true"
     assert command[command.index("-Collate") + 1] == "false"
+    assert command[command.index("-TrackingId") + 1] == "attempt-123"
     assert len(captured["rendered_pages"]) == 1
     assert submission.external_job_id is None
 
@@ -104,6 +115,222 @@ def test_windows_adapter_rejects_a_format_without_a_local_renderer(tmp_path) -> 
             color_mode="grayscale",
             media_size="Letter",
         )
+
+
+def test_windows_print_geometry_uses_driver_printable_area_once() -> None:
+    script = (Path(__file__).parents[1] / "app" / "services" / "printing" / "windows_print.ps1").read_text()
+
+    assert "$document.OriginAtMargins = $false" in script
+    assert "$eventArgs.PageSettings.PrintableArea" in script
+    assert "PageBounds.Width - (2 * $originX)" not in script
+    assert "PageBounds.Height - (2 * $originY)" not in script
+    assert 'ValidateSet("auto", "fit", "fill", "actual_size")' in script
+
+
+def test_spooler_monitor_persists_external_jobs_and_links_internal_attempts(tmp_path) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'spooler.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    external_event = {
+        "eventType": "seen",
+        "spoolerKey": "Canon G4770 series, 41|2026-08-29T01:02:03Z",
+        "osJobId": "41",
+        "printerName": "Canon G4770 series",
+        "documentName": "walk-in-form.pdf",
+        "owner": "Nicole-Lee",
+        "driverName": "Canon G4070 series",
+        "totalPages": 3,
+        "pagesPrinted": 1,
+        "sizeBytes": 4096,
+        "status": "OK",
+        "jobStatus": "Printing",
+        "submittedAt": "2026-08-29T01:02:03Z",
+    }
+
+    with test_session() as db:
+        ingest_spooler_event(external_event, db)
+        observed = db.query(ObservedPrintJob).one()
+        assert observed.document_name == "walk-in-form.pdf"
+        assert observed.status == "printing"
+        assert observed.pages_printed == 1
+
+        ingest_spooler_event(
+            {
+                "eventType": "released",
+                "spoolerKey": external_event["spoolerKey"],
+                "osJobId": "41",
+            },
+            db,
+        )
+        db.refresh(observed)
+        assert observed.status == "released"
+        assert observed.released_at is not None
+
+        attempt = PrintJob(job_order_id="job-1", printer_id="printer-1")
+        db.add(attempt)
+        db.commit()
+        ingest_spooler_event(
+            {
+                **external_event,
+                "spoolerKey": "Canon G4770 series, 42|2026-08-29T01:03:03Z",
+                "osJobId": "42",
+                "documentName": f"Printing-MS|{attempt.id}|approved.pdf",
+            },
+            db,
+        )
+        db.refresh(attempt)
+        assert attempt.external_job_id == "42"
+        assert attempt.spooler_status == "printing"
+        assert attempt.spooler_pages_printed == 1
+        assert attempt.spooler_total_pages == 3
+        assert attempt.spooler_key == "Canon G4770 series, 42|2026-08-29T01:03:03Z"
+        ingest_spooler_event(
+            {
+                "eventType": "released",
+                "spoolerKey": attempt.spooler_key,
+                "osJobId": "42",
+            },
+            db,
+        )
+        db.refresh(attempt)
+        assert attempt.spooler_status == "released"
+        assert attempt.spooler_released_at is not None
+        assert db.query(ObservedPrintJob).count() == 1
+
+
+def test_windows_spooler_monitor_emits_seen_and_released_events() -> None:
+    script = (Path(__file__).parents[1] / "app" / "services" / "printing" / "windows_spooler_monitor.ps1").read_text()
+
+    assert "Get-CimInstance -ClassName Win32_PrintJob" in script
+    assert 'Write-JobEvent -EventType "seen"' in script
+    assert 'Write-JobEvent -EventType "released"' in script
+
+
+def test_windows_manual_duplex_pass_preserves_physical_stack_order(tmp_path) -> None:
+    colors = [(10, 0, 0), (20, 0, 0), (30, 0, 0), (40, 0, 0), (50, 0, 0)]
+    for index, color in enumerate(colors, start=1):
+        Image.new("RGB", (40, 60), color).save(tmp_path / f"page-{index:05d}.png", dpi=(300, 300))
+
+    front_directory, front_count = _prepare_windows_print_pass(tmp_path, 5, "front")
+    back_directory, back_count = _prepare_windows_print_pass(tmp_path, 5, "back")
+
+    def red_values(directory: Path) -> list[int]:
+        values = []
+        for path in sorted(directory.glob("page-*.png")):
+            with Image.open(path) as image:
+                values.append(image.getpixel((0, 0))[0])
+        return values
+
+    assert front_count == 3
+    assert red_values(front_directory) == [10, 30, 50]
+    assert back_count == 3
+    assert red_values(back_directory) == [255, 40, 20]
+
+
+def test_spooler_jobs_endpoint_returns_persisted_external_activity(tmp_path, monkeypatch) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'spooler-api.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    with test_session() as db:
+        db.add(
+            ObservedPrintJob(
+                spooler_key="Canon G4770 series, 51|submitted",
+                os_job_id="51",
+                printer_name="Canon G4770 series",
+                document_name="canon-print-photo.jpg",
+                status="printing",
+                first_seen_at=datetime(2026, 8, 29, 1, 2, 3),
+                last_seen_at=datetime(2026, 8, 29, 1, 2, 4),
+            )
+        )
+        db.commit()
+
+    def override_db():
+        with test_session() as db:
+            yield db
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(printers.router)
+    monkeypatch.setattr(printers.settings, "printer_platform", "windows")
+    monkeypatch.setattr(
+        printers,
+        "spooler_monitor",
+        SimpleNamespace(active=True, error=None),
+    )
+    client = TestClient(app)
+    response = client.get(
+        "/printers/spooler-jobs",
+        headers={"X-Print-MS-Token": settings.token},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["active"] is True
+    assert response.json()["jobs"][0]["documentName"] == "canon-print-photo.jpg"
+    assert response.json()["jobs"][0]["status"] == "printing"
+    assert response.json()["jobs"][0]["reviewStatus"] == "unreviewed"
+
+    observed_id = response.json()["jobs"][0]["id"]
+    dismissed = client.post(
+        f"/printers/spooler-jobs/{observed_id}/dismiss",
+        headers={"X-Print-MS-Token": settings.token},
+    )
+    assert dismissed.status_code == 200
+    assert dismissed.json()["jobs"][0]["reviewStatus"] == "dismissed"
+    assert dismissed.json()["jobs"][0]["reviewedAt"] is not None
+
+
+def test_print_activity_returns_queued_and_attention_jobs(tmp_path) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'print-activity.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    with test_session() as db:
+        printer = Printer(system_name="Canon queue", display_name="Canon G4770 series")
+        ready = JobOrder(name="Ready thesis", number="JOB-0000000001", status=JobOrderStatus.queued, total=10)
+        printing = JobOrder(name="Color invitations", number="JOB-0000000002", status=JobOrderStatus.printing, total=20)
+        db.add_all([printer, ready, printing])
+        db.flush()
+        db.add(
+            PrintJob(
+                job_order_id=printing.id,
+                printer_id=printer.id,
+                result=PrintResult.succeeded,
+                spooler_status="released",
+                spooler_released_at=datetime(2026, 8, 29, 2, 0, 0),
+                spooler_pages_printed=3,
+                spooler_total_pages=3,
+            )
+        )
+        db.commit()
+
+    def override_db():
+        with test_session() as db:
+            yield db
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(printers.router)
+    client = TestClient(app)
+    response = client.get("/printers/print-activity", headers={"X-Print-MS-Token": settings.token})
+
+    assert response.status_code == 200
+    jobs = response.json()["jobs"]
+    assert [job["jobNumber"] for job in jobs] == ["JOB-0000000002", "JOB-0000000001"]
+    assert jobs[0]["state"] == "released"
+    assert jobs[0]["jobName"] == "Color invitations"
+    assert jobs[0]["attentionRequired"] is True
+    assert jobs[0]["pagesPrinted"] == 3
+    assert jobs[1]["state"] == "ready"
+    assert jobs[1]["attentionRequired"] is False
 
 
 def test_discovery_reconciles_connected_and_removed_queues(tmp_path, monkeypatch) -> None:

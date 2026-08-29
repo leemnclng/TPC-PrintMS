@@ -2,17 +2,72 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..core.security import require_token
 from ..core.config import settings
-from ..db.models import Printer
+from ..db.models import JobOrder, JobOrderStatus, ObservedPrintJob, Printer, PrintResult
 from ..db.session import get_db
-from ..schemas.printers import PrinterPlatformRead, PrinterRead
+from ..schemas.printers import PrintActivityJobRead, PrintActivityRead, PrinterPlatformRead, PrinterRead, SpoolerMonitorRead
 from ..services.printing.adapter import get_printer_adapter
+from ..services.printing.spooler_monitor import spooler_monitor
 
 router = APIRouter(prefix="/printers", tags=["printers"], dependencies=[Depends(require_token)])
+
+
+@router.get("/print-activity", response_model=PrintActivityRead)
+def list_print_activity(db: Session = Depends(get_db)) -> PrintActivityRead:
+    """Return every job waiting for or currently moving through a printer.
+
+    A released spooler item intentionally remains an attention state until the
+    owner advances the job into the Ready step; spooler release is not proof
+    that the physical sheet exited successfully.
+    """
+    orders = (
+        db.query(JobOrder)
+        .filter(JobOrder.status.in_([JobOrderStatus.queued, JobOrderStatus.printing]))
+        .order_by(JobOrder.updated_at.desc())
+        .all()
+    )
+    activity: list[PrintActivityJobRead] = []
+    for order in orders:
+        attempt = max(order.print_jobs, key=lambda item: item.submitted_at, default=None)
+        state = "ready"
+        attention_required = False
+        if attempt:
+            if attempt.result == PrintResult.failed or attempt.spooler_status == "error":
+                state = "error"
+                attention_required = True
+            elif attempt.spooler_status == "paused":
+                state = "paused"
+                attention_required = True
+            elif attempt.spooler_status == "released":
+                state = "awaiting_reinsert" if attempt.duplex_pass == "front" else "released"
+                attention_required = True
+            elif attempt.spooler_status in {"queued", "spooling", "printing"}:
+                state = attempt.spooler_status
+            else:
+                state = "submitted"
+        activity.append(
+            PrintActivityJobRead(
+                job_order_id=order.id,
+                job_number=order.number,
+                job_name=order.name,
+                job_status=order.status.value,
+                attempt_id=attempt.id if attempt else None,
+                printer_name=attempt.printer.display_name if attempt else None,
+                filename=attempt.job_file.original_filename if attempt and attempt.job_file else None,
+                state=state,
+                pages_printed=attempt.spooler_pages_printed if attempt else None,
+                total_pages=attempt.spooler_total_pages if attempt else None,
+                duplex_pass=attempt.duplex_pass if attempt else None,
+                submitted_at=attempt.submitted_at if attempt else None,
+                attention_required=attention_required,
+            )
+        )
+    activity.sort(key=lambda item: (not item.attention_required, item.submitted_at or datetime.min))
+    return PrintActivityRead(jobs=activity)
 
 
 @router.get("/platform", response_model=PrinterPlatformRead)
@@ -24,6 +79,46 @@ def get_printer_platform() -> PrinterPlatformRead:
         detection_source=settings.printer_platform_source,
         adapter="windows_spooler" if platform_name == "windows" else "cups",
     )
+
+
+@router.get("/spooler-jobs", response_model=SpoolerMonitorRead)
+def list_spooler_jobs(db: Session = Depends(get_db)) -> SpoolerMonitorRead:
+    supported = settings.resolved_printer_platform == "windows"
+    jobs = (
+        db.query(ObservedPrintJob)
+        .order_by(ObservedPrintJob.last_seen_at.desc())
+        .limit(50)
+        .all()
+        if supported
+        else []
+    )
+    if not supported:
+        message = "External job monitoring is available on the Windows desktop app."
+    elif spooler_monitor.active:
+        message = "Watching the Windows spooler while Printing-MS is open."
+    elif spooler_monitor.error:
+        message = spooler_monitor.error
+    else:
+        message = "The Windows spooler monitor is starting."
+    return SpoolerMonitorRead(
+        supported=supported,
+        active=spooler_monitor.active,
+        message=message,
+        jobs=jobs,
+    )
+
+
+@router.post("/spooler-jobs/{observed_job_id}/dismiss", response_model=SpoolerMonitorRead)
+def dismiss_spooler_job(observed_job_id: str, db: Session = Depends(get_db)) -> SpoolerMonitorRead:
+    observed = db.get(ObservedPrintJob, observed_job_id)
+    if not observed:
+        raise HTTPException(status_code=404, detail="Observed Windows print job not found.")
+    if observed.review_status == "linked":
+        raise HTTPException(status_code=409, detail="This Windows print job is already linked to a job order.")
+    observed.review_status = "dismissed"
+    observed.reviewed_at = datetime.utcnow()
+    db.commit()
+    return list_spooler_jobs(db)
 
 
 @router.get("", response_model=list[PrinterRead])

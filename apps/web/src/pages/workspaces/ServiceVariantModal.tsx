@@ -10,6 +10,7 @@ interface VariantForm {
   label: string;
   description: string;
   isActive: boolean;
+  requiresManualDuplex: boolean;
 }
 
 function formFor(variant: Variant | null): VariantForm {
@@ -17,6 +18,7 @@ function formFor(variant: Variant | null): VariantForm {
     label: variant?.label ?? "",
     description: variant?.description ?? "",
     isActive: variant?.isActive ?? true,
+    requiresManualDuplex: variant?.requiresManualDuplex ?? false,
   };
 }
 
@@ -67,6 +69,7 @@ export function VariantModal({
       label: form.label.trim(),
       description: form.description.trim() || null,
       isActive: form.isActive,
+      requiresManualDuplex: form.requiresManualDuplex,
     };
     setSaving(true);
     try {
@@ -125,6 +128,15 @@ export function VariantModal({
               placeholder="Prints content on both sides of each sheet"
             />
             <span className="form-field__message">Explain when staff should choose this option.</span>
+          </label>
+
+          <label className="service-variant-modal__check">
+            <input
+              type="checkbox"
+              checked={form.requiresManualDuplex}
+              onChange={(event) => setForm({ ...form, requiresManualDuplex: event.target.checked })}
+            />
+            <span><strong>Supervised back-to-back printing</strong><small>Print fronts, pause for paper reinsertion, then print backs.</small></span>
           </label>
 
           <label className="service-variant-modal__check">

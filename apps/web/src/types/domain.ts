@@ -6,12 +6,10 @@
 // the open question about final transition permissions.
 
 export type JobOrderStatus =
-  | "pending_payment"
-  | "paid"
   | "queued"
   | "printing"
-  | "quality_check"
   | "ready"
+  | "paid"
   | "released"
   | "delivered"
   | "completed"
@@ -40,12 +38,14 @@ export interface ProductVariant {
   variantId: string;
   label: string; // e.g. "A4 · 300gsm matte"
   priceAdjustment: number;
+  requiresManualDuplex: boolean;
 }
 
 export interface Variant {
   id: string;
   label: string;
   description?: string | null;
+  requiresManualDuplex: boolean;
   linkedProductCount: number;
   isActive: boolean;
   createdAt: string;
@@ -161,6 +161,7 @@ export interface Payment {
 export interface JobOrder {
   id: string;
   number: string;
+  name: string;
   customerId?: string | null;
   customerName?: string | null;
   quotationId?: string | null;
@@ -225,6 +226,7 @@ export interface JobOrderItem {
   unitPrice: number;
   lineTotal: number;
   printSides: PrintSides;
+  requiresManualDuplex: boolean;
   materials: JobOrderMaterialPlan[];
 }
 
@@ -244,6 +246,34 @@ export interface PrinterPlatformInfo {
   adapter: "windows_spooler" | "cups";
 }
 
+export interface ObservedPrintJob {
+  id: string;
+  osJobId: string;
+  printerName: string;
+  documentName: string;
+  owner?: string | null;
+  driverName?: string | null;
+  totalPages?: number | null;
+  pagesPrinted?: number | null;
+  sizeBytes?: number | null;
+  status: "queued" | "spooling" | "printing" | "paused" | "error" | "released";
+  rawStatus?: string | null;
+  submittedAt?: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  releasedAt?: string | null;
+  reviewStatus: "unreviewed" | "dismissed" | "linked";
+  reviewedAt?: string | null;
+  linkedJobOrderId?: string | null;
+}
+
+export interface SpoolerMonitorInfo {
+  supported: boolean;
+  active: boolean;
+  message: string;
+  jobs: ObservedPrintJob[];
+}
+
 export interface PrintJob {
   id: string;
   jobOrderId: string;
@@ -255,15 +285,52 @@ export interface PrintJob {
   colorMode: "color" | "grayscale";
   mediaSize: string;
   orientation: "auto" | "portrait" | "landscape";
-  scaling: "fit" | "fill" | "actual_size";
+  scaling: "auto" | "fit" | "fill" | "actual_size";
   quality: "auto" | "draft" | "standard" | "high";
   borderless: boolean;
   collate: boolean;
+  duplexPass: "simplex" | "front" | "back";
   submittedAt: string;
   result: "pending" | "succeeded" | "failed" | "cancelled";
   operator?: string | null;
   externalJobId?: string | null;
+  spoolerStatus: "submitted" | "queued" | "spooling" | "printing" | "paused" | "error" | "released";
+  spoolerPagesPrinted?: number | null;
+  spoolerTotalPages?: number | null;
+  spoolerLastSeenAt?: string | null;
+  spoolerReleasedAt?: string | null;
   errorMessage?: string | null;
+}
+
+export type PrintActivityState =
+  | "ready"
+  | "submitted"
+  | "queued"
+  | "spooling"
+  | "printing"
+  | "paused"
+  | "error"
+  | "released"
+  | "awaiting_reinsert";
+
+export interface PrintActivityJob {
+  jobOrderId: string;
+  jobNumber: string;
+  jobName: string;
+  jobStatus: string;
+  attemptId?: string | null;
+  printerName?: string | null;
+  filename?: string | null;
+  state: PrintActivityState;
+  pagesPrinted?: number | null;
+  totalPages?: number | null;
+  duplexPass?: "simplex" | "front" | "back" | null;
+  submittedAt?: string | null;
+  attentionRequired: boolean;
+}
+
+export interface PrintActivityInfo {
+  jobs: PrintActivityJob[];
 }
 
 export interface StatusEvent {

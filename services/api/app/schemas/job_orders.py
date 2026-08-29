@@ -24,6 +24,7 @@ class JobOrderItemCreate(CamelModel):
 
 
 class JobOrderCreate(CamelModel):
+    name: str = Field(min_length=1, max_length=100)
     customer_id: str | None = None
     due_date: datetime | None = None
     notes: str | None = None
@@ -31,6 +32,7 @@ class JobOrderCreate(CamelModel):
 
 
 class AnalyzedJobOrderCreate(CamelModel):
+    name: str = Field(min_length=1, max_length=100)
     product_id: str
     paper_inventory_item_id: str
     variant_id: str | None = None
@@ -41,6 +43,7 @@ class AnalyzedJobOrderCreate(CamelModel):
     price_mode: Literal["suggested", "custom"] = "suggested"
     custom_price: float | None = Field(default=None, ge=0)
     other_materials: list[JobOrderMaterialPlanCreate] = Field(default_factory=list)
+    observed_print_job_id: str | None = None
 
 
 class JobOrderMaterialPlanRead(CamelModel):
@@ -68,6 +71,7 @@ class JobOrderItemRead(CamelModel):
     unit_price: float
     line_total: float
     print_sides: PrintSides
+    requires_manual_duplex: bool
     materials: list[JobOrderMaterialPlanRead] = Field(default_factory=list)
 
 
@@ -102,7 +106,7 @@ class PaymentRead(CamelModel):
 
 
 class JobOrderTransitionCreate(CamelModel):
-    to_status: Literal["queued", "quality_check", "ready", "completed"]
+    to_status: Literal["queued", "ready", "paid", "completed"]
     note: str | None = None
 
 
@@ -115,10 +119,11 @@ class PrintSubmissionCreate(CamelModel):
     color_mode: Literal["color", "grayscale"] | None = None
     media_size: Literal["A4", "Letter", "Legal"] | None = None
     orientation: Literal["auto", "portrait", "landscape"] = "auto"
-    scaling: Literal["fit", "fill", "actual_size"] = "fit"
+    scaling: Literal["auto", "fit", "fill", "actual_size"] = "auto"
     quality: Literal["auto", "draft", "standard", "high"] = "auto"
     borderless: bool = False
     collate: bool = True
+    duplex_pass: Literal["auto", "simplex", "front", "back"] = "auto"
 
 
 class PrintAttemptRead(CamelModel):
@@ -135,10 +140,16 @@ class PrintAttemptRead(CamelModel):
     quality: str
     borderless: bool
     collate: bool
+    duplex_pass: Literal["simplex", "front", "back"]
     submitted_at: datetime
     result: PrintResult
     operator: str | None
     external_job_id: str | None
+    spooler_status: Literal["submitted", "queued", "spooling", "printing", "paused", "error", "released"]
+    spooler_pages_printed: int | None
+    spooler_total_pages: int | None
+    spooler_last_seen_at: datetime | None
+    spooler_released_at: datetime | None
     error_message: str | None
 
 
@@ -163,6 +174,7 @@ class JobOrderMaterialUsageCreate(CamelModel):
 class JobOrderRead(CamelModel):
     id: str
     number: str
+    name: str
     customer_id: str | None
     customer_name: str | None
     quotation_id: str | None

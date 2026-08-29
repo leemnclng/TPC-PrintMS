@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 import json
 from pathlib import Path
 import shutil
@@ -9,7 +10,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -22,9 +23,11 @@ from ..db.models import (
     InventoryMovementKind,
     JobFile,
     JobOrder,
+    JobOrderNumberSequence,
     JobOrderStatus,
     JobOrderItem,
     JobOrderMaterialPlan,
+    ObservedPrintJob,
     Payment,
     Printer,
     PrintJob,
@@ -64,6 +67,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
     return JobOrderRead(
         id=job_order.id,
         number=job_order.number,
+        name=job_order.name,
         customer_id=job_order.customer_id,
         customer_name=job_order.customer.display_name if job_order.customer else None,
         quotation_id=job_order.quotation_id,
@@ -90,6 +94,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "unit_price": item.unit_price,
                 "line_total": item.line_total,
                 "print_sides": item.print_sides,
+                "requires_manual_duplex": item.requires_manual_duplex,
                 "materials": [
                     {
                         "id": plan.id,
@@ -150,10 +155,16 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "quality": attempt.quality,
                 "borderless": attempt.borderless,
                 "collate": attempt.collate,
+                "duplex_pass": attempt.duplex_pass,
                 "submitted_at": attempt.submitted_at,
                 "result": attempt.result,
                 "operator": attempt.operator,
                 "external_job_id": attempt.external_job_id,
+                "spooler_status": attempt.spooler_status,
+                "spooler_pages_printed": attempt.spooler_pages_printed,
+                "spooler_total_pages": attempt.spooler_total_pages,
+                "spooler_last_seen_at": attempt.spooler_last_seen_at,
+                "spooler_released_at": attempt.spooler_released_at,
                 "error_message": attempt.error_message,
             }
             for attempt in sorted(job_order.print_jobs, key=lambda item: item.submitted_at, reverse=True)
@@ -225,6 +236,14 @@ async def create_analyzed_job_order(
     if payload.price_mode == "custom" and payload.custom_price is None:
         raise HTTPException(status_code=422, detail="Enter the owner's final price.")
 
+    observed_print_job: ObservedPrintJob | None = None
+    if payload.observed_print_job_id:
+        observed_print_job = db.get(ObservedPrintJob, payload.observed_print_job_id)
+        if not observed_print_job:
+            raise HTTPException(status_code=404, detail="Observed Windows print job not found.")
+        if observed_print_job.linked_job_order_id:
+            raise HTTPException(status_code=409, detail="This Windows print job already has a job order.")
+
     product = db.get(Product, payload.product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found.")
@@ -285,10 +304,14 @@ async def create_analyzed_job_order(
         )
     suggested_total = round(pricing.suggested_price * payload.copies, 2)
     final_total = suggested_total if payload.price_mode == "suggested" else round(payload.custom_price or 0, 2)
-    paper_quantity = analysis.page_count * payload.copies
+    requires_manual_duplex = bool(variant and variant.requires_manual_duplex and analysis.page_count > 1)
+    paper_quantity = (
+        ((analysis.page_count + 1) // 2) if requires_manual_duplex else analysis.page_count
+    ) * payload.copies
     if "sheet" not in paper_assignment.inventory_item.unit.lower():
         paper_quantity = 1
     order_payload = JobOrderCreate(
+        name=payload.name,
         customer_id=payload.customer_id,
         due_date=payload.due_date,
         notes=payload.notes,
@@ -324,8 +347,6 @@ async def create_analyzed_job_order(
         job_order.suggested_total = suggested_total
         job_order.price_overridden = payload.price_mode == "custom"
         job_order.total = final_total
-        if final_total == 0:
-            _record_status(job_order, JobOrderStatus.paid, "No payment required; job marked paid automatically.")
         billable_quantity = max(analysis.page_count * payload.copies, 1)
         job_order.items[0].unit_price = round(final_total / billable_quantity, 2)
         job_order.items[0].line_total = final_total
@@ -346,6 +367,10 @@ async def create_analyzed_job_order(
                 analysis_confidence=analysis.confidence,
             )
         )
+        if observed_print_job:
+            observed_print_job.review_status = "linked"
+            observed_print_job.reviewed_at = datetime.utcnow()
+            observed_print_job.linked_job_order_id = job_order.id
         db.commit()
         db.refresh(job_order)
     except Exception as error:
@@ -361,6 +386,9 @@ async def create_analyzed_job_order(
 
 @router.post("", response_model=JobOrderRead, status_code=201)
 def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> JobOrderRead:
+    job_name = payload.name.strip()
+    if not job_name:
+        raise HTTPException(status_code=422, detail="Enter a name for this job order.")
     if payload.customer_id and not db.get(Customer, payload.customer_id):
         raise HTTPException(status_code=404, detail="Customer not found.")
 
@@ -432,10 +460,11 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
 
     job_order = JobOrder(
         number=_next_job_order_number(db),
+        name=job_name,
         customer_id=payload.customer_id,
         due_date=payload.due_date,
         total=0,
-        status=JobOrderStatus.pending_payment,
+        status=JobOrderStatus.queued,
         notes=payload.notes.strip() if payload.notes else None,
     )
     for item_payload in payload.items:
@@ -479,6 +508,7 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
             unit_price=unit_price,
             line_total=line_total,
             print_sides=item_payload.print_sides,
+            requires_manual_duplex=bool(variant and variant.requires_manual_duplex and item_payload.pages_per_copy > 1),
         )
         item.material_plans = [
             JobOrderMaterialPlan(
@@ -507,8 +537,8 @@ def record_payment(
     job_order = db.get(JobOrder, job_order_id)
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
-    if job_order.status != JobOrderStatus.pending_payment:
-        raise HTTPException(status_code=409, detail="Payments can only be recorded while the job is pending payment.")
+    if job_order.status != JobOrderStatus.ready:
+        raise HTTPException(status_code=409, detail="Payments can only be recorded while the job is in the Ready step.")
     verified_total = sum(payment.amount for payment in job_order.payments if payment.verified)
     outstanding = round(max(job_order.total - verified_total, 0), 2)
     if payload.amount > outstanding + 0.001:
@@ -532,24 +562,34 @@ def transition_job_order(
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
     target = JobOrderStatus(payload.to_status)
-    allowed = {
-        JobOrderStatus.paid: JobOrderStatus.queued,
-        JobOrderStatus.printing: JobOrderStatus.quality_check,
-        JobOrderStatus.quality_check: JobOrderStatus.ready,
-        JobOrderStatus.ready: JobOrderStatus.completed,
+    # Quality inspection is not its own status: printing lands in Ready, where
+    # the owner either sends the job back to Queued for a re-print or, once
+    # output passes, marks it Paid (collecting payment first if any balance
+    # is outstanding). Ready -> Paid here only covers the no-balance case;
+    # an outstanding balance must go through /payments instead.
+    allowed: dict[JobOrderStatus, set[JobOrderStatus]] = {
+        JobOrderStatus.printing: {JobOrderStatus.ready},
+        JobOrderStatus.ready: {JobOrderStatus.queued, JobOrderStatus.paid},
+        JobOrderStatus.paid: {JobOrderStatus.completed},
     }
-    if allowed.get(job_order.status) != target:
+    if target not in allowed.get(job_order.status, set()):
         raise HTTPException(
             status_code=409,
             detail=f"{job_order.status.value.replace('_', ' ').title()} cannot move directly to {target.value.replace('_', ' ').title()}.",
         )
-    if target == JobOrderStatus.queued and not any(file.kind == "print_ready" for file in job_order.files):
-        raise HTTPException(status_code=422, detail="Attach a print-ready file before queueing this job.")
+    if target == JobOrderStatus.paid:
+        verified_total = sum(payment.amount for payment in job_order.payments if payment.verified)
+        outstanding = round(max(job_order.total - verified_total, 0), 2)
+        if outstanding > 0:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Record the outstanding balance of ₱{outstanding:,.2f} before marking this job paid.",
+            )
 
     default_notes = {
-        JobOrderStatus.queued: "Owner queued the paid job for printing.",
-        JobOrderStatus.quality_check: "Printing finished; owner started quality review.",
-        JobOrderStatus.ready: "Quality check passed; job is ready.",
+        JobOrderStatus.ready: "Printing finished; owner started quality review.",
+        JobOrderStatus.queued: "Quality check did not pass; job requeued for a re-print.",
+        JobOrderStatus.paid: "No payment due; job marked paid without a payment record.",
         JobOrderStatus.completed: "Owner completed the job order.",
     }
     _record_status(job_order, target, payload.note.strip() if payload.note else default_notes[target])
@@ -568,7 +608,7 @@ async def submit_print_attempt(
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
     if job_order.status != JobOrderStatus.queued:
-        raise HTTPException(status_code=409, detail="Queue the paid job before submitting it to a printer.")
+        raise HTTPException(status_code=409, detail="This job order is not in the print queue.")
     printer = db.get(Printer, payload.printer_id)
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found.")
@@ -578,6 +618,44 @@ async def submit_print_attempt(
     if not job_file or job_file.job_order_id != job_order.id or job_file.kind != "print_ready":
         raise HTTPException(status_code=404, detail="Print-ready job file not found.")
     copies, color_mode, media_size = _automatic_print_settings(job_order, job_file)
+    item = job_order.items[0]
+    manual_duplex = item.requires_manual_duplex and (job_file.detected_page_count or item.pages_per_copy) > 1
+    if manual_duplex and settings.resolved_printer_platform != "windows":
+        raise HTTPException(
+            status_code=422,
+            detail="Supervised back-to-back printing is currently available on the Windows printer host.",
+        )
+    successful_front = next(
+        (
+            attempt
+            for attempt in sorted(job_order.print_jobs, key=lambda value: value.submitted_at, reverse=True)
+            if attempt.result == PrintResult.succeeded and attempt.duplex_pass == "front"
+        ),
+        None,
+    )
+    expected_pass = "back" if manual_duplex and successful_front else "front" if manual_duplex else "simplex"
+    duplex_pass = expected_pass if payload.duplex_pass == "auto" else payload.duplex_pass
+    if duplex_pass != expected_pass:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Finish the front-side pass before printing the back sides."
+                if expected_pass == "front"
+                else "The front sides are complete. Reinsert the printed stack before submitting the back-side pass."
+            ),
+        )
+    if duplex_pass == "back" and successful_front:
+        if successful_front.printer_id != printer.id or successful_front.job_file_id != job_file.id:
+            raise HTTPException(
+                status_code=409,
+                detail="Use the same printer and file as the completed front-side pass.",
+            )
+        # Both sides must use an identical physical profile to stay aligned.
+        payload.orientation = successful_front.orientation
+        payload.scaling = successful_front.scaling
+        payload.quality = successful_front.quality
+        payload.borderless = successful_front.borderless
+        payload.collate = successful_front.collate
 
     files_root = (settings.resolved_data_dir / "files").resolve()
     stored_path = (settings.resolved_data_dir / job_file.stored_path).resolve()
@@ -598,6 +676,7 @@ async def submit_print_attempt(
         quality=payload.quality,
         borderless=payload.borderless,
         collate=payload.collate,
+        duplex_pass=duplex_pass,
         result=PrintResult.pending,
         operator=owner.owner_name if owner else "Owner",
     )
@@ -619,6 +698,8 @@ async def submit_print_attempt(
             payload.quality,
             payload.borderless,
             payload.collate,
+            attempt.id,
+            duplex_pass,
         )
     except PrintSubmissionError as error:
         attempt.result = PrintResult.failed
@@ -634,6 +715,10 @@ async def submit_print_attempt(
     attempt.result = PrintResult.succeeded
     attempt.external_job_id = submission.external_job_id
     job_order.assigned_printer_id = printer.id
+    if duplex_pass == "front":
+        db.commit()
+        db.refresh(job_order)
+        return _to_read(job_order)
     movements = _deduct_planned_materials(
         job_order,
         pending_materials,
@@ -649,7 +734,9 @@ async def submit_print_attempt(
         job_order,
         JobOrderStatus.printing,
         f"Submitted {job_file.original_filename} to {printer.display_name}. "
-        f"Document analysis selected {color_mode} output.{material_note}",
+        f"Document analysis selected {color_mode} output."
+        f"{' Supervised front and back passes were submitted.' if duplex_pass == 'back' else ''}"
+        f"{material_note}",
     )
     db.commit()
     db.refresh(job_order)
@@ -821,10 +908,29 @@ def _deduct_planned_materials(
 def _next_job_order_number(db: Session) -> str:
     profile = db.query(BusinessProfile).first()
     prefix = (profile.job_order_prefix if profile else "JOB").strip() or "JOB"
-    sequence = (db.query(func.count(JobOrder.id)).scalar() or 0) + 1
-    while db.query(JobOrder.id).filter(JobOrder.number == f"{prefix}-{sequence:04d}").first():
-        sequence += 1
-    return f"{prefix}-{sequence:04d}"
+    counter = db.get(JobOrderNumberSequence, 1)
+    if counter is None:
+        # Base.metadata.create_all() test/dev databases do not run Alembic's
+        # seed insert, so bootstrap safely from the highest legacy suffix.
+        highest = 0
+        for (number,) in db.query(JobOrder.number).all():
+            suffix = number.rsplit("-", 1)[-1]
+            if suffix.isdigit():
+                highest = max(highest, int(suffix))
+        sequence = highest + 1
+        db.add(JobOrderNumberSequence(id=1, next_value=sequence + 1))
+        db.flush()
+    else:
+        # Atomic UPDATE ... RETURNING prevents two simultaneous job-creation
+        # requests from receiving the same owner-facing reference.
+        next_value = db.execute(
+            update(JobOrderNumberSequence)
+            .where(JobOrderNumberSequence.id == 1)
+            .values(next_value=JobOrderNumberSequence.next_value + 1)
+            .returning(JobOrderNumberSequence.next_value)
+        ).scalar_one()
+        sequence = next_value - 1
+    return f"{prefix}-{sequence:010d}"
 
 
 def _movement_to_read(movement: InventoryMovement) -> InventoryMovementRead:

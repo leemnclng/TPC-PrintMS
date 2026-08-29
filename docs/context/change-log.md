@@ -185,6 +185,28 @@ Track notable app changes by date.
 - Changed: Physical color mode now comes from document analysis, with RGB preserved for mixed/color files and grayscale used only for confirmed monochrome files.
 - Changed: Print setup defaults to per-page orientation, fit-to-printable-area scaling, installed-driver quality, and normal driver margins; borderless remains a deliberate supported-media override.
 - Changed: Print types and new-type creation are described as pricing/workflow categories instead of automatic printer color modes.
+- Fixed: Windows printing no longer applies the Canon driver's hard margin twice, removing the extra software inset that made output smaller and shifted.
+- Changed: New print attempts default to Automatic scaling, which preserves source dimensions and document margins and shrinks only when the driver's printable area requires it.
+- Added: Printing-MS now monitors and persists Canon PRINT and other application jobs that pass through the Windows spooler while the desktop app is open.
+- Added: Print Center shows external Windows activity in a separate External / Unlinked pane with printer, document, owner, page progress, spooler job ID, and live status.
+- Added: A new unlinked Windows print raises a non-blocking owner prompt with Create job and Not now actions; Print Center retains later Create/View job actions.
+- Changed: New Job Order now progresses through Customer file, Print setup, and Preview & price, with smoother in-place transitions and no intermediate navigation.
+- Added: The transaction review embeds the same continuous, zoomable, rotatable PDF preview used by Document Analyzer alongside analysis and pricing.
+- Changed: A spooler observation is linked to its job order only after the owner re-uploads the source file and approves the analyzed transaction.
+- Added: Variants may enable Supervised back-to-back printing; the existing Back-to-Back variant is migrated automatically.
+- Added: Back-to-Back job printing now runs as durable front and back attempts with an in-modal reload checkpoint and explicit Canon rear-tray instructions.
+- Changed: Back-to-Back paper planning uses `ceil(pages ÷ 2) × copies`, while pricing remains page-based.
+- Changed: Planned inventory remains untouched after the front pass and deducts only after the back-side queue submission succeeds.
+- Changed: Print Center redirects supervised duplex jobs to their job-order modal to prevent an unsafe unsupervised second submission.
+- Changed: Spooler disappearance is recorded as Released rather than Completed because Windows cannot confirm physical output; printer-panel and direct mobile/cloud work is clearly identified as outside Windows tracking.
+- Changed: New job references now use a non-reusing 10-digit sequence such as `JOB-0000000001`, supporting nearly ten billion owner-facing transaction numbers while retaining UUID database identities.
+- Added: A floating global print tracker shows all queued and printing jobs, Windows spooler status and page progress, and a hover summary from every app page.
+- Added: Released, paused, or failed prints raise an owner-attention state; its global activity modal opens the relevant job so the owner can continue reinsertion, quality check, or recovery.
+- Fixed: Primary and secondary job-workflow button labels remain legible instead of inheriting the command panel's red eyebrow color.
+- Fixed: A currently printing job no longer disables another job's Proceed to print action; the installed OS queue remains responsible for ordering submissions.
+- Added: Every new job order has a required owner-friendly name, automatically suggested from the uploaded filename and editable before analysis.
+- Changed: Job lists, job workspaces, print setup, workflow dialogs, and global print activity now show the job name first and the permanent `JOB-…` reference second.
+- Changed: Existing job names are initialized from their retained source filename where available, without changing job numbers or route identities.
 - Added: The Overview shortcut opens the complete upload-and-analysis job-order modal in one click.
 - Changed: New Job Order is now a guided transaction flow for customer file upload, configured product/variant selection, analysis, price review, and Print Center handoff.
 - Added: Owners can accept the engine recommendation or set a transaction-only final price while preserving the original suggestion for audit.

@@ -6,26 +6,26 @@ import type { JobOrder } from "../../types/domain";
 import "../workspaceForm.css";
 import "./JobOrderModals.css";
 
-type TargetStatus = "queued" | "quality_check" | "ready" | "completed";
+type TargetStatus = "queued" | "ready" | "paid" | "completed";
 
 const TRANSITION_COPY: Record<TargetStatus, { title: string; description: string; action: string; note: string }> = {
-  queued: {
-    title: "Queue job for printing",
-    description: "Confirm that payment is complete and this job is ready for printer setup.",
-    action: "Queue job",
-    note: "The next workflow action will open printer setup here without leaving the job order.",
-  },
-  quality_check: {
+  ready: {
     title: "Finish printing",
     description: "Confirm that physical printing has finished and begin output inspection.",
-    action: "Start quality check",
-    note: "Check page order, orientation, color, clarity, and physical defects before marking the job ready.",
+    action: "Start quality review",
+    note: "Check page order, orientation, color, clarity, and physical defects here in the Ready step before reprinting or marking the job ready.",
   },
-  ready: {
-    title: "Pass quality check",
-    description: "Confirm that the printed output meets the customer’s requirements.",
+  queued: {
+    title: "Send back for a re-print",
+    description: "The printed output did not pass quality review.",
+    action: "Requeue for re-print",
+    note: "The job returns to the print queue. Choose the printer and settings again for a clean re-print.",
+  },
+  paid: {
+    title: "Mark ready — no payment due",
+    description: "This job has no outstanding balance, so it can be marked ready without recording a payment.",
     action: "Mark ready",
-    note: "The job will be ready for pickup, delivery, or customer handoff.",
+    note: "The job moves to Paid and is ready for customer handoff.",
   },
   completed: {
     title: "Complete job order",
@@ -66,7 +66,7 @@ export function JobTransitionModal({ open, order, targetStatus, onClose, onTrans
   }
 
   return (
-    <Modal open={open} title={copy.title} description={`${order.number} · ${copy.description}`} onClose={onClose} busy={saving} status={error ? "error" : saving ? "loading" : "idle"} className="job-transition-modal">
+    <Modal open={open} title={copy.title} description={`${order.name} · ${order.number} · ${copy.description}`} onClose={onClose} busy={saving} status={error ? "error" : saving ? "loading" : "idle"} className="job-transition-modal">
       <div className="job-transition-confirmation">
         <span className="job-transition-confirmation__mark numeric" aria-hidden="true">NEXT</span>
         <p>{copy.note}</p>

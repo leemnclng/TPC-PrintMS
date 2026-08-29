@@ -1,12 +1,13 @@
 param(
     [Parameter(Mandatory = $true)][string]$ImageDirectory,
     [Parameter(Mandatory = $true)][string]$DocumentName,
+    [Parameter(Mandatory = $false)][string]$TrackingId = "",
     [Parameter(Mandatory = $true)][string]$PrinterName,
     [Parameter(Mandatory = $true)][ValidateRange(1, 99)][int]$Copies,
     [Parameter(Mandatory = $true)][ValidateSet("color", "grayscale")][string]$ColorMode,
     [Parameter(Mandatory = $true)][ValidateSet("A4", "Letter", "Legal")][string]$MediaSize,
     [Parameter(Mandatory = $true)][ValidateSet("auto", "portrait", "landscape")][string]$Orientation,
-    [Parameter(Mandatory = $true)][ValidateSet("fit", "fill", "actual_size")][string]$Scaling,
+    [Parameter(Mandatory = $true)][ValidateSet("auto", "fit", "fill", "actual_size")][string]$Scaling,
     [Parameter(Mandatory = $true)][ValidateSet("auto", "draft", "standard", "high")][string]$Quality,
     [Parameter(Mandatory = $true)][ValidateSet("true", "false")][string]$Borderless,
     [Parameter(Mandatory = $true)][ValidateSet("true", "false")][string]$Collate
@@ -32,7 +33,7 @@ Add-Type -AssemblyName System.Drawing
 $document = New-Object System.Drawing.Printing.PrintDocument
 $useBorderless = ($Borderless -eq "true")
 $useCollation = ($Collate -eq "true")
-$document.DocumentName = $DocumentName
+$document.DocumentName = if ([string]::IsNullOrWhiteSpace($TrackingId)) { $DocumentName } else { "Printing-MS|$TrackingId|$DocumentName" }
 $document.PrinterSettings.PrinterName = $PrinterName
 if (-not $document.PrinterSettings.IsValid) {
     $document.Dispose()
@@ -51,6 +52,7 @@ $document.DefaultPageSettings.PaperSize = $paperSize
 $document.DefaultPageSettings.Color = ($ColorMode -eq "color")
 $document.DefaultPageSettings.Margins = [System.Drawing.Printing.Margins]::new(0, 0, 0, 0)
 $document.DefaultPageSettings.Landscape = ($Orientation -eq "landscape")
+$document.OriginAtMargins = $false
 $document.PrintController = New-Object System.Drawing.Printing.StandardPrintController
 $document.PrinterSettings.Copies = 1
 $document.PrinterSettings.Collate = $useCollation
@@ -98,18 +100,27 @@ $document.add_PrintPage({
     param($sender, $eventArgs)
     $image = [System.Drawing.Image]::FromFile($printPaths[$script:pageIndex])
     try {
-        $hardMarginX = [Math]::Max(0, [single]$eventArgs.PageSettings.HardMarginX)
-        $hardMarginY = [Math]::Max(0, [single]$eventArgs.PageSettings.HardMarginY)
-        if ($useBorderless -and ($hardMarginX -gt 0.5 -or $hardMarginY -gt 0.5)) {
+        # Graphics (0,0) is already the physical printable-area origin when
+        # OriginAtMargins is false. Adding HardMarginX/Y here applied the Canon
+        # margin twice and also assumed the opposite margins were symmetrical.
+        $printableArea = $eventArgs.PageSettings.PrintableArea
+        if ($useBorderless -and ($printableArea.X -gt 0.5 -or $printableArea.Y -gt 0.5)) {
             throw "The selected printer driver does not expose borderless printing for $MediaSize. Open its Windows printing preferences and choose a supported borderless paper type."
         }
-        $originX = if ($useBorderless) { 0 } else { $hardMarginX }
-        $originY = if ($useBorderless) { 0 } else { $hardMarginY }
-        $availableWidth = [Math]::Max(1, [single]$eventArgs.PageBounds.Width - (2 * $originX))
-        $availableHeight = [Math]::Max(1, [single]$eventArgs.PageBounds.Height - (2 * $originY))
-        if ($Scaling -eq "actual_size") {
-            $drawWidth = [single](100 * $image.Width / [Math]::Max(1, $image.HorizontalResolution))
-            $drawHeight = [single](100 * $image.Height / [Math]::Max(1, $image.VerticalResolution))
+        $originX = [single]0
+        $originY = [single]0
+        $availableWidth = [Math]::Max(1, [single]$printableArea.Width)
+        $availableHeight = [Math]::Max(1, [single]$printableArea.Height)
+        $actualWidth = [single](100 * $image.Width / [Math]::Max(1, $image.HorizontalResolution))
+        $actualHeight = [single](100 * $image.Height / [Math]::Max(1, $image.VerticalResolution))
+        if ($Scaling -eq "actual_size" -or ($Scaling -eq "auto" -and $actualWidth -le $availableWidth -and $actualHeight -le $availableHeight)) {
+            $drawWidth = $actualWidth
+            $drawHeight = $actualHeight
+        }
+        elseif ($Scaling -eq "auto") {
+            $shrinkScale = [Math]::Min($availableWidth / $actualWidth, $availableHeight / $actualHeight)
+            $drawWidth = [single]($actualWidth * $shrinkScale)
+            $drawHeight = [single]($actualHeight * $shrinkScale)
         }
         else {
             $fitScale = [Math]::Min($availableWidth / $image.Width, $availableHeight / $image.Height)

@@ -442,3 +442,45 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: B&W, Semi-colored, Colored, and owner-added print types affect pricing and workflow only. At submission, derive physical color mode from the retained document analysis: preserve RGB if any color was detected or analysis is unknown, and render grayscale only for a confidently monochrome file. Default orientation follows each page, fitting respects the selected driver's printable area, and quality remains driver-managed. Borderless is never inferred silently because it depends on supported paper/media and enlarges/crops the source.
 - Rationale: A B&W price category must not destroy real color in an uploaded file. The analyzer has the evidence required to preserve source intent, while device-specific ink selection, color correction, hard margins, and supported media belong to the installed driver/printer.
 - Impact: Print setup displays a read-only automatic document profile instead of a product-based color selector. Owners may still explicitly override orientation, scaling, quality, or force borderless output when production intent requires it; pricing snapshots remain unchanged.
+
+### Preserve Source Geometry Within the Driver Printable Area
+
+- Decision: Default print scaling to automatic: retain the rendered document's physical dimensions and margins when they fit, and only shrink proportionally when the selected driver's printable area requires it. On Windows, treat the `PrintPage` graphics origin as the printable-area origin and do not add `HardMarginX/Y` again.
+- Rationale: The Windows GDI surface already accounts for the device's non-printable origin. Applying that offset a second time made Printing-MS output smaller and more inset than the same document printed through Canon PRINT.
+- Impact: Existing explicit Fit, Fill, and Actual size choices remain available. New print attempts use Automatic, and physical Canon validation remains required because printable bounds vary by driver, paper type, and printer model.
+
+### Treat the Windows Spooler as the External Print Audit Boundary
+
+- Decision: While Printing-MS is running on Windows, observe `Win32_PrintJob`, persist jobs submitted by any Windows application, and show non-Printing-MS records in a separate External / Unlinked Print Center pane. Tag Printing-MS document names with the internal attempt ID so their spooler identifier can be reconciled without creating a duplicate external record. Treat a job disappearing from the spooler as released, not physically completed.
+- Rationale: Canon PRINT exposes no shared event SDK, but both it and ordinary Windows applications use the OS queue for computer-submitted jobs. The spooler does not expose the originating application or prove that paper exited the printer, so stronger attribution would be misleading.
+- Impact: Canon PRINT jobs are retained when they pass through Windows while the app is open. Direct printer-panel, USB-host, and mobile/cloud jobs remain outside this boundary; device telemetry may detect anonymous activity but cannot reconstruct their document or owner.
+
+### Require Owner Confirmation and Source Re-upload for External Print Intake
+
+- Decision: Surface each unreviewed external Windows spooler record through a non-blocking app prompt. Allow dismissal or job creation, but require the original source file to be uploaded and analyzed before linking the observation to a newly approved job order.
+- Rationale: `Win32_PrintJob` provides transient metadata, not a trustworthy reusable source file. Creating a complete commercial transaction directly from spooler metadata would fabricate preview, pricing, and material evidence.
+- Impact: The owner gets timely intake awareness without being interrupted. Dismissed observations remain visible in Print Center, approved jobs gain a durable one-to-one link, and cancelled creation leaves the observation unlinked.
+
+### Model Back-to-Back as a Supervised Variant Behavior
+
+- Decision: Add an explicit `requires_manual_duplex` behavior to reusable variants and snapshot it on each job item. On Windows, submit odd front pages first, pause for owner-confirmed Canon-style reinsertion, then submit reverse even pages. Keep the job queued and inventory untouched between passes; only the successful back pass advances production and deducts planned materials.
+- Rationale: Inferring production behavior from the text “Back-to-Back” is fragile, while one opaque printer submission cannot tell Printing-MS whether the owner actually reloaded the stack correctly. Durable pass records allow cancellation, reopening, retry, and audit without losing the physical checkpoint.
+- Impact: Existing Back-to-Back, Double-sided, and Manual duplex labels are marked during migration. New variants opt in through Configuration. Paper planning uses physical sheets, both passes must use the same printer/file/profile, and Print Center delegates these jobs to the supervised job modal. The current stack sequence is Windows-only pending equivalent CUPS validation.
+
+### Separate Durable Job Identity From the Owner-Facing Sequence
+
+- Decision: Keep UUIDs as database and route identities, while allocating owner-facing job references from an atomic, non-reusing 10-digit sequence (`JOB-0000000001`). Preserve the configurable prefix.
+- Rationale: Counting existing rows can reuse a number after deletion and race during simultaneous creation. A transactional sequence safely covers billions of transactions without exposing implementation identities.
+- Impact: Existing references remain unchanged; only newly created jobs use the wider format. Prefix changes do not reset the global sequence.
+
+### Treat Spooler Release as a Global Attention Event
+
+- Decision: Track all queued and printing orders globally. Persist the Windows spooler's internal attempt state and page counts, then change a released, paused, or failed attempt into an owner-attention item that links to the job. Remove it when the owner advances the job beyond printing.
+- Rationale: The OS queue supports concurrent submissions, but route-local status hides active work. Spooler disappearance confirms handoff only, so automatic physical completion or quality approval would be inaccurate.
+- Impact: Owners can create and submit more work while another job prints, inspect the queue from any page, and return directly to the required reinsertion, recovery, or quality-check step.
+
+### Use a Human Job Name Without Replacing the Durable Reference
+
+- Decision: Require a short owner-friendly name on every new job, prefilled from the uploaded filename and editable before analysis. Show it as the primary operational label while keeping the `JOB-…` number visible as secondary metadata.
+- Rationale: Staff recognize “Reyes thesis copies” faster than a long numeric sequence, but accounting, audit history, links, and integrations still need a stable non-ambiguous reference.
+- Impact: Names may repeat and can describe the work naturally. Job numbers remain unique, non-reusing, and unchanged; internal routes continue using UUIDs. Existing rows receive their retained filename as the initial name when possible.

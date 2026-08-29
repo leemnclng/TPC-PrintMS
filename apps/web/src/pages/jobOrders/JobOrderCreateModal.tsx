@@ -1,4 +1,4 @@
-import { ChangeEvent, DragEvent, FormEvent, useEffect, useId, useState } from "react";
+import { ChangeEvent, DragEvent, FormEvent, lazy, Suspense, useEffect, useId, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { Button } from "../../components/Button/Button";
 import { LinkButton } from "../../components/Button/LinkButton";
@@ -10,6 +10,7 @@ import type {
   DocumentAnalysisResponse,
   InventoryItem,
   JobOrder,
+  ObservedPrintJob,
   Product,
 } from "../../types/domain";
 import "../workspaceForm.css";
@@ -18,11 +19,13 @@ import "./JobOrderModals.css";
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const ACCEPTED_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp", "docx", "xlsx", "pptx"];
 const ACCEPT = ACCEPTED_EXTENSIONS.map((extension) => `.${extension}`).join(",");
+const PdfViewer = lazy(() => import("../../components/PdfViewer/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
 type MaterialLine = { inventoryItemId: string; plannedQuantity: number };
-type Step = "configure" | "review";
+type Step = "file" | "configure" | "review";
 
 interface TransactionForm {
+  name: string;
   serviceName: string;
   productId: string;
   productSearch: string;
@@ -36,6 +39,7 @@ interface TransactionForm {
 }
 
 const blankForm = (): TransactionForm => ({
+  name: "",
   serviceName: "",
   productId: "",
   productSearch: "",
@@ -53,14 +57,16 @@ interface Props {
   customers: Customer[];
   products: Product[];
   inventoryItems: InventoryItem[];
+  sourceSpoolerJobId?: string | null;
+  sourceSpoolerJob?: ObservedPrintJob | null;
   onClose: () => void;
   onCreated: (order: JobOrder) => void;
 }
 
-export function JobOrderCreateModal({ open, customers, products, inventoryItems, onClose, onCreated }: Props) {
+export function JobOrderCreateModal({ open, customers, products, inventoryItems, sourceSpoolerJobId, sourceSpoolerJob, onClose, onCreated }: Props) {
   const fileInputId = useId();
   const [fileInputKey, setFileInputKey] = useState(0);
-  const [step, setStep] = useState<Step>("configure");
+  const [step, setStep] = useState<Step>("file");
   const [form, setForm] = useState<TransactionForm>(blankForm);
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -88,7 +94,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
 
   useEffect(() => {
     if (!open) return;
-    setStep("configure");
+    setStep("file");
     setForm(blankForm());
     setFile(null);
     setSubmitted(false);
@@ -99,16 +105,16 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
     setFileInputKey((current) => current + 1);
   }, [open]);
 
-  function invalidateAnalysis() {
+  function invalidateAnalysis(nextStep: Step = "configure") {
     setAnalysis(null);
-    setStep("configure");
+    setStep(nextStep);
     setPriceMode("suggested");
     setCustomPrice("");
   }
 
   function chooseFile(candidate: File | null) {
     setError(null);
-    invalidateAnalysis();
+    invalidateAnalysis("file");
     if (!candidate) {
       setFile(null);
       return;
@@ -130,6 +136,12 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
       return;
     }
     setFile(candidate);
+    setForm((current) => ({
+      ...current,
+      name: current.name.trim()
+        ? current.name
+        : (candidate.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || "Print job").slice(0, 100),
+    }));
   }
 
   function handleFileInput(event: ChangeEvent<HTMLInputElement>) {
@@ -169,7 +181,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
     event.preventDefault();
     setSubmitted(true);
     setError(null);
-    if (!file || !selectedProduct || !selectedPaper || form.copies < 1 ||
+    if (!file || !form.name.trim() || !selectedProduct || !selectedPaper || form.copies < 1 ||
       form.materials.some((material) => material.plannedQuantity <= 0)) {
       window.requestAnimationFrame(() => {
         document.querySelector<HTMLElement>(".job-transaction-modal [aria-invalid='true']")?.focus();
@@ -208,6 +220,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
     const body = new FormData();
     body.append("file", file);
     body.append("transaction", JSON.stringify({
+      name: form.name.trim(),
       productId: selectedProduct.id,
       paperInventoryItemId: selectedPaper.id,
       variantId: form.variantId || null,
@@ -217,6 +230,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
       notes: form.notes.trim() || null,
       priceMode,
       customPrice: priceMode === "custom" ? parsedCustomPrice : null,
+      observedPrintJobId: sourceSpoolerJobId ?? null,
       otherMaterials: form.materials,
     }));
     try {
@@ -245,29 +259,41 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
       onClose={onClose}
       busy={analyzing || saving}
       status={error ? "error" : analyzing || saving ? "loading" : "idle"}
-      className="job-order-modal job-transaction-modal"
+      className={`job-order-modal job-transaction-modal${step === "review" ? " job-order-modal--review" : ""}`}
     >
       <form className="job-order-form" onSubmit={handleAnalyze} noValidate>
         <nav className="transaction-steps" aria-label="Transaction progress">
           <ol>
-            <li className={step === "configure" ? "is-active" : "is-complete"}><span>01</span><strong>File & service</strong></li>
-            <li className={step === "review" ? "is-active" : ""}><span>02</span><strong>Analysis & price</strong></li>
-            <li><span>03</span><strong>Job workflow</strong></li>
+            <li className={step === "file" ? "is-active" : "is-complete"} aria-current={step === "file" ? "step" : undefined}><span>01</span><strong>Customer file</strong></li>
+            <li className={step === "configure" ? "is-active" : step === "review" ? "is-complete" : ""} aria-current={step === "configure" ? "step" : undefined}><span>02</span><strong>Print setup</strong></li>
+            <li className={step === "review" ? "is-active" : ""} aria-current={step === "review" ? "step" : undefined}><span>03</span><strong>Preview & price</strong></li>
           </ol>
         </nav>
 
-        <div className="job-order-form__body">
+        <div className={`job-order-form__body${step === "review" ? " job-order-form__body--review" : ""}`}>
           {prerequisitesMissing ? (
             <div className="job-order-prerequisites">
               <strong>Add an active product before creating a transaction.</strong>
               <LinkButton to="/product-catalog" onClick={onClose}>Open services</LinkButton>
             </div>
+          ) : step === "file" ? (
+            <div className="transaction-step-panel" key="file">
+              <FileStep
+                fileInputId={fileInputId}
+                fileInputKey={fileInputKey}
+                file={file}
+                dragging={dragging}
+                submitted={submitted}
+                analyzing={analyzing}
+                sourceSpoolerJob={sourceSpoolerJob}
+                setDragging={setDragging}
+                handleFileInput={handleFileInput}
+                handleDrop={handleDrop}
+              />
+            </div>
           ) : step === "configure" ? (
+            <div className="transaction-step-panel" key="configure">
             <ConfigureStep
-              fileInputId={fileInputId}
-              fileInputKey={fileInputKey}
-              file={file}
-              dragging={dragging}
               submitted={submitted}
               form={form}
               services={services}
@@ -276,20 +302,20 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
               paperAssignments={paperAssignments}
               otherAssignments={otherAssignments}
               customers={customers}
-              analyzing={analyzing}
-              setDragging={setDragging}
               setForm={setForm}
-              handleFileInput={handleFileInput}
-              handleDrop={handleDrop}
               selectProduct={selectProduct}
               toggleMaterial={toggleMaterial}
               updateMaterial={updateMaterial}
               invalidateAnalysis={invalidateAnalysis}
             />
+            </div>
           ) : analysis && selectedProduct ? (
+            <div className="transaction-step-panel transaction-step-panel--review" key="review">
             <ReviewStep
+              file={file!}
               analysis={analysis}
               product={selectedProduct}
+              jobName={form.name.trim()}
               copies={form.copies}
               selectedPaper={selectedPaper}
               recommendedTotal={recommendedTotal}
@@ -302,21 +328,27 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
               setCustomPrice={setCustomPrice}
               setError={setError}
             />
+            </div>
           ) : null}
 
           {error && <p className="workspace-form__error transaction-error" role="alert">{error}</p>}
         </div>
 
         <footer className="job-order-form__actions transaction-actions">
-          {step === "configure" ? (
+          {step === "file" ? (
             <>
-              <Button type="button" variant="ghost" onClick={onClose} disabled={analyzing}>Cancel</Button>
+              <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+              <Button type="button" variant="primary" onClick={() => { setSubmitted(true); if (file) { setSubmitted(false); setStep("configure"); } }} disabled={prerequisitesMissing}>Continue to print setup</Button>
+            </>
+          ) : step === "configure" ? (
+            <>
+              <Button type="button" variant="ghost" onClick={() => { setSubmitted(false); setStep("file"); }} disabled={analyzing}>Back</Button>
               <Button type="submit" variant="primary" loading={analyzing} disabled={prerequisitesMissing}>Analyze and price</Button>
             </>
           ) : (
             <>
               <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Do not proceed</Button>
-              <Button type="button" variant="secondary" onClick={() => setStep("configure")} disabled={saving}>Back</Button>
+              <Button type="button" variant="secondary" onClick={() => setStep("configure")} disabled={saving}>Edit print setup</Button>
               <Button type="button" variant="primary" onClick={handleConfirm} loading={saving} disabled={!selectedPaper || finalPrice === null || !Number.isFinite(finalPrice) || finalPrice < 0}>Create job order</Button>
             </>
           )}
@@ -326,11 +358,55 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
   );
 }
 
-interface ConfigureStepProps {
+interface FileStepProps {
   fileInputId: string;
   fileInputKey: number;
   file: File | null;
   dragging: boolean;
+  submitted: boolean;
+  analyzing: boolean;
+  sourceSpoolerJob?: ObservedPrintJob | null;
+  setDragging: (value: boolean) => void;
+  handleFileInput: (event: ChangeEvent<HTMLInputElement>) => void;
+  handleDrop: (event: DragEvent<HTMLLabelElement>) => void;
+}
+
+function FileStep({ fileInputId, fileInputKey, file, dragging, submitted, analyzing, sourceSpoolerJob, setDragging, handleFileInput, handleDrop }: FileStepProps) {
+  return (
+    <section className="transaction-file-step">
+      {sourceSpoolerJob && (
+        <div className="transaction-spooler-context">
+          <span className="transaction-spooler-context__mark" aria-hidden="true">OS</span>
+          <div>
+            <span className="numeric">WINDOWS PRINT RECEIVED</span>
+            <strong>{sourceSpoolerJob.documentName}</strong>
+            <small>{sourceSpoolerJob.printerName} · spooler job {sourceSpoolerJob.osJobId}</small>
+            <p>Upload the original file so this event can become a priced, traceable job order.</p>
+          </div>
+        </div>
+      )}
+      <div className="transaction-file-step__intro">
+        <span className="numeric">01 / CUSTOMER FILE</span>
+        <h3>Start with the document</h3>
+        <p>It remains temporary until you review the analysis and approve the transaction.</p>
+      </div>
+      <input key={fileInputKey} id={fileInputId} className="transaction-file-input" type="file" accept={ACCEPT} onChange={handleFileInput} disabled={analyzing} />
+      <label className={["transaction-dropzone", "transaction-dropzone--primary", dragging ? "is-dragging" : "", submitted && !file ? "is-invalid" : ""].filter(Boolean).join(" ")} htmlFor={fileInputId} aria-invalid={submitted && !file} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={handleDrop}>
+        <span className="transaction-dropzone__mark" aria-hidden="true">DOC</span>
+        <span><strong>{file ? file.name : "Choose a document or drop it here"}</strong><small>{file ? `${formatFileSize(file.size)} · Ready for print setup` : "PDF · images · Word · Excel · PowerPoint · up to 25 MB"}</small></span>
+        <b>{file ? "Change file" : "Browse"}</b>
+      </label>
+      {submitted && !file && <p className="workspace-form__error" role="alert">Upload the customer's file.</p>}
+      <div className="transaction-file-step__promise" aria-label="What happens next">
+        <span><b>1</b> Choose product and paper</span>
+        <span><b>2</b> Review document and price</span>
+        <span><b>3</b> Approve the job order</span>
+      </div>
+    </section>
+  );
+}
+
+interface ConfigureStepProps {
   submitted: boolean;
   form: TransactionForm;
   services: string[];
@@ -339,11 +415,7 @@ interface ConfigureStepProps {
   paperAssignments: InventoryItem[];
   otherAssignments: InventoryItem[];
   customers: Customer[];
-  analyzing: boolean;
-  setDragging: (value: boolean) => void;
   setForm: Dispatch<SetStateAction<TransactionForm>>;
-  handleFileInput: (event: ChangeEvent<HTMLInputElement>) => void;
-  handleDrop: (event: DragEvent<HTMLLabelElement>) => void;
   selectProduct: (productId: string) => void;
   toggleMaterial: (item: InventoryItem, checked: boolean) => void;
   updateMaterial: (inventoryItemId: string, plannedQuantity: number) => void;
@@ -352,26 +424,15 @@ interface ConfigureStepProps {
 
 function ConfigureStep(props: ConfigureStepProps) {
   const {
-    fileInputId, fileInputKey, file, dragging, submitted, form, services, filteredProducts,
-    selectedProduct, paperAssignments, otherAssignments, customers, analyzing, setDragging,
-    setForm, handleFileInput, handleDrop, selectProduct, toggleMaterial,
+    submitted, form, services, filteredProducts,
+    selectedProduct, paperAssignments, otherAssignments, customers,
+    setForm, selectProduct, toggleMaterial,
     updateMaterial, invalidateAnalysis,
   } = props;
   return (
     <>
       <section className="transaction-section">
-        <div className="transaction-section__heading"><span className="numeric">01 / CUSTOMER FILE</span><div><h3>Upload the work</h3><p>The file stays temporary during analysis and is discarded if you cancel.</p></div></div>
-        <input key={fileInputKey} id={fileInputId} className="transaction-file-input" type="file" accept={ACCEPT} onChange={handleFileInput} disabled={analyzing} />
-        <label className={["transaction-dropzone", dragging ? "is-dragging" : "", submitted && !file ? "is-invalid" : ""].filter(Boolean).join(" ")} htmlFor={fileInputId} aria-invalid={submitted && !file} tabIndex={-1} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={handleDrop}>
-          <span className="transaction-dropzone__mark" aria-hidden="true">DOC</span>
-          <span><strong>{file ? file.name : "Choose a document or drop it here"}</strong><small>{file ? `${formatFileSize(file.size)} · Ready to analyze` : "PDF · images · Word · Excel · PowerPoint · up to 25 MB"}</small></span>
-          <b>{file ? "Change file" : "Browse"}</b>
-        </label>
-        {submitted && !file && <p className="workspace-form__error">Upload the customer's file.</p>}
-      </section>
-
-      <section className="transaction-section">
-        <div className="transaction-section__heading"><span className="numeric">02 / SERVICE</span><div><h3>Choose the work to perform</h3><p>Select the product, print paper, and any variant. The owner’s paper choice drives pricing and printing.</p></div></div>
+        <div className="transaction-section__heading"><span className="numeric">01 / PRODUCT & PAPER</span><div><h3>Choose the work to perform</h3><p>Select the product, print paper, and any variant. The owner’s paper choice drives pricing and printing.</p></div></div>
         <div className="transaction-catalog-controls">
           <label className="form-field"><span>Service</span><select value={form.serviceName} onChange={(event) => { setForm((current) => ({ ...current, serviceName: event.target.value, productId: "", variantId: "", paperInventoryItemId: "", materials: [] })); invalidateAnalysis(); }}><option value="">All services</option>{services.map((service) => <option key={service} value={service}>{service}</option>)}</select></label>
           <label className="form-field"><span>Find product</span><input type="search" value={form.productSearch} onChange={(event) => setForm((current) => ({ ...current, productSearch: event.target.value }))} placeholder="Search products" /></label>
@@ -394,7 +455,7 @@ function ConfigureStep(props: ConfigureStepProps) {
         {selectedProduct && (
           <div className="transaction-options">
             <label className="form-field"><span>Print paper</span><select value={form.paperInventoryItemId} onChange={(event) => { setForm((current) => ({ ...current, paperInventoryItemId: event.target.value })); invalidateAnalysis(); }} aria-invalid={submitted && !form.paperInventoryItemId}><option value="">Select paper</option>{paperAssignments.map((item) => <option key={item.id} value={item.id}>{item.paperSize} · {item.name}</option>)}</select><small>This controls pricing, inventory deduction, and printer setup.</small></label>
-            <label className="form-field"><span>Variant <small>(optional)</small></span><select value={form.variantId} onChange={(event) => { setForm((current) => ({ ...current, variantId: event.target.value })); invalidateAnalysis(); }} disabled={selectedProduct.variants.length === 0}><option value="">No variant</option>{selectedProduct.variants.map((variant) => <option key={variant.variantId} value={variant.variantId}>{variant.label} · {variant.priceAdjustment >= 0 ? "+" : ""}{formatCurrency(variant.priceAdjustment)} / page</option>)}</select></label>
+            <label className="form-field"><span>Variant <small>(optional)</small></span><select value={form.variantId} onChange={(event) => { setForm((current) => ({ ...current, variantId: event.target.value })); invalidateAnalysis(); }} disabled={selectedProduct.variants.length === 0}><option value="">No variant</option>{selectedProduct.variants.map((variant) => <option key={variant.variantId} value={variant.variantId}>{variant.label}{variant.requiresManualDuplex ? " · supervised duplex" : ""} · {variant.priceAdjustment >= 0 ? "+" : ""}{formatCurrency(variant.priceAdjustment)} / page</option>)}</select></label>
             <label className="form-field"><span>Copies</span><input type="number" min={1} value={form.copies} onChange={(event) => { setForm((current) => ({ ...current, copies: Number(event.target.value) })); invalidateAnalysis(); }} aria-invalid={submitted && form.copies < 1} /></label>
           </div>
         )}
@@ -404,7 +465,7 @@ function ConfigureStep(props: ConfigureStepProps) {
 
       {selectedProduct && otherAssignments.length > 0 && (
         <section className="transaction-section">
-          <div className="transaction-section__heading"><span className="numeric">03 / MATERIALS</span><div><h3>Plan optional supplies</h3><p>The chosen paper is planned from the page count and copies. Selected supplies are deducted after successful print submission.</p></div></div>
+          <div className="transaction-section__heading"><span className="numeric">02 / MATERIALS</span><div><h3>Plan optional supplies</h3><p>The chosen paper is planned from the page count and copies. Selected supplies are deducted after successful print submission.</p></div></div>
           <div className="transaction-materials">
             {otherAssignments.map((item) => {
               const selected = form.materials.find((material) => material.inventoryItemId === item.id);
@@ -415,11 +476,13 @@ function ConfigureStep(props: ConfigureStepProps) {
       )}
 
       <section className="transaction-section transaction-section--secondary">
-        <div className="transaction-section__heading"><span className="numeric">04 / DETAILS</span><div><h3>Transaction details</h3><p>Customer, deadline, and notes remain optional.</p></div></div>
+        <div className="transaction-section__heading"><span className="numeric">03 / DETAILS</span><div><h3>Name this job</h3><p>The name identifies the work throughout the app; customer, deadline, and notes remain optional.</p></div></div>
         <div className="transaction-details-grid">
+          <label className="form-field transaction-job-name"><span>Job name</span><input type="text" maxLength={100} value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} aria-invalid={submitted && !form.name.trim()} /><small>Use a customer-friendly label such as “Reyes thesis copies”. The permanent job reference remains available for audit.</small></label>
           <label className="form-field"><span>Customer</span><select value={form.customerId} onChange={(event) => setForm((current) => ({ ...current, customerId: event.target.value }))}><option value="">Walk-in / no customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select></label>
           <label className="form-field"><span>Due date</span><input type="date" value={form.dueDate} onChange={(event) => setForm((current) => ({ ...current, dueDate: event.target.value }))} /></label>
         </div>
+        {submitted && !form.name.trim() && <p className="workspace-form__error">Enter a name for this job order.</p>}
         <label className="form-field"><span>Notes</span><textarea rows={2} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
       </section>
     </>
@@ -427,8 +490,10 @@ function ConfigureStep(props: ConfigureStepProps) {
 }
 
 interface ReviewStepProps {
+  file: File;
   analysis: DocumentAnalysisResponse;
   product: Product;
+  jobName: string;
   copies: number;
   selectedPaper?: InventoryItem;
   recommendedTotal: number;
@@ -443,12 +508,14 @@ interface ReviewStepProps {
 }
 
 function ReviewStep(props: ReviewStepProps) {
-  const { analysis, product, copies, selectedPaper, recommendedTotal, priceMode, customPrice, parsedCustomPrice, finalPrice, setStep, setPriceMode, setCustomPrice, setError } = props;
+  const { file, analysis, product, jobName, copies, selectedPaper, recommendedTotal, priceMode, customPrice, parsedCustomPrice, finalPrice, setStep, setPriceMode, setCustomPrice, setError } = props;
   const detectedMatchesSelection = analysis.analysis.paperSize === selectedPaper?.paperSize;
   return (
     <div className="transaction-review">
+      <TransactionDocumentPreview file={file} />
+      <div className="transaction-review__details">
       <section className="transaction-analysis-card">
-        <header><div><span className="numeric">ANALYSIS COMPLETE</span><h3>{analysis.analysis.filename}</h3></div><Button type="button" variant="ghost" size="sm" onClick={() => setStep("configure")}>Edit setup</Button></header>
+        <header><div><span className="numeric">ANALYSIS COMPLETE</span><h3>{jobName}</h3><small>{analysis.analysis.filename}</small></div><Button type="button" variant="ghost" size="sm" onClick={() => setStep("configure")}>Edit setup</Button></header>
         <dl>
           <div><dt>Pages</dt><dd>{analysis.analysis.pageCount}</dd></div><div><dt>Best fit</dt><dd>{analysis.analysis.paperSize}</dd></div><div><dt>Print paper</dt><dd>{selectedPaper?.paperSize ?? "—"}</dd></div><div><dt>Orientation</dt><dd>{analysis.analysis.orientation}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Sheets</dt><dd>{analysis.analysis.pageCount * copies}</dd></div><div><dt>Source pages</dt><dd>{analysis.analysis.colorPages} color · {analysis.analysis.bwPages} B&W</dd></div><div><dt>Ink load</dt><dd>{analysis.analysis.estimatedInkCoveragePercent.toFixed(1)}%</dd></div><div><dt>Print time</dt><dd>~{analysis.analysis.estimatedPrintTimeSeconds * copies}s</dd></div>
         </dl>
@@ -465,6 +532,44 @@ function ReviewStep(props: ReviewStepProps) {
       </fieldset>
       <div className="transaction-final-total"><span>Final transaction price</span><output className="numeric">{finalPrice === null || !Number.isFinite(finalPrice) ? "—" : formatCurrency(finalPrice)}</output><small>{priceMode === "custom" ? `Engine recommendation: ${formatCurrency(recommendedTotal)}` : "Using the engine recommendation"}</small></div>
       <p className="transaction-persistence-note">The job order and customer file still have not been saved. Choose “Do not proceed” to discard this transaction.</p>
+      </div>
     </div>
+  );
+}
+
+function TransactionDocumentPreview({ file }: { file: File }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const isPdf = extension === "pdf" || file.type === "application/pdf";
+  const isImage = ["png", "jpg", "jpeg", "bmp", "webp"].includes(extension) || file.type.startsWith("image/");
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  return (
+    <section className="transaction-document-preview" aria-label="Analyzed document preview">
+      <header>
+        <div><span className="numeric">DOCUMENT PREVIEW</span><strong>{file.name}</strong></div>
+        <small>{formatFileSize(file.size)}</small>
+      </header>
+      <div className="transaction-document-preview__canvas">
+        {isPdf ? (
+          <Suspense fallback={<div className="transaction-preview-status" role="status">Loading interactive preview…</div>}>
+            <PdfViewer file={file} filename={file.name} downloadUrl={previewUrl} />
+          </Suspense>
+        ) : isImage && previewUrl ? (
+          <div className="transaction-image-preview"><img src={previewUrl} alt={`Preview of ${file.name}`} /></div>
+        ) : (
+          <div className="transaction-preview-status">
+            <span aria-hidden="true">DOC</span>
+            <strong>Visual preview unavailable</strong>
+            <p>The document was analyzed successfully. Office and TIFF files require conversion to PDF for an interactive preview.</p>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

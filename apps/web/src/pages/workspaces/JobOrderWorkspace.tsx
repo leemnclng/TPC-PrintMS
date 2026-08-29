@@ -19,9 +19,8 @@ import { JobPrintSetupModal } from "../jobOrders/JobPrintSetupModal";
 import { JobTransitionModal } from "../jobOrders/JobTransitionModal";
 import "./Workspace.css";
 
-const PRODUCTION_STEPS = ["pending_payment", "paid", "queued", "printing", "quality_check", "ready", "completed"] as const;
-type TransitionTarget = "queued" | "quality_check" | "ready" | "completed";
-
+const PRODUCTION_STEPS = ["queued", "printing", "ready", "paid", "completed"] as const;
+type TransitionTarget = "queued" | "ready" | "paid" | "completed";
 const PAYMENT_METHOD_LABELS = {
   cash: "Cash",
   online: "Online payment",
@@ -30,12 +29,10 @@ const PAYMENT_METHOD_LABELS = {
 };
 
 const NEXT_STEP_COPY: Record<string, string> = {
-  pending_payment: "Confirm payment to unlock production.",
-  paid: "Queue the paid job when it is ready for the printer.",
-  queued: "Choose a printer and confirm output settings.",
+  queued: "Check for ongoing printing, then proceed to print.",
   printing: "Confirm physical printing before quality review.",
-  quality_check: "Inspect the output, then mark it ready.",
-  ready: "Complete the job after customer handoff.",
+  ready: "Inspect the output. Re-print if it isn't right, or mark it ready to collect payment.",
+  paid: "Complete the job after customer handoff.",
   completed: "Workflow complete. Audit details remain available below.",
 };
 
@@ -65,15 +62,21 @@ export function JobOrderWorkspace() {
   const plannedMaterials = order.items.flatMap((item) => item.materials);
   const usedMaterials = plannedMaterials.filter((material) => material.consumedQuantity + 1e-9 >= material.plannedQuantity).length;
   const hasRemainingMaterials = plannedMaterials.some((material) => material.consumedQuantity + 1e-9 < material.plannedQuantity);
-  const canRecordFallbackUsage = hasRemainingMaterials && ["printing", "quality_check", "ready", "completed"].includes(order.status);
-
+  const canRecordFallbackUsage = hasRemainingMaterials && ["printing", "ready", "paid", "completed"].includes(order.status);
   function workflowAction() {
-    if (order.status === "pending_payment") return <Button variant="primary" onClick={() => setPaymentOpen(true)}>Record payment</Button>;
-    if (order.status === "paid") return <Button variant="primary" onClick={() => setTransitionTarget("queued")}>Queue for printing</Button>;
-    if (order.status === "queued") return <Button variant="primary" onClick={() => setPrintOpen(true)}>Open print setup</Button>;
-    if (order.status === "printing") return <Button variant="primary" onClick={() => setTransitionTarget("quality_check")}>Printing finished</Button>;
-    if (order.status === "quality_check") return <Button variant="primary" onClick={() => setTransitionTarget("ready")}>Pass quality check</Button>;
-    if (order.status === "ready") return <Button variant="primary" onClick={() => setTransitionTarget("completed")}>Complete job order</Button>;
+    if (order.status === "queued") {
+      return <Button variant="primary" onClick={() => setPrintOpen(true)}>Proceed to print</Button>;
+    }
+    if (order.status === "printing") return <Button variant="primary" onClick={() => setTransitionTarget("ready")}>Printing finished</Button>;
+    if (order.status === "ready") {
+      return (
+        <div className="job-command__quality-actions">
+          <Button variant="secondary" onClick={() => setTransitionTarget("queued")}>Needs re-print</Button>
+          <Button variant="primary" onClick={() => (outstanding > 0 ? setPaymentOpen(true) : setTransitionTarget("paid"))}>Mark ready</Button>
+        </div>
+      );
+    }
+    if (order.status === "paid") return <Button variant="primary" onClick={() => setTransitionTarget("completed")}>Complete job order</Button>;
     return null;
   }
 
@@ -88,8 +91,8 @@ export function JobOrderWorkspace() {
     <>
       <PageHeader
         eyebrow="JOB ORDER WORKFLOW"
-        title={order.number}
-        description={order.customerName ? `${order.customerName} · complete every production step here` : "Walk-in order · complete every production step here"}
+        title={order.name}
+        description={`${order.number} · ${order.customerName ? order.customerName : "Walk-in order"} · complete every production step here`}
         actions={<><LinkButton to="/job-orders" variant="secondary">All job orders</LinkButton><StatusPill label={jobOrderStatusMeta[order.status].label} tone={jobOrderStatusMeta[order.status].tone} /></>}
       />
 
@@ -146,7 +149,7 @@ export function JobOrderWorkspace() {
           </section>
           <section>
             <header><h3>Print attempts</h3></header>
-            {order.printAttempts.length ? order.printAttempts.map((attempt) => <div className="job-audit-row" key={attempt.id}><span><strong>{attempt.printerName}</strong><small>{attempt.mediaSize} · {attempt.orientation} · {attempt.quality}{attempt.errorMessage ? ` · ${attempt.errorMessage}` : ""}</small></span><StatusPill label={attempt.result === "succeeded" ? "Submitted" : attempt.result} tone={attempt.result === "succeeded" ? "success" : attempt.result === "failed" ? "danger" : "info"} /></div>) : <p>No print attempts recorded.</p>}
+            {order.printAttempts.length ? order.printAttempts.map((attempt) => <div className="job-audit-row" key={attempt.id}><span><strong>{attempt.printerName}</strong><small>{attempt.duplexPass === "front" ? "Front-side pass · " : attempt.duplexPass === "back" ? "Back-side pass · " : ""}{attempt.mediaSize} · {attempt.orientation} · {attempt.quality}{attempt.errorMessage ? ` · ${attempt.errorMessage}` : ""}</small></span><StatusPill label={attempt.result === "succeeded" ? "Submitted" : attempt.result} tone={attempt.result === "succeeded" ? "success" : attempt.result === "failed" ? "danger" : "info"} /></div>) : <p>No print attempts recorded.</p>}
           </section>
           <section>
             <header><h3>Materials</h3>{canRecordFallbackUsage && <Button size="sm" variant="secondary" onClick={() => setUsageOpen(true)}>Record remaining</Button>}</header>

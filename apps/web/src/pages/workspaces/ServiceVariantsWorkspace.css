@@ -204,6 +204,9 @@
   outline-offset: 2px;
 }
 
+.service-variant-modal__check > span { display: flex; flex-direction: column; }
+.service-variant-modal__check small { color: var(--color-ink-faint); }
+
 .service-variant-modal__actions {
   display: flex;
   align-items: center;

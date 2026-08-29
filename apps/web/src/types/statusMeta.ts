@@ -3,12 +3,10 @@ import type { JobOrderStatus, PrinterState } from "./domain";
 export type StatusTone = "neutral" | "warning" | "info" | "success" | "danger";
 
 export const jobOrderStatusMeta: Record<JobOrderStatus, { label: string; tone: StatusTone }> = {
-  pending_payment: { label: "Pending payment", tone: "warning" },
-  paid: { label: "Paid", tone: "info" },
   queued: { label: "Queued", tone: "info" },
   printing: { label: "Printing", tone: "info" },
-  quality_check: { label: "Quality check", tone: "warning" },
-  ready: { label: "Ready", tone: "success" },
+  ready: { label: "Ready", tone: "warning" },
+  paid: { label: "Paid", tone: "success" },
   released: { label: "Released", tone: "success" },
   delivered: { label: "Delivered", tone: "success" },
   completed: { label: "Completed", tone: "success" },

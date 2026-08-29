@@ -27,6 +27,7 @@ from .routers import (
     variants,
 )
 from .seed import seed_business_profile
+from .services.printing.spooler_monitor import spooler_monitor
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 
@@ -48,6 +49,9 @@ async def lifespan(_: FastAPI):
     with SessionLocal() as db:
         seed_business_profile(db)
 
+    if settings.resolved_printer_platform == "windows":
+        spooler_monitor.start()
+
     # Electron's backend-manager reads these two lines from stdout to learn
     # the OS-assigned port and the per-launch auth token — see
     # apps/desktop/src/backendManager.ts. Printing them here, at the very end
@@ -61,7 +65,10 @@ async def lifespan(_: FastAPI):
     print(f"PRINT_MS_PORT={_runtime['port']}", flush=True)
     print(f"PRINT_MS_TOKEN={settings.token}", flush=True)
 
-    yield
+    try:
+        yield
+    finally:
+        spooler_monitor.stop()
 
 
 app = FastAPI(title="Printing-MS API", version=settings.version, lifespan=lifespan)

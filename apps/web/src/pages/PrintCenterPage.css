@@ -276,6 +276,31 @@
 .print-history-list small { color: var(--color-ink-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .print-history-list .status-pill { flex: 0 0 auto; white-space: nowrap; }
 
+.spooler-activity { border: 1px solid var(--color-hairline-strong); background: var(--color-paper-2); }
+.spooler-activity__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); border-bottom: 1px solid var(--color-hairline); padding: var(--space-5); }
+.spooler-activity__header > div:first-child { min-width: 0; }
+.spooler-activity__header span.numeric { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .05em; }
+.spooler-activity__header h2 { margin-top: var(--space-1); font-family: var(--font-display); font-size: var(--text-xl); }
+.spooler-activity__header p { max-width: 70ch; margin: var(--space-1) 0 0; color: var(--color-ink-soft); font-size: var(--text-sm); }
+.spooler-monitor-state { display: grid; min-width: min(22rem, 42vw); grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-3); border: 1px solid var(--color-hairline-strong); padding: var(--space-3); background: var(--color-neutral-soft); }
+.spooler-monitor-state > span { width: .625rem; height: .625rem; border-radius: 50%; background: var(--color-neutral); box-shadow: 0 0 0 4px var(--color-neutral-soft); }
+.spooler-monitor-state.is-active > span { background: var(--color-success); box-shadow: 0 0 0 4px var(--color-success-soft); }
+.spooler-monitor-state > div { display: flex; min-width: 0; flex-direction: column; }
+.spooler-monitor-state strong { font-size: var(--text-sm); }
+.spooler-monitor-state small { color: var(--color-ink-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.spooler-job-list { display: flex; flex-direction: column; padding-inline: var(--space-5); }
+.spooler-job-list article { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr) auto; align-items: center; gap: var(--space-4); border-top: 1px solid var(--color-hairline); padding-block: var(--space-4); }
+.spooler-job-list article:first-child { border-top: 0; }
+.spooler-job-list__origin { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .04em; }
+.spooler-job-list__body { display: flex; min-width: 0; flex-direction: column; }
+.spooler-job-list__body strong { overflow: hidden; font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.spooler-job-list__body span,
+.spooler-job-list__body small { color: var(--color-ink-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.spooler-job-list .status-pill { white-space: nowrap; }
+.spooler-job-list__actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.spooler-activity__boundary { margin: 0; border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-5); background: var(--color-warning-soft); color: var(--color-ink-soft); font-size: var(--text-xs); }
+.spooler-activity__boundary strong { color: var(--color-ink); }
+
 @media (max-width: 800px) {
   .staged-print dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .staged-print dl div { border-bottom: 1px solid var(--color-hairline); }
@@ -314,6 +339,11 @@
   .print-auto-profile dl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .print-auto-profile dl div { border-bottom: 1px solid var(--color-hairline); }
   .print-controls__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .spooler-activity__header { align-items: stretch; flex-direction: column; }
+  .spooler-monitor-state { min-width: 0; }
+  .spooler-job-list article { grid-template-columns: minmax(0, 1fr) auto; }
+  .spooler-job-list__origin { grid-column: 1 / -1; }
+  .spooler-job-list__actions { align-items: flex-end; flex-direction: column; }
 }
 
 @media (max-width: 520px) {
@@ -329,4 +359,7 @@
   .print-controls__grid { grid-template-columns: minmax(0, 1fr); }
   .print-submission__confirm,
   .print-submission__gate { align-items: stretch; flex-direction: column; }
+  .spooler-job-list article { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+  .spooler-job-list .status-pill { justify-self: start; }
+  .spooler-job-list__actions { align-items: flex-start; }
 }

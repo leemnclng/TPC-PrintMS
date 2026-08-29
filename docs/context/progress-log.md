@@ -376,3 +376,45 @@ Chronological notes about app progress.
 - Summary: Decoupled commercial print types from physical document rendering.
 - Completed: Printing now derives color preservation from analyzed source content, uses automatic per-page orientation and driver printable margins, leaves quality at the installed driver default, and keeps borderless as a deliberate media-dependent override. Print-type creation now describes pricing behavior only.
 - Verified: All 21 API tests, web/desktop typechecks and production builds, renderer lint, responsive layout rules, and diff validation pass. Physical Canon output still requires the Windows workstation.
+
+## 2026-08-29 (Canon-aligned source margins)
+
+- Summary: Removed the duplicate Windows hard-margin inset and made source-preserving scaling the default.
+- Completed: Windows now draws against the driver-reported printable rectangle once. Automatic scaling keeps the document's original dimensions and margins when possible and shrinks only when hardware bounds require it; explicit Fit, Fill, Actual size, and borderless controls remain available.
+- Verified: All 22 API tests, web/desktop typechecks and production builds, renderer lint, and diff validation pass. Physical Canon comparison remains open on the Windows workstation.
+
+## 2026-08-29 (external Windows print monitoring)
+
+- Summary: Added durable observation of Canon PRINT and other Windows-spooled jobs.
+- Completed: An application-lifetime PowerShell monitor reads `Win32_PrintJob`, persists status/page/owner/document metadata, marks departed jobs as released, links internally submitted attempts by tracking marker, and presents external records in a responsive External / Unlinked Print Center pane. Direct printer-panel and direct mobile/cloud activity is explicitly outside the Windows audit boundary.
+- Verified: Fresh migration reaches the single Alembic head; all 25 API tests, web/desktop typechecks and production builds, renderer lint, and diff validation pass. Coverage validates external persistence, status updates, release handling, internal linking, API serialization, and monitor script behavior.
+
+## 2026-08-29 (external-print intake and transaction preview)
+
+- Summary: Turned unlinked Windows spooler observations into an owner-reviewed job-order intake path.
+- Completed: New external jobs raise a non-blocking app prompt, may be dismissed or opened as a job, and remain visible in Print Center with their review/link state. Job creation now uses File → Print setup → Preview & price, reuses the continuous interactive PDF viewer beside analysis/pricing, and links the external observation only after final transaction approval.
+- Verified: Fresh SQLite migration, all 25 API tests, web/desktop typechecks and builds, renderer lint, and diff validation pass.
+
+## 2026-08-29 (supervised manual duplex printing)
+
+- Summary: Added a resumable two-pass production workflow for Back-to-Back jobs on Windows.
+- Completed: Variants can explicitly require supervised duplex; existing Back-to-Back variants and job snapshots migrate automatically. The job modal prints fronts, pauses with Canon-aligned stack instructions, requires reinsertion confirmation, then prints backs. Passes retain identical printer/file/settings, odd-page documents consume a blank back feed to preserve alignment, paper planning uses physical sheets, and inventory deducts only after the back pass succeeds.
+- Verified: Fresh SQLite migration reaches the single head; all 26 API tests, renderer/desktop typechecks and production builds, renderer lint, physical pass-order unit coverage, and diff validation pass.
+
+## 2026-08-29 (scalable job references and global print activity)
+
+- Summary: Made high-volume job references durable and exposed concurrent queue activity throughout the app.
+- Completed: New jobs use a transactional 10-digit sequence, while their UUID identity remains unchanged. A floating shell tracker polls every queued/printing job, shows spooler page progress, expands on hover, opens an accessible activity modal, and links directly to each job. Windows release, pause, and error events become persistent owner-attention states until the workflow advances.
+- Verified: Fresh and existing SQLite migrations, all 28 API tests, renderer/desktop typechecks and production builds, renderer lint, million-scale sequence and print-activity endpoint coverage, and diff validation pass.
+
+## 2026-08-29 (job workflow action contrast)
+
+- Summary: Restored readable action labels in the job-order command panel.
+- Completed: Scoped the panel's eyebrow styling away from nested button labels, reinforced inherited button foregrounds, and removed the route-local printer-busy block so another job can still enter the OS queue.
+- Verified: Renderer typecheck, lint, production build, and diff validation pass.
+
+## 2026-08-29 (human-readable job names)
+
+- Summary: Added owner-friendly names without weakening durable job references.
+- Completed: Job creation prefills a required editable name from the uploaded filename. Job lists, workspaces, print setup, workflow modals, and the global print tracker now lead with that name and retain the 10-digit job number as secondary audit metadata. Existing jobs are backfilled from their retained filename when available.
+- Verified: Single-head fresh/existing SQLite migrations, all 28 API tests, renderer/desktop typechecks and production builds, renderer lint, and diff validation pass.

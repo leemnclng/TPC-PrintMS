@@ -1,0 +1,56 @@
+.external-print-prompt {
+  position: fixed;
+  z-index: calc(var(--z-modal) - 1);
+  right: var(--space-5);
+  top: calc(var(--topbar-h) + var(--space-4));
+  display: grid;
+  width: min(28rem, calc(100vw - 2 * var(--space-4)));
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-left-width: 3px;
+  padding: var(--space-4);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-overlay);
+  animation: external-print-prompt-in var(--dur-slow) var(--ease-out) both;
+}
+
+.external-print-prompt__signal {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border: 1px solid var(--color-accent);
+  border-radius: 50%;
+  background: var(--color-accent-softer);
+}
+
+.external-print-prompt__signal span {
+  width: .55rem;
+  height: .55rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 .3rem color-mix(in oklch, var(--color-accent) 15%, transparent);
+}
+
+.external-print-prompt__body { display: flex; min-width: 0; flex-direction: column; }
+.external-print-prompt__body > span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .06em; }
+.external-print-prompt h2 { margin-top: var(--space-1); font-family: var(--font-display); font-size: var(--text-lg); }
+.external-print-prompt__body > strong { margin-top: var(--space-3); overflow: hidden; font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.external-print-prompt__body > small { color: var(--color-ink-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.external-print-prompt__body > p { margin: var(--space-3) 0 0; color: var(--color-ink-soft); font-size: var(--text-xs); }
+.external-print-prompt__error { color: var(--color-danger) !important; }
+.external-print-prompt__actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
+
+@keyframes external-print-prompt-in {
+  from { opacity: 0; transform: translateY(var(--space-4)); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 36rem) {
+  .external-print-prompt { right: var(--space-2); top: var(--space-2); width: calc(100vw - 2 * var(--space-2)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .external-print-prompt { animation-duration: var(--dur-fast); }
+}

@@ -11,22 +11,25 @@ import { useResource } from "../hooks/useResource";
 import { api } from "../lib/apiClient";
 import { formatCurrency, formatDate } from "../lib/format";
 import { jobOrderStatusMeta } from "../types/statusMeta";
-import type { Customer, InventoryItem, JobOrder, Product } from "../types/domain";
+import type { Customer, InventoryItem, JobOrder, Product, SpoolerMonitorInfo } from "../types/domain";
 import { JobOrderCreateModal } from "./jobOrders/JobOrderCreateModal";
+import "./JobOrdersPage.css";
 
 export function JobOrdersPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [createOpen, setCreateOpen] = useState(searchParams.get("create") === "1");
+  const sourceSpoolerJobId = searchParams.get("spoolerJobId");
   const { data, state, error, reload } = useResource(async () => {
-    const [orders, customers, products, inventoryItems] = await Promise.all([
+    const [orders, customers, products, inventoryItems, spoolerMonitor] = await Promise.all([
       api.get<JobOrder[]>("/job-orders"),
       api.get<Customer[]>("/customers"),
       api.get<Product[]>("/products"),
       api.get<InventoryItem[]>("/inventory-items"),
+      api.get<SpoolerMonitorInfo>("/printers/spooler-jobs").catch(() => null),
     ]);
-    return { orders, customers, products, inventoryItems };
-  });
+    return { orders, customers, products, inventoryItems, spoolerMonitor };
+  }, [sourceSpoolerJobId]);
 
   useEffect(() => {
     if (searchParams.get("create") === "1") setCreateOpen(true);
@@ -34,15 +37,16 @@ export function JobOrdersPage() {
 
   function closeCreate() {
     setCreateOpen(false);
-    if (searchParams.has("create")) {
+    if (searchParams.has("create") || searchParams.has("spoolerJobId")) {
       const nextParams = new URLSearchParams(searchParams);
       nextParams.delete("create");
+      nextParams.delete("spoolerJobId");
       setSearchParams(nextParams, { replace: true });
     }
   }
 
   const columns: DataTableColumn<JobOrder>[] = [
-    { key: "number", header: "Order #", render: (r) => r.number, width: "10rem" },
+    { key: "name", header: "Job", render: (r) => <span className="job-order-identity"><strong>{r.name}</strong><small className="numeric">{r.number}</small></span>, width: "16rem" },
     { key: "customer", header: "Customer", render: (r) => r.customerName || "Walk-in" },
     {
       key: "status",
@@ -90,6 +94,8 @@ export function JobOrdersPage() {
           customers={data.customers}
           products={data.products}
           inventoryItems={data.inventoryItems}
+          sourceSpoolerJobId={sourceSpoolerJobId}
+          sourceSpoolerJob={data.spoolerMonitor?.jobs.find((job) => job.id === sourceSpoolerJobId) ?? null}
           onClose={closeCreate}
           onCreated={(order) => {
             setCreateOpen(false);

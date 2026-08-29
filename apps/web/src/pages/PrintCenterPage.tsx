@@ -10,9 +10,9 @@ import { LoadingState } from "../components/LoadingState/LoadingState";
 import { ErrorState } from "../components/ErrorState/ErrorState";
 import { useResource } from "../hooks/useResource";
 import { api, ApiError } from "../lib/apiClient";
-import { formatCurrency, formatDate, formatFileSize } from "../lib/format";
+import { formatCurrency, formatDate, formatDateTime, formatFileSize } from "../lib/format";
 import { jobOrderStatusMeta, printerStateMeta } from "../types/statusMeta";
-import type { JobOrder, Printer, PrinterPlatformInfo } from "../types/domain";
+import type { JobOrder, Printer, PrinterPlatformInfo, SpoolerMonitorInfo } from "../types/domain";
 import "./PrintCenterPage.css";
 
 export function PrintCenterPage() {
@@ -34,6 +34,12 @@ export function PrintCenterPage() {
     error: platformError,
     reload: reloadPlatform,
   } = useResource(() => api.get<PrinterPlatformInfo>("/printers/platform"));
+  const {
+    data: spoolerInfo,
+    state: spoolerState,
+    error: spoolerError,
+    reload: reloadSpooler,
+  } = useResource(() => api.get<SpoolerMonitorInfo>("/printers/spooler-jobs"));
   const [discovering, setDiscovering] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [openingSettings, setOpeningSettings] = useState(false);
@@ -43,7 +49,7 @@ export function PrintCenterPage() {
   const [submittingPrint, setSubmittingPrint] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [orientation, setOrientation] = useState<"auto" | "portrait" | "landscape">("auto");
-  const [scaling, setScaling] = useState<"fit" | "fill" | "actual_size">("fit");
+  const [scaling, setScaling] = useState<"auto" | "fit" | "fill" | "actual_size">("auto");
   const [quality, setQuality] = useState<"auto" | "draft" | "standard" | "high">("auto");
   const [borderless, setBorderless] = useState(false);
   const [collate, setCollate] = useState(true);
@@ -102,7 +108,7 @@ export function PrintCenterPage() {
 
   useEffect(() => {
     setOrientation("auto");
-    setScaling("fit");
+    setScaling("auto");
     setQuality("auto");
     setBorderless(false);
     setCollate(true);
@@ -114,6 +120,12 @@ export function PrintCenterPage() {
       ?? data.find((printer) => !["offline", "error"].includes(printer.lastSeenState));
     setSelectedPrinterId(available?.id ?? "");
   }, [data, selectedPrinterId]);
+
+  useEffect(() => {
+    if (resolvedPlatform !== "windows") return;
+    const timer = window.setInterval(reloadSpooler, 3000);
+    return () => window.clearInterval(timer);
+  }, [reloadSpooler, resolvedPlatform]);
 
   async function handlePrintSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -236,7 +248,7 @@ export function PrintCenterPage() {
             <span className="staged-print__check" aria-hidden="true">✓</span>
             <div>
               <span className="numeric">03 / PRINT SETUP</span>
-              <h2 id="staged-print-title">{stagedOrder.number} is confirmed and staged</h2>
+              <h2 id="staged-print-title">{stagedOrder.name} is confirmed and staged</h2>
               <p>Select an available operating-system printer below. Direct queue submission remains a separate confirmation step.</p>
             </div>
             <LinkButton to={`/job-orders/${stagedOrder.id}`} variant="secondary" size="sm">View job order</LinkButton>
@@ -342,10 +354,18 @@ export function PrintCenterPage() {
       {stagedOrder && (
         <section className="print-submission" aria-labelledby="print-submission-title">
           <header>
-            <div><span className="numeric">OS PRINT SUBMISSION</span><h2 id="print-submission-title">Send {stagedOrder.number} to the selected queue</h2></div>
+            <div><span className="numeric">OS PRINT SUBMISSION · {stagedOrder.number}</span><h2 id="print-submission-title">Send {stagedOrder.name} to the selected queue</h2></div>
             <StatusPill label={jobOrderStatusMeta[stagedOrder.status].label} tone={jobOrderStatusMeta[stagedOrder.status].tone} />
           </header>
-          {stagedOrder.status === "queued" ? (
+          {stagedOrder.status === "queued" && printItem?.requiresManualDuplex ? (
+            <div className="print-submission__gate">
+              <div>
+                <strong>This Back-to-Back job requires supervised printing.</strong>
+                <span>Open the job order to print front sides, pause for stack reinsertion, and then submit the back sides safely.</span>
+              </div>
+              <LinkButton to={`/job-orders/${stagedOrder.id}`} variant="primary">Open supervised print modal</LinkButton>
+            </div>
+          ) : stagedOrder.status === "queued" ? (
             <form onSubmit={handlePrintSubmit}>
               <div className="print-auto-profile">
                 <div className="print-auto-profile__heading">
@@ -375,24 +395,24 @@ export function PrintCenterPage() {
                 </div>
                 <div className="print-controls__grid">
                   <label className="form-field"><span>Orientation</span><select value={orientation} onChange={(event) => setOrientation(event.target.value as typeof orientation)}><option value="auto">Auto per page</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select><small>Auto follows each analyzed page.</small></label>
-                  <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="fit">Fit printable area</option><option value="actual_size">Actual size</option><option value="fill">Fill paper (crop edges)</option></select><small>Fit is safest for office documents.</small></label>
+                  <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="auto">Automatic · preserve size</option><option value="fit">Fit printable area</option><option value="actual_size">Actual size · allow clipping</option><option value="fill">Fill paper · crop edges</option></select><small>Automatic keeps original dimensions and only shrinks when required.</small></label>
                   <label className="form-field"><span>Print quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="auto">Automatic · driver default</option><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select><small>Automatic leaves the installed driver's quality unchanged.</small></label>
                   <label className="print-toggle"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Force borderless output</strong><small>Off fits within printer margins; on requires supported media for {mediaSize}.</small></span></label>
                   <label className="print-toggle"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate copies</strong><small>{copies < 2 ? "Available when printing multiple copies." : "Print one complete document before the next copy."}</small></span></label>
                 </div>
-                <p className="print-controls__driver-note"><strong>Automatic document profile:</strong> the product's print type remains pricing-only. Analysis preserves color when the source contains color, selects orientation per page, and fits content to the driver's printable area.</p>
+                <p className="print-controls__driver-note"><strong>Automatic document profile:</strong> analysis preserves source color and orientation. Original dimensions and document margins stay intact; the page shrinks only when the driver's physical printable area requires it.</p>
                 <p className="print-controls__driver-note"><strong>Canon-specific paper type, tray, and color correction:</strong> use Canon print settings. Automatic quality preserves the installed driver's configured default.</p>
               </fieldset>
               <div className="print-submission__confirm">
                 <p><strong>Submitting also deducts every remaining planned material from Inventory.</strong><span>The request is blocked before printing when stock is insufficient. Failed printer submissions do not deduct anything.</span></p>
-                <Button variant="primary" type="submit" loading={submittingPrint} disabled={!selectedPrinterId || !selectedFileId}>Print and deduct materials</Button>
+                <Button variant="primary" type="submit" loading={submittingPrint} disabled={!selectedPrinterId || !selectedFileId}>Proceed to print</Button>
               </div>
               {submissionError && <p className="print-submission__error" role="alert">{submissionError}</p>}
             </form>
           ) : (
             <div className="print-submission__gate">
               <div>
-                <strong>{stagedOrder.status === "pending_payment" ? "Payment is required before printing." : stagedOrder.status === "paid" ? "Queue this paid job before printing." : stagedOrder.status === "printing" ? "The file was submitted and planned materials were deducted." : "This job has already moved beyond print submission."}</strong>
+                <strong>{stagedOrder.status === "printing" ? "The file was submitted and planned materials were deducted." : stagedOrder.status === "ready" ? "Printing is done. Continue in the job order to run the quality check and mark it ready." : "This job has already moved beyond print submission."}</strong>
                 <span>Production status changes remain deliberate owner confirmations; inventory usage is recorded in the job ledger.</span>
               </div>
               <LinkButton to={`/job-orders/${stagedOrder.id}`} variant="primary">Continue in job order</LinkButton>
@@ -423,7 +443,7 @@ export function PrintCenterPage() {
             <div className="print-history-list">
               {stagedOrder.printAttempts.map((attempt) => (
                 <div key={attempt.id}>
-                  <div><strong>{attempt.printerName}</strong><span>{attempt.filename || "Print-ready file"} · {attempt.copies} {attempt.copies === 1 ? "copy" : "copies"} · {attempt.mediaSize} · {attempt.orientation === "auto" ? "auto orientation" : attempt.orientation} · {attempt.quality}</span><small>{attempt.errorMessage || `Submitted ${formatDate(attempt.submittedAt)}`}</small></div>
+                  <div><strong>{attempt.printerName}</strong><span>{attempt.duplexPass === "front" ? "Front-side pass · " : attempt.duplexPass === "back" ? "Back-side pass · " : ""}{attempt.filename || "Print-ready file"} · {attempt.copies} {attempt.copies === 1 ? "copy" : "copies"} · {attempt.mediaSize} · {attempt.orientation === "auto" ? "auto orientation" : attempt.orientation} · {attempt.quality}</span><small>{attempt.errorMessage || `Submitted ${formatDate(attempt.submittedAt)}`}</small></div>
                   <StatusPill label={attempt.result === "succeeded" ? "Submitted" : attempt.result} tone={attempt.result === "succeeded" ? "success" : attempt.result === "failed" ? "danger" : "info"} />
                 </div>
               ))}
@@ -431,6 +451,56 @@ export function PrintCenterPage() {
           ) : <EmptyState title="No print attempts recorded" description="Queue a paid job and submit its staged file to record the first attempt." />}
         </Card>
       </div>
+
+      <section className="spooler-activity" aria-labelledby="spooler-activity-title">
+        <header className="spooler-activity__header">
+          <div>
+            <span className="numeric">EXTERNAL WINDOWS ACTIVITY</span>
+            <h2 id="spooler-activity-title">Windows spooler jobs</h2>
+            <p>Captures jobs sent through Windows by Canon PRINT and other desktop applications while Printing-MS is open.</p>
+          </div>
+          <div className={`spooler-monitor-state${spoolerInfo?.active ? " is-active" : ""}`} role="status" aria-live="polite">
+            <span aria-hidden="true" />
+            <div><strong>{spoolerInfo?.active ? "Monitoring" : spoolerInfo?.supported === false ? "Windows only" : "Not monitoring"}</strong><small>{spoolerInfo?.message ?? "Checking the Windows spooler…"}</small></div>
+          </div>
+        </header>
+
+        {spoolerState === "loading" && !spoolerInfo && <LoadingState label="Reading Windows print activity…" />}
+        {spoolerState === "error" && !spoolerInfo && <ErrorState title="Spooler activity unavailable" description={spoolerError ?? undefined} onRetry={reloadSpooler} />}
+        {spoolerInfo && spoolerInfo.jobs.length > 0 ? (
+          <div className="spooler-job-list">
+            {spoolerInfo.jobs.map((job) => {
+              const tone = job.status === "error" ? "danger" : job.status === "paused" ? "warning" : job.status === "released" ? "neutral" : "info";
+              const pageSummary = job.totalPages ? `${job.pagesPrinted ?? 0} / ${job.totalPages} pages` : "Page count unavailable";
+              const reviewLabel = job.reviewStatus === "linked" ? "EXTERNAL · JOB CREATED" : job.reviewStatus === "dismissed" ? "EXTERNAL · REVIEWED" : "EXTERNAL · UNLINKED";
+              return (
+                <article key={job.id}>
+                  <span className="spooler-job-list__origin numeric">{reviewLabel}</span>
+                  <div className="spooler-job-list__body">
+                    <strong>{job.documentName}</strong>
+                    <span>{job.printerName} · Windows job {job.osJobId} · {pageSummary}</span>
+                    <small>{job.owner ? `${job.owner} · ` : ""}{job.submittedAt ? `submitted ${formatDateTime(job.submittedAt)}` : `first seen ${formatDateTime(job.firstSeenAt)}`}</small>
+                  </div>
+                  <div className="spooler-job-list__actions">
+                    <StatusPill label={job.status === "released" ? "Released by spooler" : job.status} tone={tone} />
+                    {job.linkedJobOrderId ? (
+                      <LinkButton to={`/job-orders/${encodeURIComponent(job.linkedJobOrderId)}`} variant="ghost" size="sm">View job</LinkButton>
+                    ) : (
+                      <LinkButton to={`/job-orders?create=1&spoolerJobId=${encodeURIComponent(job.id)}`} variant="ghost" size="sm">Create job</LinkButton>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : spoolerInfo?.supported ? (
+          <EmptyState title="No external Windows jobs observed" description="Keep Printing-MS open, then print through Canon PRINT or another Windows application. New spooler jobs will appear here automatically." />
+        ) : (
+          <EmptyState title="Windows spooler monitoring is unavailable" description="This computer is not using the Windows printer host. Printing-MS does not fabricate external activity on macOS or Linux." />
+        )}
+
+        <p className="spooler-activity__boundary"><strong>Direct printer actions are outside the Windows queue.</strong> Copies, scans, USB-host prints, and mobile/cloud jobs started on the printer may expose device activity, but Windows cannot provide their document name, owner, or reliable job completion.</p>
+      </section>
     </>
   );
 }

@@ -2,6 +2,7 @@ import json
 from io import BytesIO
 from types import SimpleNamespace
 
+import pymupdf
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -10,11 +11,23 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
-from app.db.models import Printer
+from app.db.models import JobOrderNumberSequence, ObservedPrintJob, Printer
 from app.db.session import get_db
 from app.modules.document_analyzer.api import router as document_analyzer_router
 from app.routers import customers, inventory, job_orders, products, services, variants
 from app.services.printing.adapter import PrintSubmission, PrintSubmissionError
+
+
+def test_job_order_number_sequence_handles_million_scale(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'numbers.db'}")
+    Base.metadata.create_all(engine)
+    test_session = sessionmaker(bind=engine)
+    with test_session() as db:
+        db.add(JobOrderNumberSequence(id=1, next_value=1_000_000))
+        db.commit()
+        assert job_orders._next_job_order_number(db) == "JOB-0001000000"
+        db.commit()
+        assert job_orders._next_job_order_number(db) == "JOB-0001000001"
 
 
 def test_automatic_print_color_follows_analyzed_content_not_product_type() -> None:
@@ -146,6 +159,7 @@ def test_job_order_creation_and_material_usage(tmp_path) -> None:
         "/job-orders",
         headers=headers,
         json={
+            "name": "Multiple paper test",
             "customerId": customer["id"],
             "items": [
                 {
@@ -167,6 +181,7 @@ def test_job_order_creation_and_material_usage(tmp_path) -> None:
         "/job-orders",
         headers=headers,
         json={
+            "name": "Thesis back-to-back",
             "dueDate": "2026-08-30T17:00:00",
             "notes": "Print after payment confirmation",
             "items": [
@@ -186,7 +201,8 @@ def test_job_order_creation_and_material_usage(tmp_path) -> None:
     )
     assert create_response.status_code == 201
     order = create_response.json()
-    assert order["number"] == "JOB-0001"
+    assert order["number"] == "JOB-0000000001"
+    assert order["name"] == "Thesis back-to-back"
     assert order["customerId"] is None
     assert order["customerName"] is None
     assert order["items"][0]["pagesPerCopy"] == 10
@@ -262,6 +278,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(engine)
     monkeypatch.setattr(settings, "data_dir", tmp_path / "app-data")
+    monkeypatch.setattr(settings, "printer_platform", "windows")
 
     def override_db():
         db = test_session()
@@ -325,12 +342,26 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert client.get("/job-orders", headers=headers).json() == []
     assert not (tmp_path / "app-data" / "files").exists()
 
+    with test_session() as db:
+        observed = ObservedPrintJob(
+            spooler_key="Canon G4770 series, 73|submitted",
+            os_job_id="73",
+            printer_name="Canon G4770 series",
+            document_name="customer-a4.png",
+            status="released",
+        )
+        db.add(observed)
+        db.commit()
+        observed_id = observed.id
+
     transaction = {
+        "name": "Customer A4 poster",
         "productId": product["id"],
         "paperInventoryItemId": paper["id"],
         "copies": 2,
         "priceMode": "custom",
         "customPrice": 25,
+        "observedPrintJobId": observed_id,
         "otherMaterials": [],
     }
     response = client.post(
@@ -357,6 +388,11 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert order["files"][0]["detectedColorPages"] == 1
     assert order["files"][0]["detectedBwPages"] == 0
     assert order["files"][0]["estimatedInkCoveragePercent"] is not None
+    with test_session() as db:
+        linked_observed = db.get(ObservedPrintJob, observed_id)
+        assert linked_observed is not None
+        assert linked_observed.review_status == "linked"
+        assert linked_observed.linked_job_order_id == order["id"]
 
     download = client.get(
         f"/job-orders/{order['id']}/files/{order['files'][0]['id']}",
@@ -365,36 +401,16 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert download.status_code == 200
     assert download.content == document
 
-    partial_payment = client.post(
+    # A job order is placed directly into the print queue on creation; there
+    # is no pre-print payment gate. Payment is only accepted once the job
+    # reaches the Ready step, after printing.
+    assert order["status"] == "queued"
+    premature_payment = client.post(
         f"/job-orders/{order['id']}/payments",
         headers=headers,
         json={"amount": 10, "method": "cash"},
     )
-    assert partial_payment.status_code == 201
-    assert partial_payment.json()["status"] == "pending_payment"
-    assert partial_payment.json()["amountPaid"] == 10
-    overpayment = client.post(
-        f"/job-orders/{order['id']}/payments",
-        headers=headers,
-        json={"amount": 16, "method": "cash"},
-    )
-    assert overpayment.status_code == 422
-    paid = client.post(
-        f"/job-orders/{order['id']}/payments",
-        headers=headers,
-        json={"amount": 15, "method": "online"},
-    )
-    assert paid.status_code == 201
-    assert paid.json()["status"] == "paid"
-    assert paid.json()["amountPaid"] == 25
-
-    queued = client.post(
-        f"/job-orders/{order['id']}/transitions",
-        headers=headers,
-        json={"toStatus": "queued"},
-    )
-    assert queued.status_code == 200
-    assert queued.json()["status"] == "queued"
+    assert premature_payment.status_code == 409
 
     with test_session() as db:
         printer = Printer(
@@ -456,6 +472,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert after_failure["status"] == "queued"
     assert after_failure["printAttempts"][0]["result"] == "failed"
     assert after_failure["printAttempts"][0]["colorMode"] == "color"
+    assert after_failure["printAttempts"][0]["scaling"] == "auto"
     assert after_failure["printAttempts"][0]["quality"] == "auto"
     assert after_failure["items"][0]["materials"][0]["consumedQuantity"] == 0
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 100
@@ -487,7 +504,8 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert printed.json()["printAttempts"][0]["quality"] == "high"
     assert printed.json()["printAttempts"][0]["borderless"] is False
     assert printed.json()["printAttempts"][0]["collate"] is False
-    assert stub_adapter.calls[-1][5:] == ("landscape", "fill", "high", False, False)
+    assert stub_adapter.calls[-1][5:10] == ("landscape", "fill", "high", False, False)
+    assert stub_adapter.calls[-1][10] == printed.json()["printAttempts"][0]["id"]
     assert printed.json()["items"][0]["materials"][0]["consumedQuantity"] == 2
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 98
     auto_movements = client.get(
@@ -499,29 +517,153 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert auto_movements[0]["quantityDelta"] == -2
     assert "Automatically deducted" in auto_movements[0]["note"]
 
-    for current, target in (
-        ("printing", "quality_check"),
-        ("quality_check", "ready"),
-        ("ready", "completed"),
-    ):
-        transition = client.post(
-            f"/job-orders/{order['id']}/transitions",
-            headers=headers,
-            json={"toStatus": target},
-        )
-        assert transition.status_code == 200
-        assert transition.json()["status"] == target
-        assert transition.json()["statusEvents"][0]["fromStatus"] == current
+    manual_variant = client.post(
+        "/variants",
+        headers=headers,
+        json={
+            "label": "Supervised back-to-back",
+            "requiresManualDuplex": True,
+            "isActive": True,
+        },
+    ).json()
+    manual_product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Manual duplex document",
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [{"variantId": manual_variant["id"], "priceAdjustment": 0}],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}],
+        },
+    ).json()
+    manual_pdf = pymupdf.open()
+    for page_number in range(1, 5):
+        page = manual_pdf.new_page(width=612, height=792)
+        page.insert_text((72, 72), f"Manual duplex page {page_number}")
+    manual_document = manual_pdf.tobytes()
+    manual_pdf.close()
+    manual_order_response = client.post(
+        "/job-orders/from-analysis",
+        headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": "Manual duplex booklet",
+                "productId": manual_product["id"],
+                "paperInventoryItemId": paper["id"],
+                "variantId": manual_variant["id"],
+                "copies": 1,
+                "priceMode": "suggested",
+                "otherMaterials": [],
+            })
+        },
+        files={"file": ("manual-duplex.pdf", manual_document, "application/pdf")},
+    )
+    assert manual_order_response.status_code == 201
+    manual_order = manual_order_response.json()
+    assert manual_order["items"][0]["requiresManualDuplex"] is True
+    assert manual_order["items"][0]["materials"][0]["plannedQuantity"] == 2
+    assert manual_order["status"] == "queued"
+    stock_before_front = client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"]
+    front_pass = client.post(
+        f"/job-orders/{manual_order['id']}/print-attempts",
+        headers=headers,
+        json={
+            "printerId": printer_id,
+            "jobFileId": manual_order["files"][0]["id"],
+            "duplexPass": "front",
+        },
+    )
+    assert front_pass.status_code == 201
+    assert front_pass.json()["status"] == "queued"
+    assert front_pass.json()["printAttempts"][0]["duplexPass"] == "front"
+    assert stub_adapter.calls[-1][11] == "front"
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == stock_before_front
+    wrong_printer_pass = client.post(
+        f"/job-orders/{manual_order['id']}/print-attempts",
+        headers=headers,
+        json={
+            "printerId": printer_id,
+            "jobFileId": manual_order["files"][0]["id"],
+            "duplexPass": "front",
+        },
+    )
+    assert wrong_printer_pass.status_code == 409
+    back_pass = client.post(
+        f"/job-orders/{manual_order['id']}/print-attempts",
+        headers=headers,
+        json={
+            "printerId": printer_id,
+            "jobFileId": manual_order["files"][0]["id"],
+            "duplexPass": "back",
+        },
+    )
+    assert back_pass.status_code == 201
+    assert back_pass.json()["status"] == "printing"
+    assert back_pass.json()["printAttempts"][0]["duplexPass"] == "back"
+    assert stub_adapter.calls[-1][11] == "back"
+    assert back_pass.json()["items"][0]["materials"][0]["consumedQuantity"] == 2
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == stock_before_front - 2
+
+    # Quality inspection is not its own status: printing lands directly in
+    # Ready, which hosts the quality check. A bad check re-queues the job for
+    # a re-print; a good check collects payment before the job is paid.
+    ready_transition = client.post(
+        f"/job-orders/{order['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "ready"},
+    )
+    assert ready_transition.status_code == 200
+    assert ready_transition.json()["status"] == "ready"
+    assert ready_transition.json()["statusEvents"][0]["fromStatus"] == "printing"
+
+    premature_ready_to_paid = client.post(
+        f"/job-orders/{order['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "paid"},
+    )
+    assert premature_ready_to_paid.status_code == 422
+
+    partial_payment = client.post(
+        f"/job-orders/{order['id']}/payments",
+        headers=headers,
+        json={"amount": 10, "method": "cash"},
+    )
+    assert partial_payment.status_code == 201
+    assert partial_payment.json()["status"] == "ready"
+    assert partial_payment.json()["amountPaid"] == 10
+    overpayment = client.post(
+        f"/job-orders/{order['id']}/payments",
+        headers=headers,
+        json={"amount": 16, "method": "cash"},
+    )
+    assert overpayment.status_code == 422
+    paid = client.post(
+        f"/job-orders/{order['id']}/payments",
+        headers=headers,
+        json={"amount": 15, "method": "online"},
+    )
+    assert paid.status_code == 201
+    assert paid.json()["status"] == "paid"
+    assert paid.json()["amountPaid"] == 25
+
+    completed_transition = client.post(
+        f"/job-orders/{order['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "completed"},
+    )
+    assert completed_transition.status_code == 200
+    assert completed_transition.json()["status"] == "completed"
+    assert completed_transition.json()["statusEvents"][0]["fromStatus"] == "paid"
 
     completed = client.get(f"/job-orders/{order['id']}", headers=headers).json()
     assert [event["toStatus"] for event in completed["statusEvents"]] == [
         "completed",
+        "paid",
         "ready",
-        "quality_check",
         "printing",
         "queued",
-        "paid",
-        "pending_payment",
     ]
 
     suggested_response = client.post(
@@ -530,6 +672,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
         data={
             "transaction": json.dumps(
                 {
+                    "name": "Second A4 run",
                     "productId": product["id"],
                     "paperInventoryItemId": paper["id"],
                     "copies": 3,
@@ -544,6 +687,87 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     suggested_order = suggested_response.json()
     assert suggested_order["total"] == suggested_order["suggestedTotal"]
     assert suggested_order["priceOverridden"] is False
+    assert suggested_order["status"] == "queued"
+
+    # A failed quality check in Ready sends the job back to the queue for a
+    # re-print rather than moving through a separate quality-check status.
+    first_pass = client.post(
+        f"/job-orders/{suggested_order['id']}/print-attempts",
+        headers=headers,
+        json={"printerId": printer_id, "jobFileId": suggested_order["files"][0]["id"]},
+    )
+    assert first_pass.status_code == 201
+    assert first_pass.json()["status"] == "printing"
+    assert client.post(
+        f"/job-orders/{suggested_order['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "ready"},
+    ).status_code == 200
+
+    reprint = client.post(
+        f"/job-orders/{suggested_order['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "queued"},
+    )
+    assert reprint.status_code == 200
+    assert reprint.json()["status"] == "queued"
+    assert reprint.json()["statusEvents"][0]["note"] == "Quality check did not pass; job requeued for a re-print."
+
+    second_pass = client.post(
+        f"/job-orders/{suggested_order['id']}/print-attempts",
+        headers=headers,
+        json={"printerId": printer_id, "jobFileId": suggested_order["files"][0]["id"]},
+    )
+    assert second_pass.status_code == 201
+    assert second_pass.json()["status"] == "printing"
+    # The planned paper was already fully deducted on the first pass, so the
+    # re-print deducts nothing further.
+    assert (
+        second_pass.json()["items"][0]["materials"][0]["consumedQuantity"]
+        == first_pass.json()["items"][0]["materials"][0]["consumedQuantity"]
+    )
+
+    # A job with no outstanding balance can move from Ready straight to Paid
+    # without a payment record; one with a balance owed cannot.
+    zero_balance_response = client.post(
+        "/job-orders/from-analysis",
+        headers=headers,
+        data={
+            "transaction": json.dumps(
+                {
+                    "name": "Free sample copy",
+                    "productId": product["id"],
+                    "paperInventoryItemId": paper["id"],
+                    "copies": 1,
+                    "priceMode": "custom",
+                    "customPrice": 0,
+                    "otherMaterials": [],
+                }
+            )
+        },
+        files={"file": ("free-copy.png", document, "image/png")},
+    )
+    assert zero_balance_response.status_code == 201
+    zero_balance_order = zero_balance_response.json()
+    assert zero_balance_order["total"] == 0
+    assert zero_balance_order["status"] == "queued"
+    assert client.post(
+        f"/job-orders/{zero_balance_order['id']}/print-attempts",
+        headers=headers,
+        json={"printerId": printer_id, "jobFileId": zero_balance_order["files"][0]["id"]},
+    ).status_code == 201
+    assert client.post(
+        f"/job-orders/{zero_balance_order['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "ready"},
+    ).status_code == 200
+    no_payment_needed = client.post(
+        f"/job-orders/{zero_balance_order['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "paid"},
+    )
+    assert no_payment_needed.status_code == 200
+    assert no_payment_needed.json()["status"] == "paid"
 
 
 def _create_material(
@@ -566,6 +790,7 @@ def _create_material(
 
 def _order_payload(customer_id: str, product_id: str, inventory_item_id: str) -> dict:
     return {
+        "name": "Paper validation job",
         "customerId": customer_id,
         "items": [
             {

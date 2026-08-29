@@ -2,6 +2,8 @@ import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { useHealth } from "../../hooks/useHealth";
+import { ExternalPrintPrompt } from "../ExternalPrintPrompt/ExternalPrintPrompt";
+import { GlobalPrintActivity } from "../GlobalPrintActivity/GlobalPrintActivity";
 import "./AppShell.css";
 
 export function AppShell() {
@@ -18,6 +20,8 @@ export function AppShell() {
           </div>
         </main>
       </div>
+      <GlobalPrintActivity />
+      <ExternalPrintPrompt />
     </div>
   );
 }

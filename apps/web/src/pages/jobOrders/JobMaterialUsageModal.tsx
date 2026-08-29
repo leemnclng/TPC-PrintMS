@@ -74,7 +74,7 @@ export function JobMaterialUsageModal({ open, order, onClose, onRecorded }: Prop
     <Modal
       open={open}
       title="Record material usage"
-      description={`Confirm what was actually used for ${order.number}. Saving deducts these quantities from inventory.`}
+      description={`Confirm what was actually used for ${order.name} (${order.number}). Saving deducts these quantities from inventory.`}
       onClose={onClose}
       busy={saving}
       status={saveError ? "error" : saving ? "loading" : "idle"}

@@ -16,6 +16,7 @@ class ProductVariantIn(CamelModel):
 class ProductVariantRead(ProductVariantIn):
     id: str
     label: str
+    requires_manual_duplex: bool
 
 
 class ProductDocumentRateIn(CamelModel):

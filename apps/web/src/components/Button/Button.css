@@ -78,6 +78,14 @@
   cursor: progress;
 }
 
+/* Keep labels tied to the button foreground even inside page-level panels
+   that style their own informational spans. */
+.btn .btn__label {
+  color: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+}
+
 .btn__spinner {
   width: 12px;
   height: 12px;

@@ -55,7 +55,7 @@ export function JobPaymentModal({ open, order, onClose, onRecorded }: Props) {
     <Modal
       open={open}
       title="Record and confirm payment"
-      description={`Verify the payment received for ${order.number}. A fully paid job can be queued for printing.`}
+      description={`Verify the payment received for ${order.name} (${order.number}). A fully paid job moves to Paid, ready for handoff.`}
       onClose={onClose}
       busy={saving}
       status={error ? "error" : saving ? "loading" : "idle"}
@@ -83,7 +83,7 @@ export function JobPaymentModal({ open, order, onClose, onRecorded }: Props) {
             </select>
           </label>
         </div>
-        <p className="job-payment-confirmation">Recording this payment confirms that the owner has verified it. Partial payments remain Pending Payment.</p>
+        <p className="job-payment-confirmation">Recording this payment confirms that the owner has verified it. Partial payments keep this job in Ready until the balance is fully paid.</p>
         {error && <p className="workspace-form__error" role="alert">{error}</p>}
         <footer className="job-order-form__actions">
           <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>

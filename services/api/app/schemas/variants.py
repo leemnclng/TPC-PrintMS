@@ -8,6 +8,7 @@ from .common import CamelModel
 class VariantBase(CamelModel):
     label: str
     description: str | None = None
+    requires_manual_duplex: bool = False
     is_active: bool = True
 
 
