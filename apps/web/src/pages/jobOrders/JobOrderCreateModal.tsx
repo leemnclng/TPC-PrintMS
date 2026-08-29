@@ -12,6 +12,7 @@ import type {
   JobOrder,
   ObservedPrintJob,
   Product,
+  Service,
 } from "../../types/domain";
 import "../workspaceForm.css";
 import "./JobOrderModals.css";
@@ -26,7 +27,6 @@ type Step = "file" | "configure" | "review";
 
 interface TransactionForm {
   name: string;
-  serviceName: string;
   productId: string;
   productSearch: string;
   variantId: string;
@@ -40,7 +40,6 @@ interface TransactionForm {
 
 const blankForm = (): TransactionForm => ({
   name: "",
-  serviceName: "",
   productId: "",
   productSearch: "",
   variantId: "",
@@ -57,13 +56,14 @@ interface Props {
   customers: Customer[];
   products: Product[];
   inventoryItems: InventoryItem[];
+  service: Service;
   sourceSpoolerJobId?: string | null;
   sourceSpoolerJob?: ObservedPrintJob | null;
   onClose: () => void;
   onCreated: (order: JobOrder) => void;
 }
 
-export function JobOrderCreateModal({ open, customers, products, inventoryItems, sourceSpoolerJobId, sourceSpoolerJob, onClose, onCreated }: Props) {
+export function JobOrderCreateModal({ open, customers, products, inventoryItems, service, sourceSpoolerJobId, sourceSpoolerJob, onClose, onCreated }: Props) {
   const fileInputId = useId();
   const [fileInputKey, setFileInputKey] = useState(0);
   const [step, setStep] = useState<Step>("file");
@@ -78,8 +78,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
   const [priceMode, setPriceMode] = useState<"suggested" | "custom">("suggested");
   const [customPrice, setCustomPrice] = useState("");
 
-  const activeProducts = products.filter((product) => product.isActive);
-  const services = [...new Set(activeProducts.map((product) => product.serviceName))].sort();
+  const activeProducts = products.filter((product) => product.isActive && product.serviceId === service.id);
   const inventoryById = new Map(inventoryItems.map((item) => [item.id, item]));
   const selectedProduct = activeProducts.find((product) => product.id === form.productId);
   const assignments = selectedProduct?.materialAssignments
@@ -244,7 +243,6 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
 
   const normalizedSearch = form.productSearch.trim().toLocaleLowerCase();
   const filteredProducts = activeProducts.filter((product) => {
-    if (form.serviceName && product.serviceName !== form.serviceName) return false;
     if (!normalizedSearch || product.id === form.productId) return true;
     return [product.name, product.serviceName, product.printTypeLabel || formatProductPrintType(product.printType)]
       .some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
@@ -254,8 +252,8 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
   return (
     <Modal
       open={open}
-      title="New job order"
-      description="Nothing is saved until you approve the analyzed price. The new job then opens in its complete workflow."
+      title={`New ${service.name} job`}
+      description="Upload the customer file, review its analysis and price, then approve the job order."
       onClose={onClose}
       busy={analyzing || saving}
       status={error ? "error" : analyzing || saving ? "loading" : "idle"}
@@ -296,7 +294,7 @@ export function JobOrderCreateModal({ open, customers, products, inventoryItems,
             <ConfigureStep
               submitted={submitted}
               form={form}
-              services={services}
+              service={service}
               filteredProducts={filteredProducts}
               selectedProduct={selectedProduct}
               paperAssignments={paperAssignments}
@@ -409,7 +407,7 @@ function FileStep({ fileInputId, fileInputKey, file, dragging, submitted, analyz
 interface ConfigureStepProps {
   submitted: boolean;
   form: TransactionForm;
-  services: string[];
+  service: Service;
   filteredProducts: Product[];
   selectedProduct?: Product;
   paperAssignments: InventoryItem[];
@@ -424,7 +422,7 @@ interface ConfigureStepProps {
 
 function ConfigureStep(props: ConfigureStepProps) {
   const {
-    submitted, form, services, filteredProducts,
+    submitted, form, service, filteredProducts,
     selectedProduct, paperAssignments, otherAssignments, customers,
     setForm, selectProduct, toggleMaterial,
     updateMaterial, invalidateAnalysis,
@@ -434,7 +432,7 @@ function ConfigureStep(props: ConfigureStepProps) {
       <section className="transaction-section">
         <div className="transaction-section__heading"><span className="numeric">01 / PRODUCT & PAPER</span><div><h3>Choose the work to perform</h3><p>Select the product, print paper, and any variant. The owner’s paper choice drives pricing and printing.</p></div></div>
         <div className="transaction-catalog-controls">
-          <label className="form-field"><span>Service</span><select value={form.serviceName} onChange={(event) => { setForm((current) => ({ ...current, serviceName: event.target.value, productId: "", variantId: "", paperInventoryItemId: "", materials: [] })); invalidateAnalysis(); }}><option value="">All services</option>{services.map((service) => <option key={service} value={service}>{service}</option>)}</select></label>
+          <label className="form-field"><span>Service</span><input value={service.name} readOnly aria-readonly="true" /></label>
           <label className="form-field"><span>Find product</span><input type="search" value={form.productSearch} onChange={(event) => setForm((current) => ({ ...current, productSearch: event.target.value }))} placeholder="Search products" /></label>
         </div>
         <fieldset className="transaction-product-picker" aria-invalid={submitted && !selectedProduct} tabIndex={-1}>
@@ -447,7 +445,7 @@ function ConfigureStep(props: ConfigureStepProps) {
                 <span><small>{product.serviceName} · {product.printTypeLabel || formatProductPrintType(product.printType)}</small><strong>{product.name}</strong><b>From {formatCurrency(product.pricePerPage)} / page</b></span>
               </label>
             ))}
-            {filteredProducts.length === 0 && <p className="transaction-product-empty">No products match this service and search.</p>}
+            {filteredProducts.length === 0 && <p className="transaction-product-empty">No products match this search.</p>}
           </div>
           {submitted && !selectedProduct && <p className="workspace-form__error">Select one product.</p>}
         </fieldset>

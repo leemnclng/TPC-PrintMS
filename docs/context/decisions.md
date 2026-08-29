@@ -484,3 +484,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Require a short owner-friendly name on every new job, prefilled from the uploaded filename and editable before analysis. Show it as the primary operational label while keeping the `JOB-…` number visible as secondary metadata.
 - Rationale: Staff recognize “Reyes thesis copies” faster than a long numeric sequence, but accounting, audit history, links, and integrations still need a stable non-ambiguous reference.
 - Impact: Names may repeat and can describe the work naturally. Job numbers remain unique, non-reusing, and unchanged; internal routes continue using UUIDs. Existing rows receive their retained filename as the initial name when possible.
+
+### Route Job Intake by Service Category
+
+- Decision: Persist a service workflow category: Printing, Photocopy, or Custom. Choose the service before opening job creation. Printing retains file analysis; Photocopy records device-side page/copy inputs without a file; Custom has no implied workflow until one is implemented.
+- Rationale: Requirements differ by how work is physically produced. Asking for a document during photocopy creates false evidence, while treating arbitrary custom services as printing would silently impose the wrong process.
+- Impact: Existing services migrate as Printing. Photocopy B&W pricing is product-specific per paper, color may use global pricing, paper deducts when the completed device-side transaction is recorded, and the job begins Ready for payment.

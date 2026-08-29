@@ -87,6 +87,12 @@ class ProductPrintType(str, enum.Enum):
     colored = "colored"
 
 
+class ServiceCategory(str, enum.Enum):
+    printing = "printing"
+    photocopy = "photocopy"
+    custom = "custom"
+
+
 class InventoryPaperSize(str, enum.Enum):
     """The only paper sizes the shop stocks and prices by. Deliberately a
     closed set — see decisions.md "Tie Document Pricing to Real Paper Stock"."""
@@ -164,9 +170,13 @@ class Customer(TimestampMixin, Base):
 
 class Service(TimestampMixin, Base):
     __tablename__ = "services"
+    __table_args__ = (
+        CheckConstraint("category IN ('printing', 'photocopy', 'custom')", name="ck_services_category"),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    category: Mapped[str] = mapped_column(String, default=ServiceCategory.custom.value, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -397,6 +407,9 @@ class JobOrder(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     number: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    workflow_category: Mapped[str] = mapped_column(
+        String, default=ServiceCategory.printing.value, nullable=False
+    )
     customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
     quotation_id: Mapped[str | None] = mapped_column(ForeignKey("quotations.id"), nullable=True)
     status: Mapped[JobOrderStatus] = mapped_column(

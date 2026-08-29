@@ -17,6 +17,7 @@ export type JobOrderStatus =
   | "cancelled";
 
 export type SourceChannel = "messenger" | "gmail" | "form" | "walk_in" | "phone" | "other";
+export type ServiceCategory = "printing" | "photocopy" | "custom";
 
 export type PrinterState = "idle" | "printing" | "offline" | "error" | "unknown";
 
@@ -90,6 +91,7 @@ export interface ProductDocumentRate {
 export interface Service {
   id: string;
   name: string;
+  category: ServiceCategory;
   description?: string | null;
   productCount: number;
   isActive: boolean;
@@ -101,6 +103,7 @@ export interface Product {
   id: string;
   serviceId: string;
   serviceName: string;
+  serviceCategory: ServiceCategory;
   name: string;
   description?: string | null;
   printType: ProductPrintType;
@@ -162,6 +165,7 @@ export interface JobOrder {
   id: string;
   number: string;
   name: string;
+  workflowCategory: ServiceCategory;
   customerId?: string | null;
   customerName?: string | null;
   quotationId?: string | null;

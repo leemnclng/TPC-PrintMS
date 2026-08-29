@@ -44,6 +44,11 @@ async def analyze_document(
         product = db.get(Product, product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found.")
+        if product.service.category != "printing":
+            raise HTTPException(
+                status_code=422,
+                detail="Document analysis is available only for services in the Printing category.",
+            )
     if variant_id:
         if product is None:
             raise HTTPException(status_code=422, detail="Select a product before selecting a variant.")

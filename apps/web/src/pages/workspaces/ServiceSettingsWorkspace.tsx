@@ -7,7 +7,7 @@ import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { PageHeader } from "../../components/PageHeader/PageHeader";
 import { useResource } from "../../hooks/useResource";
 import { ApiError, api } from "../../lib/apiClient";
-import type { Service } from "../../types/domain";
+import type { Service, ServiceCategory } from "../../types/domain";
 import "../workspaceForm.css";
 import "./ServiceSettingsWorkspace.css";
 
@@ -17,6 +17,7 @@ export function ServiceSettingsWorkspace() {
   const isNew = !serviceId;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState<ServiceCategory>("custom");
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -31,6 +32,7 @@ export function ServiceSettingsWorkspace() {
     if (!data) return;
     setName(data.name);
     setDescription(data.description ?? "");
+    setCategory(data.category);
     setIsActive(data.isActive);
   }, [data]);
 
@@ -40,7 +42,7 @@ export function ServiceSettingsWorkspace() {
     setSaving(true);
 
     try {
-      const payload = { name: name.trim(), description: description.trim() || undefined, isActive };
+      const payload = { name: name.trim(), description: description.trim() || undefined, category, isActive };
       const service = serviceId
         ? await api.put<Service>(`/services/${serviceId}`, payload)
         : await api.post<Service>("/services", payload);
@@ -104,6 +106,27 @@ export function ServiceSettingsWorkspace() {
               onChange={(event) => setDescription(event.target.value)}
               rows={4}
             />
+          </label>
+
+          <label className="form-field">
+            <span>Workflow category</span>
+            <select
+              value={category}
+              disabled={!isNew && Boolean(data?.productCount)}
+              onChange={(event) => setCategory(event.target.value as ServiceCategory)}
+            >
+              <option value="printing">Printing</option>
+              <option value="photocopy">Photocopy</option>
+              <option value="custom">Custom</option>
+            </select>
+            <small className="form-field__message">
+              {category === "printing"
+                ? "Uses document upload, analysis, pricing, and computer printing."
+                : category === "photocopy"
+                  ? "Records device-side copies without requiring a customer file."
+                  : "Catalog category for services whose job workflow will be configured later."}
+            </small>
+            {!isNew && Boolean(data?.productCount) ? <small className="form-field__message">Remove this service's products before changing its workflow.</small> : null}
           </label>
 
           <label className="form-field">

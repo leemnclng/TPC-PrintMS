@@ -221,7 +221,7 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
     service = client.post(
         "/services",
         headers=headers,
-        json={"name": "Photo printing", "description": None, "isActive": True},
+        json={"name": "Photo printing", "category": "printing", "description": None, "isActive": True},
     ).json()
     material = client.post(
         "/inventory-items",

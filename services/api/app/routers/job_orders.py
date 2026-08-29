@@ -34,6 +34,7 @@ from ..db.models import (
     PrintResult,
     Product,
     ProductVariant,
+    Service,
     StatusEvent,
 )
 from ..db.session import get_db
@@ -53,6 +54,7 @@ from ..schemas.job_orders import (
     JobOrderRead,
     JobOrderTransitionCreate,
     PaymentCreate,
+    PhotocopyJobOrderCreate,
     PrintSubmissionCreate,
 )
 from ..services.printing.adapter import PrintSubmissionError, get_printer_adapter
@@ -68,6 +70,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
         id=job_order.id,
         number=job_order.number,
         name=job_order.name,
+        workflow_category=job_order.workflow_category,
         customer_id=job_order.customer_id,
         customer_name=job_order.customer.display_name if job_order.customer else None,
         quotation_id=job_order.quotation_id,
@@ -197,6 +200,119 @@ def get_job_order(job_order_id: str, db: Session = Depends(get_db)) -> JobOrderR
     return _to_read(job_order)
 
 
+@router.post("/from-photocopy", response_model=JobOrderRead, status_code=201)
+def create_photocopy_job_order(
+    payload: PhotocopyJobOrderCreate,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    service = db.get(Service, payload.service_id)
+    if not service or service.category != "photocopy":
+        raise HTTPException(status_code=422, detail="Select a service in the Photocopy category.")
+    if not service.is_active:
+        raise HTTPException(status_code=409, detail=f"Service is inactive: {service.name}.")
+    product = db.get(Product, payload.product_id)
+    if not product or product.service_id != service.id:
+        raise HTTPException(status_code=404, detail="Photocopy product not found in the selected service.")
+    if not product.is_active:
+        raise HTTPException(status_code=409, detail=f"Product is inactive: {product.name}.")
+    paper_assignment = next(
+        (
+            assignment
+            for assignment in product.material_assignments
+            if assignment.inventory_item_id == payload.paper_inventory_item_id
+            and assignment.inventory_item.is_active
+            and assignment.inventory_item.paper_size is not None
+        ),
+        None,
+    )
+    if paper_assignment is None:
+        raise HTTPException(status_code=422, detail="Select an active paper configured for this photocopy product.")
+    duplex_variant = next(
+        (variant for variant in product.variants if variant.requires_manual_duplex),
+        None,
+    )
+    if payload.back_to_back and duplex_variant is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Assign a Back-to-Back variant to this product before recording a two-sided photocopy.",
+        )
+    selected_variant = duplex_variant if payload.back_to_back else None
+    overrides = {rate.pricing_rule_id: rate.price_per_page for rate in product.document_rates}
+    base_rate = price_per_page_for_material(
+        product.print_type,
+        overrides,
+        paper_assignment.inventory_item_id,
+        db,
+        require_override=product.print_type == "black_and_white",
+    )
+    if base_rate is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Set a custom photocopy price for {paper_assignment.inventory_item.name}.",
+        )
+    price_per_page = round(base_rate + (selected_variant.price_adjustment if selected_variant else 0), 2)
+    if price_per_page < 0:
+        raise HTTPException(status_code=422, detail="The configured photocopy price cannot be negative.")
+    physical_sheets = (
+        (payload.pages_per_copy + 1) // 2 if payload.back_to_back else payload.pages_per_copy
+    ) * payload.copies
+    if "sheet" not in paper_assignment.inventory_item.unit.lower():
+        physical_sheets = 1
+    if physical_sheets > paper_assignment.inventory_item.quantity_on_hand:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Not enough {paper_assignment.inventory_item.name}. Required {physical_sheets:g} "
+                f"{paper_assignment.inventory_item.unit}; available "
+                f"{paper_assignment.inventory_item.quantity_on_hand:g}."
+            ),
+        )
+
+    created = create_job_order(
+        JobOrderCreate(
+            name=payload.name,
+            customer_id=payload.customer_id,
+            due_date=payload.due_date,
+            notes=payload.notes,
+            items=[
+                {
+                    "product_id": product.id,
+                    "variant_label": selected_variant.label if selected_variant else None,
+                    "pages_per_copy": payload.pages_per_copy,
+                    "copies": payload.copies,
+                    "print_sides": "double_sided" if payload.back_to_back else "single_sided",
+                    "materials": [
+                        {
+                            "inventory_item_id": paper_assignment.inventory_item_id,
+                            "planned_quantity": physical_sheets,
+                        }
+                    ],
+                }
+            ],
+        ),
+        db,
+    )
+    job_order = db.get(JobOrder, created.id)
+    if job_order is None:
+        raise HTTPException(status_code=500, detail="The photocopy job could not be finalized.")
+    pending_materials = _remaining_planned_materials(job_order)
+    _validate_material_stock(pending_materials)
+    _deduct_planned_materials(
+        job_order,
+        pending_materials,
+        db,
+        note=f"Automatically deducted after device-side photocopy work for {job_order.number}",
+    )
+    _record_status(
+        job_order,
+        JobOrderStatus.ready,
+        "Photocopy transaction recorded after device-side production; ready for payment.",
+    )
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
 def _record_status(job_order: JobOrder, to_status: JobOrderStatus, note: str) -> None:
     from_status = job_order.status
     if from_status == to_status:
@@ -247,6 +363,11 @@ async def create_analyzed_job_order(
     product = db.get(Product, payload.product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found.")
+    if product.service.category != "printing":
+        raise HTTPException(
+            status_code=422,
+            detail="Uploaded-document jobs require a service in the Printing category.",
+        )
     if not product.is_active:
         raise HTTPException(status_code=409, detail=f"Product is inactive: {product.name}.")
     variant: ProductVariant | None = None
@@ -397,6 +518,9 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
     product_by_id = {product.id: product for product in products}
     if missing_product_ids := product_ids - set(product_by_id):
         raise HTTPException(status_code=404, detail=f"Product not found: {next(iter(missing_product_ids))}.")
+    workflow_categories = {product.service.category for product in products}
+    if len(workflow_categories) != 1:
+        raise HTTPException(status_code=422, detail="A job order cannot mix products from different workflow categories.")
 
     for item_payload in payload.items:
         product = product_by_id[item_payload.product_id]
@@ -440,7 +564,13 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
         configured_paper_ids = [
             material_id
             for material_id in active_paper_ids
-            if price_per_page_for_material(product.print_type, overrides, material_id, db) is not None
+            if price_per_page_for_material(
+                product.print_type,
+                overrides,
+                material_id,
+                db,
+                require_override=product.service.category == "photocopy" and product.print_type == "black_and_white",
+            ) is not None
         ]
         if active_paper_ids and not configured_paper_ids:
             raise HTTPException(
@@ -461,6 +591,7 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
     job_order = JobOrder(
         number=_next_job_order_number(db),
         name=job_name,
+        workflow_category=next(iter(workflow_categories)),
         customer_id=payload.customer_id,
         due_date=payload.due_date,
         total=0,
@@ -483,13 +614,20 @@ def create_job_order(payload: JobOrderCreate, db: Session = Depends(get_db)) -> 
             ) is not None
         ]
         reference_price = (
-            price_per_page_for_material(product.print_type, overrides, priced_material_ids[0], db)
+            price_per_page_for_material(
+                product.print_type,
+                overrides,
+                priced_material_ids[0],
+                db,
+                require_override=product.service.category == "photocopy" and product.print_type == "black_and_white",
+            )
             if priced_material_ids
             else reference_price_per_page(
                 product.print_type,
                 overrides,
                 [assignment.inventory_item_id for assignment in product.material_assignments],
                 db,
+                require_override=product.service.category == "photocopy" and product.print_type == "black_and_white",
             )
         )
         reference_price = reference_price if reference_price is not None else 0.0
@@ -562,6 +700,8 @@ def transition_job_order(
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
     target = JobOrderStatus(payload.to_status)
+    if job_order.workflow_category == "photocopy" and target == JobOrderStatus.queued:
+        raise HTTPException(status_code=409, detail="Photocopy jobs are produced on the device and cannot enter the computer print queue.")
     # Quality inspection is not its own status: printing lands in Ready, where
     # the owner either sends the job back to Queued for a re-print or, once
     # output passes, marks it Paid (collecting payment first if any balance
@@ -607,6 +747,8 @@ async def submit_print_attempt(
     job_order = db.get(JobOrder, job_order_id)
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
+    if job_order.workflow_category != "printing":
+        raise HTTPException(status_code=409, detail="This workflow does not submit a document from the computer.")
     if job_order.status != JobOrderStatus.queued:
         raise HTTPException(status_code=409, detail="This job order is not in the print queue.")
     printer = db.get(Printer, payload.printer_id)

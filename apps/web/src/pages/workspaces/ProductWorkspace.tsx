@@ -117,6 +117,14 @@ export function ProductWorkspace() {
         setSaveError("Every material assignment must reference an inventory item.");
         return;
       }
+      if (data?.service.category === "photocopy") {
+        const hasPaperAssignment = (data.pricingRules ?? []).some((rule) =>
+          rule.printType === form.printType && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
+        if (!hasPaperAssignment) {
+          setSaveError("Select at least one paper material for this photocopy product.");
+          return;
+        }
+      }
       const variantIds = form.variants.map((variant) => variant.variantId);
       if (new Set(variantIds).size !== variantIds.length) {
         setSaveError("Each global variant can be selected only once.");
@@ -127,7 +135,17 @@ export function ProductWorkspace() {
         form.documentRates,
         data?.pricingRules ?? [],
         form.materialAssignments,
+        data?.service.category === "photocopy" && form.printType === "black_and_white",
       );
+      const requiresStandaloneRate = data?.service.category === "photocopy" && form.printType === "black_and_white";
+      const materialIds = form.materialAssignments.map((assignment) => assignment.inventoryItemId);
+      const selectedPaperRuleIds = (data?.pricingRules ?? [])
+        .filter((rule) => rule.printType === form.printType && materialIds.includes(rule.inventoryItemId))
+        .map((rule) => rule.id);
+      if (requiresStandaloneRate && selectedPaperRuleIds.some((ruleId) => !form.documentRates.some((rate) => rate.pricingRuleId === ruleId))) {
+        setSaveError("Set a product price for every selected photocopy paper.");
+        return;
+      }
       if (form.variants.some((variant) => referencePrice + variant.priceAdjustment < 0)) {
         setSaveError("A pricing variant cannot produce a negative final unit price.");
         return;
@@ -181,11 +199,13 @@ export function ProductWorkspace() {
     (printType) => printType.isActive || printType.key === form.printType,
   ) ?? [];
   const selectedPrintType = data?.printTypes.find((printType) => printType.key === form.printType);
+  const requiresStandaloneRate = data?.service.category === "photocopy" && form.printType === "black_and_white";
   const referencePrice = computeReferencePrice(
     form.printType,
     form.documentRates,
     pricingRules,
     form.materialAssignments,
+    requiresStandaloneRate,
   );
 
   return (
@@ -249,8 +269,9 @@ export function ProductWorkspace() {
             <span>Reference price / page</span>
             <strong className="numeric">{formatCurrency(referencePrice)}</strong>
             <small>
-              Computed from the assigned paper material's {selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate below —
-              override it, or adjust the global rate in Configuration.
+              {requiresStandaloneRate
+                ? "Computed only from this photocopy product's paper rates below."
+                : `Computed from the assigned paper material's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate below.`}
             </small>
           </div>
 
@@ -259,7 +280,7 @@ export function ProductWorkspace() {
               <section className="product-setup-section">
                 <div className="product-setup-section__heading">
                   <h3>Paper materials &amp; pricing</h3>
-                  <p>Select the paper this product can use, then keep its global price or set a custom rate.</p>
+                  <p>{requiresStandaloneRate ? "Select each paper and set its independent photocopy rate." : "Select the paper this product can use, then keep its global price or set a custom rate."}</p>
                 </div>
                 {pricingRules.length ? (
                   <ProductDocumentRateSelector
@@ -274,6 +295,7 @@ export function ProductWorkspace() {
                       materialAssignments,
                     }))}
                     disabled={saving}
+                    requireCustomPricing={requiresStandaloneRate}
                   />
                 ) : (
                   <div className="workspace-materials__empty">

@@ -418,3 +418,9 @@ Chronological notes about app progress.
 - Summary: Added owner-friendly names without weakening durable job references.
 - Completed: Job creation prefills a required editable name from the uploaded filename. Job lists, workspaces, print setup, workflow modals, and the global print tracker now lead with that name and retain the 10-digit job number as secondary audit metadata. Existing jobs are backfilled from their retained filename when available.
 - Verified: Single-head fresh/existing SQLite migrations, all 28 API tests, renderer/desktop typechecks and production builds, renderer lint, and diff validation pass.
+
+## 2026-08-29 (photocopy service workflow)
+
+- Summary: Added category-driven services and a no-file photocopy transaction workflow.
+- Completed: Added Printing, Photocopy, and Custom categories; service-first job intake; independent B&W photocopy paper rates; live page/copy/duplex pricing; immediate physical-sheet deduction; and a photocopy-specific Ready → Paid → Completed workspace.
+- Verified: Fresh and legacy-data migrations reach the single Alembic head; all 28 API tests, renderer/desktop typechecks and builds, renderer lint, and diff validation pass.

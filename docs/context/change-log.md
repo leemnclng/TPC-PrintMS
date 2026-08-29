@@ -207,6 +207,11 @@ Track notable app changes by date.
 - Added: Every new job order has a required owner-friendly name, automatically suggested from the uploaded filename and editable before analysis.
 - Changed: Job lists, job workspaces, print setup, workflow dialogs, and global print activity now show the job name first and the permanent `JOB-…` reference second.
 - Changed: Existing job names are initialized from their retained source filename where available, without changing job numbers or route identities.
+- Added: Services can be categorized as Printing, Photocopy, or Custom; existing services retain the Printing workflow during migration.
+- Changed: New Job Order now asks for the service first and opens only the requirements for that workflow.
+- Added: Photocopy jobs require no uploaded document and compute from product, paper, pages, copies, and optional back-to-back pricing.
+- Added: Recording a photocopy job deducts the physical paper used immediately and opens it Ready for payment.
+- Changed: B&W photocopy products use independent per-paper prices; colored photocopy products may use global paper pricing.
 - Added: The Overview shortcut opens the complete upload-and-analysis job-order modal in one click.
 - Changed: New Job Order is now a guided transaction flow for customer file upload, configured product/variant selection, analysis, price review, and Print Center handoff.
 - Added: Owners can accept the engine recommendation or set a transaction-only final price while preserving the original suggestion for audit.

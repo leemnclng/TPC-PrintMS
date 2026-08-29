@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from .common import CamelModel
 
 
 class ServiceBase(CamelModel):
     name: str
+    category: Literal["printing", "photocopy", "custom"] = "custom"
     description: str | None = None
     is_active: bool = True
 

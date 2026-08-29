@@ -15,6 +15,7 @@ def _to_read(service: Service) -> ServiceRead:
     return ServiceRead(
         id=service.id,
         name=service.name,
+        category=service.category,
         description=service.description,
         is_active=service.is_active,
         product_count=len(service.products),
@@ -57,6 +58,11 @@ def update_service(service_id: str, payload: ServiceUpdate, db: Session = Depend
     duplicate = db.query(Service).filter(Service.name == payload.name, Service.id != service_id).first()
     if duplicate:
         raise HTTPException(status_code=409, detail="A service with this name already exists.")
+    if service.products and payload.category != service.category:
+        raise HTTPException(
+            status_code=409,
+            detail="Remove this service's products before changing its workflow category.",
+        )
     for field, value in payload.model_dump().items():
         setattr(service, field, value)
     db.commit()

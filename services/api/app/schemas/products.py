@@ -63,6 +63,7 @@ class ProductUpdate(ProductBase):
 class ProductRead(ProductBase):
     id: str
     service_name: str
+    service_category: str
     print_type_label: str
     print_color_mode: str
     print_applies_ink_coverage: bool

@@ -1,0 +1,17 @@
+.job-service-chooser { width: min(calc(100% - var(--space-6)), 56rem); }
+.job-service-chooser__body { display: flex; width: 100%; min-height: 0; flex-direction: column; overflow: auto; }
+.job-service-chooser__grid { display: grid; gap: var(--space-3); padding: var(--space-5); }
+.job-service-card { display: grid; grid-template-columns: 4rem minmax(0, 1fr) auto; align-items: center; gap: var(--space-4); width: 100%; border: 1px solid var(--color-hairline-strong); border-radius: var(--radius-sm); padding: var(--space-4); background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; transition: border-color var(--dur-fast), background var(--dur-fast), transform var(--dur-fast); }
+.job-service-card:hover:not(:disabled) { border-color: var(--color-accent); background: var(--color-accent-softer); transform: translateY(-1px); }
+.job-service-card:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.job-service-card:disabled { cursor: not-allowed; opacity: .55; }
+.job-service-card__mark { display: grid; min-height: 3.5rem; place-items: center; border: 1px solid var(--color-hairline); background: var(--color-paper-2); color: var(--color-accent); font-size: var(--text-xs); }
+.job-service-card__content { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); }
+.job-service-card__content small { color: var(--color-accent); text-transform: uppercase; letter-spacing: .06em; }
+.job-service-card__content strong { font-size: var(--text-lg); }
+.job-service-card__content span { color: var(--color-ink-soft); font-size: var(--text-sm); }
+.job-service-card > b { color: var(--color-accent); font-size: var(--text-sm); white-space: nowrap; }
+.job-service-chooser__empty { padding: var(--space-8); text-align: center; }
+.job-service-chooser__empty p { margin-top: var(--space-2); color: var(--color-ink-soft); }
+.job-service-chooser footer { display: flex; justify-content: flex-end; border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-5); }
+@media (max-width: 40rem) { .job-service-card { grid-template-columns: 3rem minmax(0, 1fr); } .job-service-card > b { grid-column: 2; } }

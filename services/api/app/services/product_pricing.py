@@ -12,6 +12,8 @@ def reference_price_per_page(
     document_rate_overrides: dict[str, float],
     inventory_item_ids: list[str],
     db: Session,
+    *,
+    require_override: bool = False,
 ) -> float:
     """`document_rate_overrides` maps pricing-rule id -> the product's own
     override price, e.g. `{rate.pricing_rule_id: rate.price_per_page for rate
@@ -36,7 +38,14 @@ def reference_price_per_page(
     )
     if not rules:
         return 0.0
-    return min(document_rate_overrides.get(rule.id, rule.price_per_page) for rule in rules)
+    prices = [
+        document_rate_overrides[rule.id]
+        if require_override
+        else document_rate_overrides.get(rule.id, rule.price_per_page)
+        for rule in rules
+        if not require_override or rule.id in document_rate_overrides
+    ]
+    return min(prices) if prices else 0.0
 
 
 def price_per_page_for_material(
@@ -44,6 +53,8 @@ def price_per_page_for_material(
     document_rate_overrides: dict[str, float],
     inventory_item_id: str,
     db: Session,
+    *,
+    require_override: bool = False,
 ) -> float | None:
     """Return the exact active rate for one selected paper material."""
     rule = (
@@ -59,5 +70,7 @@ def price_per_page_for_material(
         .first()
     )
     if rule is None:
+        return None
+    if require_override and rule.id not in document_rate_overrides:
         return None
     return document_rate_overrides.get(rule.id, rule.price_per_page)

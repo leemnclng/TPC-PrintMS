@@ -30,13 +30,20 @@ def _to_read(product: Product, db: Session) -> ProductRead:
         id=product.id,
         service_id=product.service_id,
         service_name=product.service.name,
+        service_category=product.service.category,
         print_type_label=product.print_type_definition.label,
         print_color_mode=product.print_type_definition.color_mode,
         print_applies_ink_coverage=product.print_type_definition.applies_ink_coverage,
         name=product.name,
         description=product.description,
         print_type=product.print_type,
-        price_per_page=reference_price_per_page(product.print_type, overrides, material_ids, db),
+        price_per_page=reference_price_per_page(
+            product.print_type,
+            overrides,
+            material_ids,
+            db,
+            require_override=_requires_standalone_rate(product.service, product.print_type),
+        ),
         is_active=product.is_active,
         variants=product.variants,
         document_rates=product.document_rates,
@@ -69,18 +76,22 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
     variants = data.pop("variants")
     material_assignments = data.pop("material_assignments")
     document_rates = data.pop("document_rates")
-    if not db.get(Service, data["service_id"]):
+    service = db.get(Service, data["service_id"])
+    if not service:
         raise HTTPException(status_code=404, detail="Service not found.")
     _validate_print_type(data["print_type"], db, require_active=True)
     document_rates = _clean_document_rates(document_rates, data["print_type"], db)
+    _validate_material_assignments(material_assignments, db, require_active=True)
+    _validate_photocopy_materials(service, material_assignments, db)
+    _validate_standalone_rates(service, data["print_type"], material_assignments, document_rates, db)
     reference_price = reference_price_per_page(
         data["print_type"],
         {rate["pricing_rule_id"]: rate["price_per_page"] for rate in document_rates},
         [assignment["inventory_item_id"] for assignment in material_assignments],
         db,
+        require_override=_requires_standalone_rate(service, data["print_type"]),
     )
     variants = _clean_variants(variants, reference_price, db, require_active=True)
-    _validate_material_assignments(material_assignments, db, require_active=True)
     product = Product(**data)
     product.variants = [ProductVariant(**v) for v in variants]
     product.material_assignments = [ProductMaterialAssignment(**assignment) for assignment in material_assignments]
@@ -108,7 +119,8 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
     variants = data.pop("variants")
     material_assignments = data.pop("material_assignments")
     document_rates = data.pop("document_rates")
-    if not db.get(Service, data["service_id"]):
+    service = db.get(Service, data["service_id"])
+    if not service:
         raise HTTPException(status_code=404, detail="Service not found.")
     _validate_print_type(
         data["print_type"],
@@ -116,11 +128,15 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
         require_active=data["print_type"] != product.print_type,
     )
     document_rates = _clean_document_rates(document_rates, data["print_type"], db)
+    _validate_material_assignments(material_assignments, db)
+    _validate_photocopy_materials(service, material_assignments, db)
+    _validate_standalone_rates(service, data["print_type"], material_assignments, document_rates, db)
     reference_price = reference_price_per_page(
         data["print_type"],
         {rate["pricing_rule_id"]: rate["price_per_page"] for rate in document_rates},
         [assignment["inventory_item_id"] for assignment in material_assignments],
         db,
+        require_override=_requires_standalone_rate(service, data["print_type"]),
     )
     existing_variant_ids = {variant.variant_id for variant in product.variants}
     variants = _clean_variants(
@@ -129,7 +145,6 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
         db,
         allowed_inactive_ids=existing_variant_ids,
     )
-    _validate_material_assignments(material_assignments, db)
     for field, value in data.items():
         setattr(product, field, value)
     product.variants.clear()
@@ -232,3 +247,57 @@ def _validate_print_type(print_type: str, db: Session, *, require_active: bool) 
     if require_active and not definition.is_active:
         raise HTTPException(status_code=409, detail=f"Print type is inactive: {definition.label}.")
     return definition
+
+
+def _requires_standalone_rate(service: Service, print_type: str) -> bool:
+    return service.category == "photocopy" and print_type == "black_and_white"
+
+
+def _validate_photocopy_materials(
+    service: Service,
+    material_assignments: list[dict],
+    db: Session,
+) -> None:
+    if service.category != "photocopy":
+        return
+    assignment_ids = [entry["inventory_item_id"] for entry in material_assignments]
+    has_paper = db.query(InventoryItem).filter(
+        InventoryItem.id.in_(assignment_ids),
+        InventoryItem.paper_size.isnot(None),
+    ).first()
+    if not has_paper:
+        raise HTTPException(status_code=422, detail="Assign at least one priced paper material to a photocopy product.")
+
+
+def _validate_standalone_rates(
+    service: Service,
+    print_type: str,
+    material_assignments: list[dict],
+    document_rates: list[dict],
+    db: Session,
+) -> None:
+    if not _requires_standalone_rate(service, print_type):
+        return
+    assignment_ids = [entry["inventory_item_id"] for entry in material_assignments]
+    paper_ids = {
+        item.id
+        for item in db.query(InventoryItem)
+        .filter(InventoryItem.id.in_(assignment_ids), InventoryItem.paper_size.isnot(None))
+        .all()
+    }
+    overridden_rule_ids = {entry["pricing_rule_id"] for entry in document_rates}
+    covered_paper_ids = {
+        rule.inventory_item_id
+        for rule in db.query(DocumentPricingRule)
+        .filter(
+            DocumentPricingRule.id.in_(overridden_rule_ids),
+            DocumentPricingRule.print_type == print_type,
+        )
+        .all()
+    }
+    if missing := paper_ids - covered_paper_ids:
+        item = db.get(InventoryItem, next(iter(missing)))
+        raise HTTPException(
+            status_code=422,
+            detail=f"Set a custom photocopy price for {item.name if item else 'each assigned paper'}.",
+        )

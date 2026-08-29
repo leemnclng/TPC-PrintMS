@@ -87,6 +87,17 @@
   font-size: var(--text-xs);
 }
 
+.product-document-rate-selector__required-rate {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+}
+
+.product-document-rate-selector__required-rate small { color: var(--color-ink-faint); }
+
 .product-document-rate-selector__pricing input,
 .product-document-rate-selector__pricing select {
   min-width: 0;

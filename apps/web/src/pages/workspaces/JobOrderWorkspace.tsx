@@ -12,7 +12,7 @@ import { useResource } from "../../hooks/useResource";
 import { api } from "../../lib/apiClient";
 import { formatCurrency, formatDate, formatDateTime, formatFileSize } from "../../lib/format";
 import { jobOrderStatusMeta } from "../../types/statusMeta";
-import type { InventoryMovement, JobOrder } from "../../types/domain";
+import type { InventoryMovement, JobOrder, JobOrderStatus } from "../../types/domain";
 import { JobMaterialUsageModal } from "../jobOrders/JobMaterialUsageModal";
 import { JobPaymentModal } from "../jobOrders/JobPaymentModal";
 import { JobPrintSetupModal } from "../jobOrders/JobPrintSetupModal";
@@ -55,7 +55,8 @@ export function JobOrderWorkspace() {
   if (!data) return <EmptyState title="Job order not found" description="It may have been removed." />;
 
   const { order, materialMovements } = data;
-  const activeStepIndex = PRODUCTION_STEPS.indexOf(order.status as (typeof PRODUCTION_STEPS)[number]);
+  const productionSteps: readonly JobOrderStatus[] = order.workflowCategory === "photocopy" ? ["ready", "paid", "completed"] : PRODUCTION_STEPS;
+  const activeStepIndex = productionSteps.indexOf(order.status);
   const outstanding = Math.max(order.total - order.amountPaid, 0);
   const printFile = order.files.find((file) => file.kind === "print_ready");
   const paperPlan = order.items.flatMap((item) => item.materials).find((material) => material.paperSize);
@@ -69,6 +70,9 @@ export function JobOrderWorkspace() {
     }
     if (order.status === "printing") return <Button variant="primary" onClick={() => setTransitionTarget("ready")}>Printing finished</Button>;
     if (order.status === "ready") {
+      if (order.workflowCategory === "photocopy") {
+        return <Button variant="primary" onClick={() => (outstanding > 0 ? setPaymentOpen(true) : setTransitionTarget("paid"))}>Record payment</Button>;
+      }
       return (
         <div className="job-command__quality-actions">
           <Button variant="secondary" onClick={() => setTransitionTarget("queued")}>Needs re-print</Button>
@@ -98,14 +102,14 @@ export function JobOrderWorkspace() {
 
       <section className="job-command" aria-labelledby="job-command-title">
         <div className="job-command__heading">
-          <div><span className="numeric">CURRENT STEP</span><h2 id="job-command-title">{jobOrderStatusMeta[order.status].label}</h2><p>{NEXT_STEP_COPY[order.status] ?? "This job has no active production action."}</p></div>
+          <div><span className="numeric">CURRENT STEP</span><h2 id="job-command-title">{order.workflowCategory === "photocopy" && order.status === "ready" ? "Photocopy recorded" : jobOrderStatusMeta[order.status].label}</h2><p>{order.workflowCategory === "photocopy" && order.status === "ready" ? "Device-side work is recorded and materials are deducted. Collect payment to continue." : NEXT_STEP_COPY[order.status] ?? "This job has no active production action."}</p></div>
           {workflowAction()}
         </div>
         <ol className="job-workflow-steps">
-          {PRODUCTION_STEPS.map((status, index) => (
+          {productionSteps.map((status, index) => (
             <li className={index < activeStepIndex ? "is-complete" : index === activeStepIndex ? "is-active" : ""} key={status} aria-current={index === activeStepIndex ? "step" : undefined}>
               <span className="numeric">{String(index + 1).padStart(2, "0")}</span>
-              <strong>{jobOrderStatusMeta[status].label}</strong>
+              <strong>{order.workflowCategory === "photocopy" && status === "ready" ? "Photocopy recorded" : jobOrderStatusMeta[status].label}</strong>
             </li>
           ))}
         </ol>
@@ -131,10 +135,10 @@ export function JobOrderWorkspace() {
               <div key={item.id}><strong>{item.productName}</strong><span>{item.variantLabel ? `${item.variantLabel} · ` : ""}{item.pagesPerCopy} pages × {item.copies} copies</span></div>
             ))}
             <dl>
-              <div><dt>Print file</dt><dd>{printFile?.originalFilename ?? "No print-ready file"}</dd></div>
+              <div><dt>{order.workflowCategory === "photocopy" ? "Production" : "Print file"}</dt><dd>{order.workflowCategory === "photocopy" ? "Completed on photocopier · no file required" : printFile?.originalFilename ?? "No print-ready file"}</dd></div>
               <div><dt>Paper</dt><dd>{paperPlan ? `${paperPlan.paperSize} · ${paperPlan.inventoryItemName}` : "Not configured"}</dd></div>
-              <div><dt>Detected fit</dt><dd>{printFile?.detectedPaperSize ?? "—"}</dd></div>
-              <div><dt>File size</dt><dd>{printFile ? formatFileSize(printFile.sizeBytes) : "—"}</dd></div>
+              <div><dt>{order.workflowCategory === "photocopy" ? "Sides" : "Detected fit"}</dt><dd>{order.workflowCategory === "photocopy" ? (order.items[0]?.printSides === "double_sided" ? "Back-to-back" : "Single-sided") : printFile?.detectedPaperSize ?? "—"}</dd></div>
+              <div><dt>{order.workflowCategory === "photocopy" ? "Paper used" : "File size"}</dt><dd>{order.workflowCategory === "photocopy" ? `${paperPlan?.plannedQuantity ?? 0} ${paperPlan?.inventoryItemUnit ?? "sheets"}` : printFile ? formatFileSize(printFile.sizeBytes) : "—"}</dd></div>
             </dl>
           </div>
         </Card>

@@ -46,6 +46,19 @@ class AnalyzedJobOrderCreate(CamelModel):
     observed_print_job_id: str | None = None
 
 
+class PhotocopyJobOrderCreate(CamelModel):
+    name: str = Field(min_length=1, max_length=100)
+    service_id: str
+    product_id: str
+    paper_inventory_item_id: str
+    customer_id: str | None = None
+    pages_per_copy: int = Field(ge=1, le=100000)
+    copies: int = Field(ge=1, le=10000)
+    back_to_back: bool = False
+    due_date: datetime | None = None
+    notes: str | None = None
+
+
 class JobOrderMaterialPlanRead(CamelModel):
     id: str
     inventory_item_id: str
@@ -175,6 +188,7 @@ class JobOrderRead(CamelModel):
     id: str
     number: str
     name: str
+    workflow_category: Literal["printing", "photocopy", "custom"]
     customer_id: str | None
     customer_name: str | None
     quotation_id: str | None

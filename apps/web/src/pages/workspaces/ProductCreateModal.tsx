@@ -85,11 +85,13 @@ export function ProductCreateModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const materialsRef = useRef<HTMLDivElement>(null);
+  const requiresStandaloneRate = service.category === "photocopy" && form.printType === "black_and_white";
   const referencePrice = computeReferencePrice(
     form.printType,
     form.documentRates,
     pricingRules,
     form.materialAssignments,
+    requiresStandaloneRate,
   );
 
   const nameError =
@@ -98,6 +100,11 @@ export function ProductCreateModal({
     ? activeInventoryItems.length === 0
       ? "Register an active inventory material before creating this product."
       : "Add at least one material needed to produce this product."
+    : null;
+  const hasPaperAssignment = pricingRules.some((rule) =>
+    rule.printType === form.printType && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
+  const photocopyPaperError = submitted && service.category === "photocopy" && !hasPaperAssignment
+    ? "Select at least one paper material for this photocopy product."
     : null;
   useEffect(() => {
     if (!open) return;
@@ -120,7 +127,14 @@ export function ProductCreateModal({
       form.materialAssignments.length === 0 ||
       form.materialAssignments.some((assignment) => !assignment.inventoryItemId) ||
       new Set(materialIds).size !== materialIds.length;
-    if (!form.name.trim() || hasInvalidVariant || hasInvalidMaterial) {
+    const selectedPaperRuleIds = pricingRules
+      .filter((rule) => rule.printType === form.printType && materialIds.includes(rule.inventoryItemId))
+      .map((rule) => rule.id);
+    const missingStandaloneRate = requiresStandaloneRate && selectedPaperRuleIds.some(
+      (ruleId) => !form.documentRates.some((rate) => rate.pricingRuleId === ruleId),
+    );
+    if (!form.name.trim() || hasInvalidVariant || hasInvalidMaterial || missingStandaloneRate || (service.category === "photocopy" && !hasPaperAssignment)) {
+      if (missingStandaloneRate) setSaveError("Set a product price for every selected photocopy paper.");
       window.requestAnimationFrame(() => {
         const firstInvalid = formElement.querySelector<HTMLElement>("[aria-invalid='true']");
         (firstInvalid ?? materialsRef.current)?.focus();
@@ -221,15 +235,16 @@ export function ProductCreateModal({
             <span>Reference price / page</span>
             <strong className="numeric">{formatCurrency(referencePrice)}</strong>
             <small>
-              Computed from the assigned paper material's {selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate below —
-              override it, or adjust the global rate in Configuration.
+              {requiresStandaloneRate
+                ? "Computed only from this photocopy product's paper rates below."
+                : `Computed from the assigned paper material's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate below.`}
             </small>
           </div>
 
           <div
             ref={materialsRef}
             className="product-setup-grid"
-            aria-invalid={Boolean(materialsError)}
+            aria-invalid={Boolean(materialsError || photocopyPaperError)}
             aria-describedby="product-materials-message"
             tabIndex={-1}
           >
@@ -237,7 +252,7 @@ export function ProductCreateModal({
               <section className="product-setup-section">
                 <div className="product-setup-section__heading">
                   <h3>Paper materials &amp; pricing</h3>
-                  <p>Select the paper this product can use, then keep its global price or set a custom rate.</p>
+                  <p>{requiresStandaloneRate ? "Select each paper and set its independent photocopy rate." : "Select the paper this product can use, then keep its global price or set a custom rate."}</p>
                 </div>
                 {pricingRules.length ? (
                   <ProductDocumentRateSelector
@@ -252,6 +267,7 @@ export function ProductCreateModal({
                       materialAssignments,
                     }))}
                     disabled={saving}
+                    requireCustomPricing={requiresStandaloneRate}
                   />
                 ) : (
                   <div className="product-create-form__variant-empty">
@@ -318,8 +334,8 @@ export function ProductCreateModal({
               documentRates={form.documentRates}
               error={materialsError}
             />
-            <span id="product-materials-message" className="visually-hidden">
-              {materialsError ?? "Assigned materials update from the paper and additional-material controls."}
+            <span id="product-materials-message" className={photocopyPaperError ? "workspace-form__error" : "visually-hidden"}>
+              {photocopyPaperError ?? materialsError ?? "Assigned materials update from the paper and additional-material controls."}
             </span>
           </div>
 

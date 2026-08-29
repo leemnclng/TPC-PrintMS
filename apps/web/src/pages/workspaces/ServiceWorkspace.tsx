@@ -86,7 +86,7 @@ export function ServiceWorkspace() {
           <div className="service-workspace__section-title">
             <h2 id="service-products-title">Products</h2>
             <StatusPill
-              label={service.isActive ? "Active service" : "Inactive service"}
+              label={`${service.category === "printing" ? "Printing" : service.category === "photocopy" ? "Photocopy" : "Custom"} · ${service.isActive ? "Active" : "Inactive"}`}
               tone={service.isActive ? "success" : "neutral"}
             />
           </div>

@@ -20,6 +20,7 @@ interface ProductDocumentRateSelectorProps {
   materialAssignments: MaterialSelection[];
   onChange: (value: ProductDocumentRateSelection[], materialAssignments: MaterialSelection[]) => void;
   disabled?: boolean;
+  requireCustomPricing?: boolean;
 }
 
 export function ProductDocumentRateSelector({
@@ -30,6 +31,7 @@ export function ProductDocumentRateSelector({
   materialAssignments,
   onChange,
   disabled = false,
+  requireCustomPricing = false,
 }: ProductDocumentRateSelectorProps) {
   const relevantRules = pricingRules
     .filter((rule) =>
@@ -46,7 +48,9 @@ export function ProductDocumentRateSelector({
         ? materialAssignments
         : [...materialAssignments, { inventoryItemId: rule.inventoryItemId }]
       : materialAssignments.filter((entry) => entry.inventoryItemId !== rule.inventoryItemId);
-    const nextRates = selected ? value : value.filter((entry) => entry.pricingRuleId !== rule.id);
+    const nextRates = selected && requireCustomPricing && !value.some((entry) => entry.pricingRuleId === rule.id)
+      ? [...value, { pricingRuleId: rule.id, pricePerPage: rule.pricePerPage }]
+      : selected ? value : value.filter((entry) => entry.pricingRuleId !== rule.id);
     onChange(nextRates, nextMaterials);
   }
 
@@ -96,17 +100,24 @@ export function ProductDocumentRateSelector({
             </label>
             {usesMaterial ? (
               <div className="product-document-rate-selector__pricing">
-                <label>
-                  <span>Pricing</span>
-                  <select
-                    value={selection ? "custom" : "global"}
-                    disabled={disabled || !rule.isActive}
-                    onChange={(event) => updateRateSource(rule, event.target.value as "global" | "custom")}
-                  >
-                    <option value="global">Global · {formatCurrency(rule.pricePerPage)}</option>
-                    <option value="custom">Custom price</option>
-                  </select>
-                </label>
+                {requireCustomPricing ? (
+                  <div className="product-document-rate-selector__required-rate">
+                    <span>Photocopy product rate</span>
+                    <small>Independent from the global B&amp;W price</small>
+                  </div>
+                ) : (
+                  <label>
+                    <span>Pricing</span>
+                    <select
+                      value={selection ? "custom" : "global"}
+                      disabled={disabled || !rule.isActive}
+                      onChange={(event) => updateRateSource(rule, event.target.value as "global" | "custom")}
+                    >
+                      <option value="global">Global · {formatCurrency(rule.pricePerPage)}</option>
+                      <option value="custom">Custom price</option>
+                    </select>
+                  </label>
+                )}
                 {selection ? (
                   <label>
                     <span>Price per page</span>

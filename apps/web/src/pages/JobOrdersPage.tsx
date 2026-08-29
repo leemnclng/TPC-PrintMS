@@ -11,32 +11,47 @@ import { useResource } from "../hooks/useResource";
 import { api } from "../lib/apiClient";
 import { formatCurrency, formatDate } from "../lib/format";
 import { jobOrderStatusMeta } from "../types/statusMeta";
-import type { Customer, InventoryItem, JobOrder, Product, SpoolerMonitorInfo } from "../types/domain";
+import type { Customer, DocumentPricingRule, InventoryItem, JobOrder, Product, Service, SpoolerMonitorInfo } from "../types/domain";
 import { JobOrderCreateModal } from "./jobOrders/JobOrderCreateModal";
+import { JobServiceChooserModal } from "./jobOrders/JobServiceChooserModal";
+import { PhotocopyJobCreateModal } from "./jobOrders/PhotocopyJobCreateModal";
 import "./JobOrdersPage.css";
 
 export function JobOrdersPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [createOpen, setCreateOpen] = useState(searchParams.get("create") === "1");
+  const [chooserOpen, setChooserOpen] = useState(searchParams.get("create") === "1");
+  const [selectedService, setSelectedService] = useState<Service | null>(null);
   const sourceSpoolerJobId = searchParams.get("spoolerJobId");
   const { data, state, error, reload } = useResource(async () => {
-    const [orders, customers, products, inventoryItems, spoolerMonitor] = await Promise.all([
+    const [orders, customers, products, inventoryItems, services, pricingRules, spoolerMonitor] = await Promise.all([
       api.get<JobOrder[]>("/job-orders"),
       api.get<Customer[]>("/customers"),
       api.get<Product[]>("/products"),
       api.get<InventoryItem[]>("/inventory-items"),
+      api.get<Service[]>("/services"),
+      api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
       api.get<SpoolerMonitorInfo>("/printers/spooler-jobs").catch(() => null),
     ]);
-    return { orders, customers, products, inventoryItems, spoolerMonitor };
+    return { orders, customers, products, inventoryItems, services, pricingRules, spoolerMonitor };
   }, [sourceSpoolerJobId]);
 
   useEffect(() => {
-    if (searchParams.get("create") === "1") setCreateOpen(true);
+    if (searchParams.get("create") === "1") setChooserOpen(true);
   }, [searchParams]);
 
+  useEffect(() => {
+    if (!sourceSpoolerJobId || !data || selectedService) return;
+    const printingService = data.services.find((service) => service.isActive && service.category === "printing" && service.productCount > 0);
+    if (printingService) {
+      setChooserOpen(false);
+      setSelectedService(printingService);
+    }
+  }, [data, selectedService, sourceSpoolerJobId]);
+
   function closeCreate() {
-    setCreateOpen(false);
+    setChooserOpen(false);
+    setSelectedService(null);
     if (searchParams.has("create") || searchParams.has("spoolerJobId")) {
       const nextParams = new URLSearchParams(searchParams);
       nextParams.delete("create");
@@ -70,7 +85,7 @@ export function JobOrdersPage() {
         eyebrow="JOB ORDERS"
         title="Job Orders"
         description="Create, plan, and audit every customer order from one production record."
-        actions={<Button variant="primary" onClick={() => setCreateOpen(true)}>New job order</Button>}
+        actions={<Button variant="primary" onClick={() => setChooserOpen(true)}>New job order</Button>}
       />
 
       {state === "loading" && <LoadingState label="Loading job orders…" />}
@@ -80,7 +95,7 @@ export function JobOrdersPage() {
         <EmptyState
           title="No job orders yet"
           description="Create the first order, choose its products, and plan the materials the work will use."
-          action={<Button variant="primary" onClick={() => setCreateOpen(true)}>New job order</Button>}
+          action={<Button variant="primary" onClick={() => setChooserOpen(true)}>New job order</Button>}
         />
       )}
 
@@ -89,20 +104,47 @@ export function JobOrdersPage() {
       )}
 
       {data && (
-        <JobOrderCreateModal
-          open={createOpen}
-          customers={data.customers}
-          products={data.products}
-          inventoryItems={data.inventoryItems}
-          sourceSpoolerJobId={sourceSpoolerJobId}
-          sourceSpoolerJob={data.spoolerMonitor?.jobs.find((job) => job.id === sourceSpoolerJobId) ?? null}
-          onClose={closeCreate}
-          onCreated={(order) => {
-            setCreateOpen(false);
-            reload();
-            navigate(`/job-orders/${encodeURIComponent(order.id)}`);
-          }}
-        />
+        <>
+          <JobServiceChooserModal
+            open={chooserOpen}
+            services={data.services}
+            onClose={closeCreate}
+            onSelect={(service) => { setChooserOpen(false); setSelectedService(service); }}
+          />
+          {selectedService?.category === "printing" ? (
+            <JobOrderCreateModal
+              open
+              service={selectedService}
+              customers={data.customers}
+              products={data.products}
+              inventoryItems={data.inventoryItems}
+              sourceSpoolerJobId={sourceSpoolerJobId}
+              sourceSpoolerJob={data.spoolerMonitor?.jobs.find((job) => job.id === sourceSpoolerJobId) ?? null}
+              onClose={closeCreate}
+              onCreated={(order) => {
+                closeCreate();
+                reload();
+                navigate(`/job-orders/${encodeURIComponent(order.id)}`);
+              }}
+            />
+          ) : null}
+          {selectedService?.category === "photocopy" ? (
+            <PhotocopyJobCreateModal
+              open
+              service={selectedService}
+              customers={data.customers}
+              products={data.products}
+              inventoryItems={data.inventoryItems}
+              pricingRules={data.pricingRules}
+              onClose={closeCreate}
+              onCreated={(order) => {
+                closeCreate();
+                reload();
+                navigate(`/job-orders/${encodeURIComponent(order.id)}`);
+              }}
+            />
+          ) : null}
+        </>
       )}
     </>
   );

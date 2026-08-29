@@ -113,12 +113,12 @@ def test_job_order_creation_and_material_usage(tmp_path) -> None:
     service = client.post(
         "/services",
         headers=headers,
-        json={"name": "Printing", "description": None, "isActive": True},
+        json={"name": "Printing", "category": "printing", "description": None, "isActive": True},
     ).json()
     back_to_back = client.post(
         "/variants",
         headers=headers,
-        json={"label": "Back-to-back", "isActive": True},
+        json={"label": "Back-to-back", "requiresManualDuplex": True, "isActive": True},
     ).json()
     product = client.post(
         "/products",
@@ -269,6 +269,62 @@ def test_job_order_creation_and_material_usage(tmp_path) -> None:
     assert insufficient_response.status_code == 422
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 75
 
+    photocopy_service = client.post(
+        "/services",
+        headers=headers,
+        json={"name": "Xerox", "category": "photocopy", "isActive": True},
+    ).json()
+    missing_custom_rate = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": photocopy_service["id"],
+            "name": "B&W photocopy without a rate",
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}],
+        },
+    )
+    assert missing_custom_rate.status_code == 422
+
+    photocopy_product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": photocopy_service["id"],
+            "name": "A4 black and white photocopy",
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [{"variantId": back_to_back["id"], "priceAdjustment": 1}],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}],
+            "documentRates": [{"pricingRuleId": bw_a4_rule["id"], "pricePerPage": 3}],
+        },
+    ).json()
+    photocopy_response = client.post(
+        "/job-orders/from-photocopy",
+        headers=headers,
+        json={
+            "name": "Reyes ID copies",
+            "serviceId": photocopy_service["id"],
+            "productId": photocopy_product["id"],
+            "paperInventoryItemId": paper["id"],
+            "pagesPerCopy": 5,
+            "copies": 2,
+            "backToBack": True,
+        },
+    )
+    assert photocopy_response.status_code == 201
+    photocopy_order = photocopy_response.json()
+    assert photocopy_order["workflowCategory"] == "photocopy"
+    assert photocopy_order["status"] == "ready"
+    assert photocopy_order["files"] == []
+    assert photocopy_order["total"] == 40
+    assert photocopy_order["items"][0]["printSides"] == "double_sided"
+    assert photocopy_order["items"][0]["materials"][0]["plannedQuantity"] == 6
+    assert photocopy_order["items"][0]["materials"][0]["consumedQuantity"] == 6
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 69
+
 
 def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tmp_path, monkeypatch) -> None:
     engine = create_engine(
@@ -311,7 +367,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     service = client.post(
         "/services",
         headers=headers,
-        json={"name": "Transaction printing", "isActive": True},
+        json={"name": "Transaction printing", "category": "printing", "isActive": True},
     ).json()
     product = client.post(
         "/products",
