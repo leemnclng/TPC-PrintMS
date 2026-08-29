@@ -65,12 +65,13 @@ export interface PaperClubBridge {
       resolutionDpi: 150 | 300 | 600;
       pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
     };
-    file?: {
+    // A feeder acquisition returns every loaded sheet from one call.
+    files?: Array<{
       filename: string;
       mimeType: string;
       sizeBytes: number;
       base64: string;
-    };
+    }>;
   }>;
   platform: NodeJS.Platform | "web";
 }

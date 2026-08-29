@@ -50,6 +50,16 @@ class Settings(BaseSettings):
         return resolve_data_dir()
 
     @property
+    def resolved_scan_output_dir(self) -> Path:
+        # Scanned softcopies are kept alongside the project instead of the
+        # managed OS application-data directory, split into a "prod"/"nonprod"
+        # bucket by stage so live and development/test scans never mix.
+        bucket = "prod" if self.stage == "production" else "nonprod"
+        path = PACKAGE_ROOT / ".data" / bucket / "scan"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
     def resolved_database_path(self) -> Path:
         path = self.database_path_for_stage(self.stage)
         path.parent.mkdir(parents=True, exist_ok=True)

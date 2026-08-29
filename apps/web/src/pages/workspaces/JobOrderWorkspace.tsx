@@ -31,6 +31,8 @@ const PAYMENT_METHOD_LABELS = {
   other: "Other",
 };
 
+// "queued" is overridden per operation kind at the call site below — a scan
+// job never touches a printer, so it must not carry this print-queue copy.
 const NEXT_STEP_COPY: Record<string, string> = {
   queued: "Check for ongoing printing, then proceed to print.",
   printing: "Confirm physical printing before quality review.",
@@ -137,7 +139,7 @@ export function JobOrderWorkspace() {
 
       <section className="job-command" aria-labelledby="job-command-title">
         <div className="job-command__heading">
-          <div><span className="numeric">CURRENT STEP</span><h2 id="job-command-title">{(isScan || isPhotocopy) && order.status === "ready" ? (isScan ? "Softcopy ready" : "Photocopy recorded") : jobOrderStatusMeta[order.status].label}</h2><p>{isPhotocopy && order.status === "ready" ? "Device-side work is recorded and materials are deducted. Collect payment to continue." : isScan && order.status === "ready" ? "The scanner output is retained. Inspect it, then collect payment or send it back for a re-scan." : NEXT_STEP_COPY[order.status] ?? "This job has no active production action."}</p></div>
+          <div><span className="numeric">CURRENT STEP</span><h2 id="job-command-title">{(isScan || isPhotocopy) && order.status === "ready" ? (isScan ? "Softcopy ready" : "Photocopy recorded") : jobOrderStatusMeta[order.status].label}</h2><p>{isPhotocopy && order.status === "ready" ? "Device-side work is recorded and materials are deducted. Collect payment to continue." : isScan && order.status === "ready" ? "The scanner output is retained. Inspect it, then collect payment or send it back for a re-scan." : isScan && order.status === "queued" ? "Proceed to scan when you're ready; the job stays queued until a softcopy is submitted." : NEXT_STEP_COPY[order.status] ?? "This job has no active production action."}</p></div>
           {workflowAction()}
         </div>
         <ol className="job-workflow-steps">

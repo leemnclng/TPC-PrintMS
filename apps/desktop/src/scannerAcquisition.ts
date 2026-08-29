@@ -35,8 +35,9 @@ interface ScriptResult {
   code?: string;
   message?: string;
   devices?: ScannerDeviceState[];
-  path?: string;
-  filename?: string;
+  // A feeder acquisition transfers every loaded sheet in one call, so this is
+  // always a list — one entry for a flatbed page, one-or-more for a feeder.
+  files?: Array<{ path: string; filename: string }>;
   deviceName?: string;
   source?: "auto" | "flatbed" | "feeder";
   contentType?: "color" | "grayscale" | "text";
@@ -51,12 +52,12 @@ export interface NativeScanResult {
   deviceName?: string;
   source?: "auto" | "flatbed" | "feeder";
   settings?: Omit<ScannerAcquisitionSettings, "source" | "placementConfirmed">;
-  file?: {
+  files?: Array<{
     filename: string;
     mimeType: string;
     sizeBytes: number;
     base64: string;
-  };
+  }>;
 }
 
 export interface ScannerInspection {
@@ -178,20 +179,30 @@ export async function acquireScannerPage(deviceId: unknown, settings: unknown): 
     if (result.status !== "acquired") {
       return { status: "error", code: "scanner_bridge_error", message: "The scanner returned an unexpected response." };
     }
-    if (!result.path || !result.filename) throw new Error("The scanner did not return an output file.");
+    if (!result.files?.length) throw new Error("The scanner did not return an output file.");
 
     const resolvedDirectory = await fs.realpath(outputDirectory);
-    const resolvedFile = await fs.realpath(result.path);
-    const relativeFile = path.relative(resolvedDirectory, resolvedFile);
-    if (relativeFile.startsWith("..") || path.isAbsolute(relativeFile)) {
-      throw new Error("The scanner returned an unsafe output path.");
-    }
+    const files: NonNullable<NativeScanResult["files"]> = [];
+    for (const entry of result.files) {
+      if (!entry.path || !entry.filename) throw new Error("The scanner did not return an output file.");
+      const resolvedFile = await fs.realpath(entry.path);
+      const relativeFile = path.relative(resolvedDirectory, resolvedFile);
+      if (relativeFile.startsWith("..") || path.isAbsolute(relativeFile)) {
+        throw new Error("The scanner returned an unsafe output path.");
+      }
 
-    const data = await fs.readFile(resolvedFile);
-    if (!data.length) throw new Error("The scanner returned an empty page.");
-    if (data.length > MAX_SCAN_PAGE_BYTES) throw new Error("The scanned page is larger than 25 MB.");
-    if (path.extname(result.filename).toLowerCase() === ".png" && !data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-      throw new Error("Windows acquired the page, but could not prepare a valid preview image.");
+      const data = await fs.readFile(resolvedFile);
+      if (!data.length) throw new Error("The scanner returned an empty page.");
+      if (data.length > MAX_SCAN_PAGE_BYTES) throw new Error("A scanned page is larger than 25 MB.");
+      if (path.extname(entry.filename).toLowerCase() === ".png" && !data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+        throw new Error("Windows acquired a page, but could not prepare a valid preview image.");
+      }
+      files.push({
+        filename: path.basename(entry.filename),
+        mimeType: mimeTypeFor(entry.filename),
+        sizeBytes: data.length,
+        base64: data.toString("base64"),
+      });
     }
     return {
       status: "acquired",
@@ -203,12 +214,7 @@ export async function acquireScannerPage(deviceId: unknown, settings: unknown): 
         resolutionDpi: result.resolutionDpi ?? validatedSettings.resolutionDpi,
         pageSize: result.pageSize ?? validatedSettings.pageSize,
       },
-      file: {
-        filename: path.basename(result.filename),
-        mimeType: mimeTypeFor(result.filename),
-        sizeBytes: data.length,
-        base64: data.toString("base64"),
-      },
+      files,
     };
   } finally {
     await fs.rm(outputDirectory, { recursive: true, force: true });

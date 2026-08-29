@@ -447,7 +447,7 @@ async def submit_scan_output(
     except (InvalidDocumentError, UnsafeArchiveError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
-    storage_directory = settings.resolved_data_dir / "files" / job_order.id
+    storage_directory = settings.resolved_scan_output_dir / job_order.id
     stored_filename = f"{uuid4().hex}-{filename}"
     stored_path = storage_directory / stored_filename
     # A re-scan (after a failed quality check sent the job back to the queue)
@@ -456,7 +456,7 @@ async def submit_scan_output(
     try:
         storage_directory.mkdir(parents=True, exist_ok=True)
         stored_path.write_bytes(data)
-        relative_path = stored_path.relative_to(settings.resolved_data_dir)
+        relative_path = stored_path.relative_to(settings.resolved_scan_output_dir)
         for stale in stale_files:
             job_order.files.remove(stale)
             db.delete(stale)
@@ -489,7 +489,7 @@ async def submit_scan_output(
         shutil.rmtree(storage_directory, ignore_errors=True)
         raise HTTPException(status_code=500, detail="The scan output could not be saved.") from error
     for stale in stale_files:
-        (settings.resolved_data_dir / stale.stored_path).unlink(missing_ok=True)
+        (settings.resolved_scan_output_dir / stale.stored_path).unlink(missing_ok=True)
     return _to_read(job_order)
 
 
@@ -512,8 +512,12 @@ def download_job_file(job_order_id: str, file_id: str, db: Session = Depends(get
     job_file = db.get(JobFile, file_id)
     if not job_file or job_file.job_order_id != job_order_id:
         raise HTTPException(status_code=404, detail="Job file not found.")
-    files_root = (settings.resolved_data_dir / "files").resolve()
-    stored_path = (settings.resolved_data_dir / job_file.stored_path).resolve()
+    if job_file.kind == "scan_output":
+        files_root = settings.resolved_scan_output_dir.resolve()
+        stored_path = (settings.resolved_scan_output_dir / job_file.stored_path).resolve()
+    else:
+        files_root = (settings.resolved_data_dir / "files").resolve()
+        stored_path = (settings.resolved_data_dir / job_file.stored_path).resolve()
     if files_root not in stored_path.parents or not stored_path.is_file():
         raise HTTPException(status_code=404, detail="The stored job file is unavailable.")
     return FileResponse(stored_path, filename=job_file.original_filename)

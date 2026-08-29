@@ -416,11 +416,6 @@ try {
   # because some Canon WIA drivers only start their hardware transfer through
   # the common transfer path; it displays transfer progress, not settings.
   $dialog = New-Object -ComObject WIA.CommonDialog
-  $image = $dialog.ShowTransfer($selectedItem, $UnspecifiedFormat, $false)
-  if ($null -eq $image) {
-    Write-Result ([pscustomobject]@{ status = "error"; code = "empty_transfer"; message = "The scanner completed without returning an image." })
-    exit 0
-  }
 
   # WIA drivers commonly return DIB/BMP or TIFF variants that Chromium cannot
   # preview consistently. Normalize every acquired page to a standard PNG
@@ -428,11 +423,71 @@ try {
   $imageProcess = New-Object -ComObject WIA.ImageProcess
   [void]$imageProcess.Filters.Add($imageProcess.FilterInfos.Item("Convert").FilterID)
   $imageProcess.Filters.Item(1).Properties.Item("FormatID").Value = $PngFormat
-  $previewImage = $imageProcess.Apply($image)
-  $filename = "scan-{0}.png" -f ([DateTime]::UtcNow.ToString("yyyyMMdd-HHmmssfff"))
-  $outputPath = Join-Path -Path $OutputDirectory -ChildPath $filename
-  $previewImage.SaveFile($outputPath)
-  Write-Result ([pscustomobject]@{ status = "acquired"; path = $outputPath; filename = $filename; deviceName = $state.name; source = $resolvedSource; contentType = $settingsResult.appliedContentType; resolutionDpi = $ResolutionDpi; pageSize = $PageSize; message = $settingsResult.notice })
+
+  # A feeder holds a stack of originals, so one acquisition keeps transferring
+  # until the ADF reports empty — the owner loads the stack once and gets
+  # every page back from this single call. A flatbed only ever has the one
+  # page placed on the glass, so it stops after a single transfer as before.
+  $loopSource = $resolvedSource -eq "feeder"
+  $acquiredFiles = @()
+  $partialMessage = $null
+  while ($true) {
+    $pageImage = $null
+    $pagePreview = $null
+    try {
+      $pageImage = $dialog.ShowTransfer($selectedItem, $UnspecifiedFormat, $false)
+    }
+    catch [System.Runtime.InteropServices.COMException] {
+      if ($acquiredFiles.Count -eq 0) {
+        throw
+      }
+      # A later sheet in the batch failed after earlier ones already
+      # succeeded. Feeder exhaustion (paper_empty) is the normal, silent end
+      # of the batch; anything else (jam, etc.) is reported so the owner
+      # knows the remaining originals still need to be scanned separately.
+      $hresult = "0x{0:X8}" -f ($_.Exception.HResult -band 0xffffffffL)
+      if (-not ($loopSource -and $hresult -eq "0x80210003")) {
+        $pageWord = if ($acquiredFiles.Count -eq 1) { "page" } else { "pages" }
+        $partialMessage = "Stopped after $($acquiredFiles.Count) $pageWord`: the feeder reported an issue partway through. Review the pages, then scan the rest separately."
+      }
+      break
+    }
+    if ($null -eq $pageImage) {
+      if ($acquiredFiles.Count -gt 0) { break }
+      Write-Result ([pscustomobject]@{ status = "error"; code = "empty_transfer"; message = "The scanner completed without returning an image." })
+      exit 0
+    }
+    $pagePreview = $imageProcess.Apply($pageImage)
+    $pageFilename = "scan-{0}-{1}.png" -f ([DateTime]::UtcNow.ToString("yyyyMMdd-HHmmssfff")), ($acquiredFiles.Count + 1)
+    $pageOutputPath = Join-Path -Path $OutputDirectory -ChildPath $pageFilename
+    $pagePreview.SaveFile($pageOutputPath)
+    $acquiredFiles += [pscustomobject]@{ path = $pageOutputPath; filename = $pageFilename }
+    foreach ($pageComObject in @($pagePreview, $pageImage)) {
+      if ($null -ne $pageComObject -and [System.Runtime.InteropServices.Marshal]::IsComObject($pageComObject)) {
+        [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($pageComObject)
+      }
+    }
+    if (-not $loopSource) { break }
+  }
+
+  $messageParts = @()
+  if ($settingsResult.notice) { $messageParts += $settingsResult.notice }
+  if ($partialMessage) {
+    $messageParts += $partialMessage
+  }
+  elseif ($acquiredFiles.Count -gt 1) {
+    $messageParts += "$($acquiredFiles.Count) pages were acquired from the feeder."
+  }
+  Write-Result ([pscustomobject]@{
+    status = "acquired"
+    files = $acquiredFiles
+    deviceName = $state.name
+    source = $resolvedSource
+    contentType = $settingsResult.appliedContentType
+    resolutionDpi = $ResolutionDpi
+    pageSize = $PageSize
+    message = if ($messageParts.Count -gt 0) { $messageParts -join " " } else { $null }
+  })
 }
 catch [System.Runtime.InteropServices.COMException] {
   Write-WiaError $_.Exception

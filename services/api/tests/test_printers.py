@@ -16,7 +16,7 @@ from PIL import Image
 
 from app.core.config import settings
 from app.db.base import Base
-from app.db.models import JobOrder, JobOrderStatus, ObservedPrintJob, Printer, PrintJob, PrintResult
+from app.db.models import JobOrder, JobOrderItem, JobOrderStatus, ObservedPrintJob, Printer, PrintJob, PrintResult
 from app.db.session import get_db
 from app.routers import printers
 from app.services.printing.adapter import (
@@ -297,8 +297,12 @@ def test_print_activity_returns_queued_and_attention_jobs(tmp_path) -> None:
         printer = Printer(system_name="Canon queue", display_name="Canon G4770 series")
         ready = JobOrder(name="Ready thesis", number="JOB-0000000001", status=JobOrderStatus.queued, total=10)
         printing = JobOrder(name="Color invitations", number="JOB-0000000002", status=JobOrderStatus.printing, total=20)
-        db.add_all([printer, ready, printing])
+        # A scan job also sits in `queued` while awaiting acquisition, but it
+        # never touches a printer and must not surface here as "Ready to print".
+        scanning = JobOrder(name="Reyes contract scan", number="JOB-0000000003", status=JobOrderStatus.queued, total=0)
+        db.add_all([printer, ready, printing, scanning])
         db.flush()
+        db.add(JobOrderItem(job_order_id=scanning.id, product_id="scan-product", operation_kind="scan"))
         db.add(
             PrintJob(
                 job_order_id=printing.id,
@@ -331,6 +335,7 @@ def test_print_activity_returns_queued_and_attention_jobs(tmp_path) -> None:
     assert jobs[0]["pagesPrinted"] == 3
     assert jobs[1]["state"] == "ready"
     assert jobs[1]["attentionRequired"] is False
+    assert "JOB-0000000003" not in [job["jobNumber"] for job in jobs]
 
 
 def test_discovery_reconciles_connected_and_removed_queues(tmp_path, monkeypatch) -> None:

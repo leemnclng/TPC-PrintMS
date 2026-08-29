@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import and_, exists
 from sqlalchemy.orm import Session
 
 from ..core.security import require_token
 from ..core.config import settings
-from ..db.models import JobOrder, JobOrderStatus, ObservedPrintJob, Printer, PrintResult
+from ..db.models import JobOrder, JobOrderItem, JobOrderStatus, ObservedPrintJob, Printer, PrintResult
 from ..db.session import get_db
 from ..schemas.printers import PrintActivityJobRead, PrintActivityRead, PrinterPlatformRead, PrinterRead, SpoolerMonitorRead
 from ..services.printing.adapter import get_printer_adapter
@@ -24,9 +25,23 @@ def list_print_activity(db: Session = Depends(get_db)) -> PrintActivityRead:
     owner advances the job into the Ready step; spooler release is not proof
     that the physical sheet exited successfully.
     """
+    # Scan jobs also sit in `queued` while awaiting acquisition, but they never
+    # touch a printer — without this filter they showed up here defaulting to
+    # state "ready" ("Ready to print"), even though nothing was ever printed.
+    # Excluding by non-existence (rather than joining/requiring a "printing"
+    # item) keeps an item-less job order — never produced outside tests, but
+    # not ruled out by the schema either — treated as printing by default.
     orders = (
         db.query(JobOrder)
         .filter(JobOrder.status.in_([JobOrderStatus.queued, JobOrderStatus.printing]))
+        .filter(
+            ~exists().where(
+                and_(
+                    JobOrderItem.job_order_id == JobOrder.id,
+                    JobOrderItem.operation_kind != "printing",
+                )
+            )
+        )
         .order_by(JobOrder.updated_at.desc())
         .all()
     )
