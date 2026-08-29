@@ -82,7 +82,7 @@ export function ServiceSettingsWorkspace() {
   return (
     <>
       <PageHeader
-        eyebrow="Services"
+        eyebrow="Printing Services"
         title={isNew ? "New service" : "Service settings"}
         description={
           isNew

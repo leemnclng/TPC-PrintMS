@@ -53,6 +53,7 @@ export interface PaperClubBridge {
     contentType: "color" | "grayscale" | "text";
     resolutionDpi: 150 | 300 | 600;
     pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
+    placementConfirmed: boolean;
   }) => Promise<{
     status: "acquired" | "cancelled" | "not_ready" | "error";
     code?: string;

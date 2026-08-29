@@ -501,9 +501,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 - Status: Refined on 2026-08-30 by “Keep Standard Scan Configuration Inside Printing-MS.”
 
-- Decision: Start scanning from a narrowly scoped Electron IPC operation backed by Windows Image Acquisition. Let Printing-MS configure standard source, content, resolution, and capture-area properties, transfer directly through the driver, and return only captured page bytes to the renderer. Repeat acquisition for more pages, combine them server-side, and keep manual file import as recovery.
+- Decision: Start scanning from a narrowly scoped Electron IPC operation backed by Windows Image Acquisition. Let Printing-MS configure standard source, content, resolution, and capture-area properties, invoke WIA's transfer path, and return only captured page bytes to the renderer. Repeat acquisition for more pages, combine them server-side, and keep manual file import as recovery.
 - Rationale: Canon documents the printer as usable from WIA-compliant Windows applications, while Canon PRINT does not expose a supported app-to-app acquisition handoff. WIA keeps Printing-MS vendor-neutral and makes the captured document available for preview, automatic page pricing, retention, and delivery.
-- Impact: Direct acquisition is Windows-only and requires the installed scanner/MP driver. Scanner discovery and known WIA errors are structured, feeder/flatbed sensing is honored when exposed, and the driver chooses when placement cannot be detected. Cancelling creates no page or job, multiple captures become one retained PDF, and physical Canon validation remains required.
+- Impact: Direct acquisition is Windows-only and requires the installed scanner/MP driver. Scanner discovery and known WIA errors are structured, automatic source selection is retained, and sources without reliable original sensing require owner confirmation. Cancelling creates no page or job, multiple captures become one retained PDF, and physical Canon validation remains required.
 
 ### Keep Vendor Scanner Drivers as an Explicit Windows Prerequisite
 
@@ -517,12 +517,12 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 - Status: Refined on 2026-08-30 by “Keep Standard Scan Configuration Inside Printing-MS.”
 
-- Decision: Convert every WIA-acquired page to validated PNG before returning it to the renderer. Request an automatic source: use a feeder or flatbed reported ready at acquisition time, and otherwise leave source selection to the installed vendor/WIA dialog.
-- Rationale: WIA drivers may return BMP/TIFF variants that Chromium cannot decode consistently. Many multifunction drivers also omit reliable pre-scan placement flags, so a mandatory owner-selected source and confirmation creates false certainty and blocks valid scans.
-- Impact: New captures preview consistently and no longer require a manual source control or placement checkbox. Offline, jam, and open-cover states still block scanning. When a driver exposes no placement signal, its automatic/default source remains authoritative and a paper-empty acquisition error provides recovery guidance.
+- Decision: Convert every WIA-acquired page to validated PNG before returning it to the renderer. Request an automatic source, prefer a feeder that reports paper loaded, and otherwise keep the driver's automatic/default source. Require placement confirmation only when WIA cannot prove an original is loaded.
+- Rationale: WIA drivers may return BMP/TIFF variants that Chromium cannot decode consistently. Feeder readiness can report loaded paper, but flatbeds and some multifunction drivers cannot reliably sense an original; the application must not present connectivity as proof of placement.
+- Impact: New captures preview consistently without a manual source selector. Offline, jam, open-cover, and detected empty-feeder states block scanning. Flatbed/non-sensing paths require an explicit confirmation before the desktop bridge permits acquisition.
 
 ### Keep Standard Scan Configuration Inside Printing-MS
 
-- Decision: Do not open WIA's `ShowSelectItems`/settings window for normal acquisition. Expose content type, 150/300/600 DPI, and standard document/photo capture areas in the Scan job modal, apply them through WIA item properties, and acquire through direct `Item.Transfer`.
+- Decision: Do not open WIA's `ShowSelectItems`/settings window for normal acquisition. Expose content type, 150/300/600 DPI, and standard document/photo capture areas in the Scan job modal, apply them through WIA item properties, and use `CommonDialog.ShowTransfer` only for hardware transfer/progress.
 - Rationale: The external dialog duplicated context already owned by the job workflow and interrupted the single-page transaction experience. WIA exposes the required standard controls programmatically, while the retained in-app result provides a better review/retry loop than a separate preview window.
-- Impact: Color, grayscale, B&W text, Automatic, A4, Letter, Legal, 4×6, 5×7, and 8×10 are configured inside Printing-MS. Unsupported device/source combinations fail inline without losing the transaction. Vendor-private controls remain outside the standard flow, and physical Canon validation is required before release.
+- Impact: Color, grayscale, B&W text, Automatic, A4, Letter, Legal, 4×6, 5×7, and 8×10 are configured inside Printing-MS. The settings selector stays closed, while the standard transfer progress may appear. Unsupported device/source combinations fail inline without losing the transaction. Vendor-private controls remain outside the standard flow, and physical Canon validation is required before release.

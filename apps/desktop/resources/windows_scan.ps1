@@ -37,7 +37,7 @@ $StatusFlatbedReady = 0x002
 $StatusFlatbedCoverUp = 0x008
 $StatusPathCoverUp = 0x010
 $StatusPaperJam = 0x020
-$BmpFormat = "{B96B3CAB-0728-11D3-9D7B-0000F81EF32E}"
+$UnspecifiedFormat = "{B96B3CA9-0728-11D3-9D7B-0000F81EF32E}"
 $PngFormat = "{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}"
 
 function Get-WiaPropertyValue {
@@ -158,8 +158,8 @@ function Resolve-ScanSource {
   if ($State.supportsFlatbed -and -not $State.supportsFeeder) {
     return "flatbed"
   }
-  # When the WIA driver cannot report paper presence, leave source selection to
-  # its vendor dialog instead of incorrectly forcing the flatbed or feeder.
+  # When the WIA driver cannot report paper presence, leave source selection in
+  # its automatic/default state instead of incorrectly forcing either source.
   return "auto"
 }
 
@@ -239,6 +239,7 @@ function Write-WiaError {
 
 $manager = $null
 $device = $null
+$dialog = $null
 $selectedItem = $null
 $image = $null
 $imageProcess = $null
@@ -313,9 +314,12 @@ try {
     Write-Result ([pscustomobject]@{ status = "error"; code = "unsupported_scan_setting"; message = $settingsIssue })
     exit 0
   }
-  # Item.Transfer acquires directly and does not open the redundant WIA
-  # selection/settings window. Printing-MS owns those standard controls.
-  $image = $selectedItem.Transfer($BmpFormat)
+  # Printing-MS owns source/profile selection, so do not call ShowSelectItems
+  # (that is the redundant Windows settings window). ShowTransfer is retained
+  # because some Canon WIA drivers only start their hardware transfer through
+  # the common transfer path; it displays transfer progress, not settings.
+  $dialog = New-Object -ComObject WIA.CommonDialog
+  $image = $dialog.ShowTransfer($selectedItem, $UnspecifiedFormat, $false)
   if ($null -eq $image) {
     Write-Result ([pscustomobject]@{ status = "error"; code = "empty_transfer"; message = "The scanner completed without returning an image." })
     exit 0
@@ -344,7 +348,7 @@ catch {
   })
 }
 finally {
-  foreach ($comObject in @($previewImage, $imageProcess, $image, $selectedItem, $device, $manager)) {
+  foreach ($comObject in @($previewImage, $imageProcess, $image, $selectedItem, $dialog, $device, $manager)) {
     if ($null -ne $comObject -and [System.Runtime.InteropServices.Marshal]::IsComObject($comObject)) {
       [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject)
     }

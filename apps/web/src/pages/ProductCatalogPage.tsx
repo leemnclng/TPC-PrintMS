@@ -38,8 +38,8 @@ export function ProductCatalogPage() {
   return (
     <>
       <PageHeader
-        eyebrow="SERVICES"
-        title="Service Catalog"
+        eyebrow="PRINTING SERVICES"
+        title="Printing Services"
         description="Create a service first, then organize the products used in job orders and document analysis inside it."
         actions={
           <>

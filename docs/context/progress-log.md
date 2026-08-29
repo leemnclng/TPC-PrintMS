@@ -460,3 +460,15 @@ Chronological notes about app progress.
 - Summary: Removed the redundant Windows WIA settings popup from normal Scan jobs.
 - Completed: Added in-app content mode, 150/300/600 DPI, and Automatic/A4/Letter/Legal/4×6/5×7/8×10 capture-size controls. The desktop bridge validates the profile, applies standard WIA properties, transfers directly as BMP without `ShowSelectItems`, normalizes to PNG, and returns unsupported combinations as actionable inline errors.
 - Verified: Renderer/desktop typechecks and production builds, renderer lint, all 28 API tests, and diff validation pass. Direct WIA transfer and each Canon paper/source combination still require physical Windows validation.
+
+## 2026-08-30 (Canon scan activation and placement gate)
+
+- Summary: Repaired the no-op Canon scan action and prevented unconfirmed acquisition.
+- Completed: Replaced unreliable direct item transfer with WIA's transfer/progress operation while continuing to skip its settings selector. Automatic source selection remains; detected feeder paper proceeds automatically, while flatbed and non-sensing sources require owner confirmation enforced by the desktop bridge.
+- Verified: Renderer/desktop typechecks and production builds, renderer lint, all 28 API tests, and diff validation pass. Physical acquisition and status sensing remain to be validated on the Windows Canon workstation.
+
+## 2026-08-30 (printing navigation labels)
+
+- Summary: Clarified the two primary printing areas in the application shell.
+- Completed: Renamed Job Orders to Printing Job Orders and Services to Printing Services across navigation, list headings, breadcrumbs, and service workspaces.
+- Verified: Renderer typecheck, lint, production build, and diff validation pass.

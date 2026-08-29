@@ -66,7 +66,7 @@ export function ServiceWorkspace() {
   return (
     <>
       <PageHeader
-        eyebrow="Services"
+        eyebrow="Printing Services"
         title={service.name}
         description={service.description || "Products available under this service."}
         actions={

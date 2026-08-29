@@ -82,8 +82,8 @@ export function JobOrdersPage() {
   return (
     <>
       <PageHeader
-        eyebrow="JOB ORDERS"
-        title="Job Orders"
+        eyebrow="PRINTING JOB ORDERS"
+        title="Printing Job Orders"
         description="Create, plan, and audit every customer order from one production record."
         actions={<Button variant="primary" onClick={() => setChooserOpen(true)}>New job order</Button>}
       />

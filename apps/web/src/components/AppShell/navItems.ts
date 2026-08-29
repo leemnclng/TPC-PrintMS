@@ -23,7 +23,7 @@ export const navGroups: NavGroup[] = [
   {
     label: "Sales",
     items: [
-      { label: "Job Orders", path: "/job-orders", matchPrefix: "/job-orders", icon: "jobOrders" },
+      { label: "Printing Job Orders", path: "/job-orders", matchPrefix: "/job-orders", icon: "jobOrders" },
     ],
   },
   {
@@ -37,7 +37,7 @@ export const navGroups: NavGroup[] = [
   {
     label: "Directory",
     items: [
-      { label: "Services", path: "/product-catalog", matchPrefix: "/product-catalog", icon: "catalog" },
+      { label: "Printing Services", path: "/product-catalog", matchPrefix: "/product-catalog", icon: "catalog" },
       { label: "Customers", path: "/customers", matchPrefix: "/customers", icon: "customers" },
     ],
   },

@@ -11,6 +11,6 @@ contextBridge.exposeInMainWorld("paperClub", {
   openPrinterSettings: () => ipcRenderer.invoke("paper-club:open-printer-settings"),
   openPrinterPreferences: (printerName: string) => ipcRenderer.invoke("paper-club:open-printer-preferences", printerName),
   inspectScanners: () => ipcRenderer.invoke("paper-club:inspect-scanners"),
-  acquireScannerPage: (deviceId: string, settings: { source: "auto" | "flatbed" | "feeder"; contentType: "color" | "grayscale" | "text"; resolutionDpi: 150 | 300 | 600; pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10" }) => ipcRenderer.invoke("paper-club:acquire-scanner-page", deviceId, settings),
+  acquireScannerPage: (deviceId: string, settings: { source: "auto" | "flatbed" | "feeder"; contentType: "color" | "grayscale" | "text"; resolutionDpi: 150 | 300 | 600; pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10"; placementConfirmed: boolean }) => ipcRenderer.invoke("paper-club:acquire-scanner-page", deviceId, settings),
   platform: process.platform,
 });

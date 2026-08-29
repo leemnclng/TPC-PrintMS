@@ -11,6 +11,7 @@ export interface ScannerAcquisitionSettings {
   contentType: "color" | "grayscale" | "text";
   resolutionDpi: 150 | 300 | 600;
   pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
+  placementConfirmed: boolean;
 }
 
 export interface ScannerDeviceState {
@@ -49,7 +50,7 @@ export interface NativeScanResult {
   message?: string;
   deviceName?: string;
   source?: "auto" | "flatbed" | "feeder";
-  settings?: Omit<ScannerAcquisitionSettings, "source">;
+  settings?: Omit<ScannerAcquisitionSettings, "source" | "placementConfirmed">;
   file?: {
     filename: string;
     mimeType: string;
@@ -153,6 +154,9 @@ export async function acquireScannerPage(deviceId: unknown, settings: unknown): 
   }
   if (!candidate.pageSize || !["auto", "a4", "letter", "legal", "4x6", "5x7", "8x10"].includes(candidate.pageSize)) {
     return { status: "error", code: "invalid_request", message: "The scanner page size is invalid." };
+  }
+  if (candidate.placementConfirmed !== true) {
+    return { status: "not_ready", code: "paper_unconfirmed", message: "Confirm that the document is loaded before starting the scanner." };
   }
   const validatedSettings = candidate as ScannerAcquisitionSettings;
 
