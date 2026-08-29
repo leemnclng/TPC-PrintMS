@@ -20,6 +20,7 @@ $WiaScannerDeviceType = 1
 $WiaDocumentHandlingCapabilities = 3086
 $WiaDocumentHandlingStatus = 3087
 $WiaDocumentHandlingSelect = 3088
+$WiaItemCategory = 3
 $WiaCurrentIntent = 6146
 $WiaHorizontalResolution = 6147
 $WiaVerticalResolution = 6148
@@ -39,6 +40,10 @@ $StatusPathCoverUp = 0x010
 $StatusPaperJam = 0x020
 $UnspecifiedFormat = "{B96B3CA9-0728-11D3-9D7B-0000F81EF32E}"
 $PngFormat = "{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}"
+$WiaCategoryFlatbed = "fb607b1f-43f3-488b-855b-fb703ec342a6"
+$WiaCategoryFeeder = "fe131934-f84c-42ad-8da4-6129cddd7288"
+$WiaCategoryFeederFront = "4823175c-3b28-487b-a7e6-eebc17614fd1"
+$WiaCategoryFeederBack = "61ca74d4-39db-42aa-89b1-8c19c9cd4c23"
 
 function Get-WiaPropertyValue {
   param($Properties, [int]$PropertyId)
@@ -76,6 +81,76 @@ function Get-DeviceName {
   return "Windows scanner"
 }
 
+function Get-WiaItemSource {
+  param($Item)
+  $categoryValue = $null
+  try {
+    $categoryValue = Get-WiaPropertyValue $Item.Properties $WiaItemCategory
+  }
+  catch {
+    $categoryValue = $null
+  }
+  $category = if ($null -eq $categoryValue) { "" } else { ([string]$categoryValue).Trim("{}".ToCharArray()).ToLowerInvariant() }
+  if ($category -eq $WiaCategoryFeeder -or $category -eq $WiaCategoryFeederFront -or $category -eq $WiaCategoryFeederBack) {
+    return "feeder"
+  }
+  if ($category -eq $WiaCategoryFlatbed) {
+    return "flatbed"
+  }
+  $itemName = ""
+  try {
+    $itemName = [string]$Item.Name
+  }
+  catch {
+    $itemName = ""
+  }
+  if ($itemName -match "(?i)feeder|document feed|ADF") {
+    return "feeder"
+  }
+  if ($itemName -match "(?i)flatbed|platen|glass") {
+    return "flatbed"
+  }
+  return $null
+}
+
+function Find-WiaSourceItem {
+  param($Items, [string]$RequestedSource)
+  foreach ($item in $Items) {
+    $itemSource = Get-WiaItemSource $item
+    # Advanced feeder items can expose transferable front/back children while
+    # their feeder parent is only a container. Prefer the child when present.
+    if ($itemSource -eq "feeder" -and $RequestedSource -eq "feeder") {
+      try {
+        if ($item.Items.Count -gt 0) {
+          $childMatch = Find-WiaSourceItem $item.Items $RequestedSource
+          if ($null -ne $childMatch) {
+            return $childMatch
+          }
+        }
+      }
+      catch {
+        # A directly transferable WIA 1.0 feeder item may have no children.
+      }
+      return $item
+    }
+    if ($itemSource -eq $RequestedSource) {
+      return $item
+    }
+    try {
+      if ($item.Items.Count -gt 0) {
+        $childMatch = Find-WiaSourceItem $item.Items $RequestedSource
+        if ($null -ne $childMatch) {
+          return $childMatch
+        }
+      }
+    }
+    catch {
+      # Some WIA 1.0 compatibility items do not expose a child collection.
+    }
+  }
+  return $null
+}
+
 function Get-ScannerState {
   param($DeviceInfo)
   $name = Get-DeviceName $DeviceInfo
@@ -87,6 +162,10 @@ function Get-ScannerState {
     $status = if ($null -eq $statusValue) { 0 } else { [int]$statusValue }
     $supportsFeeder = ($capabilities -band $CapabilityFeed) -ne 0
     $supportsFlatbed = ($capabilities -band $CapabilityFlatbed) -ne 0
+    # WIA 2.0 represents flatbed and feeder as separate item categories. Some
+    # vendor drivers expose those items without mirroring every root capability.
+    $supportsFeeder = $supportsFeeder -or ($null -ne (Find-WiaSourceItem $device.Items "feeder"))
+    $supportsFlatbed = $supportsFlatbed -or ($null -ne (Find-WiaSourceItem $device.Items "flatbed"))
     # Some WIA drivers omit the capability property even though they expose a
     # working flatbed item. Keep flatbed available as the conservative fallback.
     if (-not $supportsFeeder -and -not $supportsFlatbed) {
@@ -101,8 +180,8 @@ function Get-ScannerState {
       supportsDuplex = ($capabilities -band $CapabilityDuplex) -ne 0
       detectsFlatbed = ($capabilities -band $CapabilityDetectFlatbed) -ne 0
       detectsFeeder = ($capabilities -band $CapabilityDetectFeeder) -ne 0
-      flatbedReady = if (($capabilities -band $CapabilityDetectFlatbed) -ne 0) { ($status -band $StatusFlatbedReady) -ne 0 } else { $null }
-      feederReady = if (($capabilities -band $CapabilityDetectFeeder) -ne 0) { ($status -band $StatusFeedReady) -ne 0 } else { $null }
+      flatbedReady = if (($status -band $StatusFlatbedReady) -ne 0) { $true } elseif (($capabilities -band $CapabilityDetectFlatbed) -ne 0) { $false } else { $null }
+      feederReady = if (($status -band $StatusFeedReady) -ne 0) { $true } elseif (($capabilities -band $CapabilityDetectFeeder) -ne 0) { $false } else { $null }
       coverOpen = ($status -band ($StatusFlatbedCoverUp -bor $StatusPathCoverUp)) -ne 0
       paperJam = ($status -band $StatusPaperJam) -ne 0
       issue = $null
@@ -143,14 +222,11 @@ function Resolve-ScanSource {
   if ($RequestedSource -ne "auto") {
     return $RequestedSource
   }
-  if ($State.supportsFeeder -and $State.detectsFeeder -and $State.feederReady) {
+  if ($State.supportsFeeder -and $State.feederReady) {
     return "feeder"
   }
-  if ($State.supportsFlatbed -and $State.detectsFlatbed -and $State.flatbedReady) {
+  if ($State.supportsFlatbed -and $State.flatbedReady -and $State.detectsFeeder -and $State.feederReady -eq $false) {
     return "flatbed"
-  }
-  if (-not $State.detectsFeeder -and -not $State.detectsFlatbed) {
-    return "auto"
   }
   if ($State.supportsFeeder -and -not $State.supportsFlatbed) {
     return "feeder"
@@ -158,9 +234,9 @@ function Resolve-ScanSource {
   if ($State.supportsFlatbed -and -not $State.supportsFeeder) {
     return "flatbed"
   }
-  # When the WIA driver cannot report paper presence, leave source selection in
-  # its automatic/default state instead of incorrectly forcing either source.
-  return "auto"
+  # If the driver cannot report feeder paper, prefer the feeder. Defaulting to
+  # the first WIA item commonly selects the flatbed even when the ADF is loaded.
+  return "feeder"
 }
 
 function Set-WiaAcquisitionSettings {
@@ -170,15 +246,23 @@ function Set-WiaAcquisitionSettings {
     "text" { 4 }
     default { 1 }
   }
+  $appliedContentType = $RequestedContentType
+  $notice = $null
   if (-not (Set-WiaPropertyValue $Item.Properties $WiaCurrentIntent $intent)) {
-    return "The scanner driver does not expose the selected content mode through WIA."
+    if ($RequestedContentType -eq "text" -and (Set-WiaPropertyValue $Item.Properties $WiaCurrentIntent 2)) {
+      $appliedContentType = "grayscale"
+      $notice = "This Canon driver does not expose native B&W text acquisition through WIA, so the page was acquired in grayscale instead."
+    }
+    else {
+      return [pscustomobject]@{ issue = "The scanner driver does not expose the selected content mode through WIA. Choose another content mode."; appliedContentType = $RequestedContentType; notice = $null }
+    }
   }
   if (-not (Set-WiaPropertyValue $Item.Properties $WiaHorizontalResolution $RequestedDpi) -or
       -not (Set-WiaPropertyValue $Item.Properties $WiaVerticalResolution $RequestedDpi)) {
-    return "The scanner does not support $RequestedDpi DPI for this content mode. Choose another resolution."
+    return [pscustomobject]@{ issue = "The scanner does not support $RequestedDpi DPI for this content mode. Choose another resolution."; appliedContentType = $appliedContentType; notice = $notice }
   }
   if ($RequestedPageSize -eq "auto") {
-    return $null
+    return [pscustomobject]@{ issue = $null; appliedContentType = $appliedContentType; notice = $notice }
   }
 
   $sizesInInches = @{
@@ -197,9 +281,9 @@ function Set-WiaAcquisitionSettings {
   $extentSet = (Set-WiaPropertyValue $Item.Properties $WiaHorizontalExtent $widthPixels) -and
     (Set-WiaPropertyValue $Item.Properties $WiaVerticalExtent $heightPixels)
   if (-not $positionSet -or -not $extentSet) {
-    return "The selected page size is outside this scanner source's supported capture area. Choose Automatic or a smaller size."
+    return [pscustomobject]@{ issue = "The selected page size is outside this scanner source's supported capture area. Choose Automatic or a smaller size."; appliedContentType = $appliedContentType; notice = $notice }
   }
-  return $null
+  return [pscustomobject]@{ issue = $null; appliedContentType = $appliedContentType; notice = $notice }
 }
 
 function Write-Result {
@@ -293,25 +377,38 @@ try {
   }
 
   $device = $deviceInfo.Connect()
-  if ($resolvedSource -ne "auto") {
-    $sourceValue = if ($resolvedSource -eq "feeder") { 1 } else { 2 }
-    $sourceWasSet = Set-WiaPropertyValue $device.Properties $WiaDocumentHandlingSelect $sourceValue
-    if (-not $sourceWasSet) {
-      foreach ($item in $device.Items) {
-        if (Set-WiaPropertyValue $item.Properties $WiaDocumentHandlingSelect $sourceValue) {
-          break
-        }
-      }
-    }
-  }
   if ($device.Items.Count -eq 0) {
     Write-Result ([pscustomobject]@{ status = "error"; code = "no_scan_item"; message = "The Windows scanner driver did not expose a transferable scan source." })
     exit 0
   }
-  $selectedItem = $device.Items.Item(1)
-  $settingsIssue = Set-WiaAcquisitionSettings $selectedItem $ContentType $ResolutionDpi $PageSize
-  if (-not [string]::IsNullOrWhiteSpace($settingsIssue)) {
-    Write-Result ([pscustomobject]@{ status = "error"; code = "unsupported_scan_setting"; message = $settingsIssue })
+  $selectedItem = $null
+  if ($resolvedSource -ne "auto") {
+    # WIA 2.0 exposes feeder and flatbed as distinct items. Select the matching
+    # item first; the older root property remains as a compatibility fallback.
+    $selectedItem = Find-WiaSourceItem $device.Items $resolvedSource
+    $sourceValue = if ($resolvedSource -eq "feeder") { 1 } else { 2 }
+    if ($null -eq $selectedItem) {
+      $sourceWasSet = Set-WiaPropertyValue $device.Properties $WiaDocumentHandlingSelect $sourceValue
+      if (-not $sourceWasSet) {
+        foreach ($item in $device.Items) {
+          if (Set-WiaPropertyValue $item.Properties $WiaDocumentHandlingSelect $sourceValue) {
+            $sourceWasSet = $true
+            break
+          }
+        }
+      }
+      if (-not $sourceWasSet) {
+        Write-Result ([pscustomobject]@{ status = "error"; code = "source_unavailable"; message = "Windows could not select the $resolvedSource source on this scanner. Choose the source explicitly or repair the Canon MP/WIA driver." })
+        exit 0
+      }
+    }
+  }
+  if ($null -eq $selectedItem) {
+    $selectedItem = $device.Items.Item(1)
+  }
+  $settingsResult = Set-WiaAcquisitionSettings $selectedItem $ContentType $ResolutionDpi $PageSize
+  if (-not [string]::IsNullOrWhiteSpace($settingsResult.issue)) {
+    Write-Result ([pscustomobject]@{ status = "error"; code = "unsupported_scan_setting"; message = $settingsResult.issue })
     exit 0
   }
   # Printing-MS owns source/profile selection, so do not call ShowSelectItems
@@ -335,7 +432,7 @@ try {
   $filename = "scan-{0}.png" -f ([DateTime]::UtcNow.ToString("yyyyMMdd-HHmmssfff"))
   $outputPath = Join-Path -Path $OutputDirectory -ChildPath $filename
   $previewImage.SaveFile($outputPath)
-  Write-Result ([pscustomobject]@{ status = "acquired"; path = $outputPath; filename = $filename; deviceName = $state.name; source = $resolvedSource; contentType = $ContentType; resolutionDpi = $ResolutionDpi; pageSize = $PageSize })
+  Write-Result ([pscustomobject]@{ status = "acquired"; path = $outputPath; filename = $filename; deviceName = $state.name; source = $resolvedSource; contentType = $settingsResult.appliedContentType; resolutionDpi = $ResolutionDpi; pageSize = $PageSize; message = $settingsResult.notice })
 }
 catch [System.Runtime.InteropServices.COMException] {
   Write-WiaError $_.Exception

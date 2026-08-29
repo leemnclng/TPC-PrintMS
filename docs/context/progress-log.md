@@ -472,3 +472,9 @@ Chronological notes about app progress.
 - Summary: Clarified the two primary printing areas in the application shell.
 - Completed: Renamed Job Orders to Printing Job Orders and Services to Printing Services across navigation, list headings, breadcrumbs, and service workspaces.
 - Verified: Renderer typecheck, lint, production build, and diff validation pass.
+
+## 2026-08-30 (feeder-aware scanning and visible outcomes)
+
+- Summary: Corrected Canon source selection, recovered unsupported B&W scans, and made every scanner trigger observable.
+- Completed: WIA 2.0 item-category discovery now selects the feeder/flatbed transfer item instead of item 1. Automatic mode honors the feeder-ready status bit and otherwise tries the feeder first, with explicit source overrides. Rejected B&W text intent retries as grayscale and reports the fallback. The modal retains check, progress, completion, cancellation, and error guidance.
+- Verified: Renderer/desktop typechecks, production builds, renderer lint, all 28 API tests, and diff validation pass. Physical Canon source and B&W validation remains open.

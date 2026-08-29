@@ -195,6 +195,7 @@ export async function acquireScannerPage(deviceId: unknown, settings: unknown): 
     }
     return {
       status: "acquired",
+      message: result.message,
       deviceName: result.deviceName,
       source: result.source,
       settings: {

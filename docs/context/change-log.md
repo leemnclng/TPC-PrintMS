@@ -231,6 +231,10 @@ Track notable app changes by date.
 
 ## 2026-08-30
 
+- Fixed: Automatic scanning now selects the WIA feeder item when loaded instead of always transferring the first, commonly flatbed, item.
+- Added: Scan Source offers Automatic (feeder first), Document feeder, and Flatbed glass, limited to sources exposed by the installed driver.
+- Fixed: B&W text scans retry as grayscale when the Canon WIA driver rejects its text intent, and the applied fallback is shown to the owner.
+- Added: Scanner refresh and acquisition now retain informative checking, progress, success, cancellation, fallback, and error results inside the job modal.
 - Changed: The main navigation and matching page headings now use Printing Job Orders and Printing Services.
 - Changed: Normal Scan acquisition no longer opens the Windows WIA settings window; content, resolution, and page-size choices now remain inside the job modal.
 - Added: Color document, grayscale, B&W text, 150/300/600 DPI, and Automatic/A4/Letter/Legal/4×6/5×7/8×10 scan profiles with inline unsupported-setting recovery.
