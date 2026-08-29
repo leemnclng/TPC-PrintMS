@@ -327,6 +327,14 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     assert photocopy_order["items"][0]["materials"][0]["plannedQuantity"] == 6
     assert photocopy_order["items"][0]["materials"][0]["consumedQuantity"] == 6
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 69
+    # Photocopy is produced entirely on the device: it has no queue to return
+    # to, unlike scan (which still has to acquire its pages inside the job).
+    photocopy_requeue = client.post(
+        f"/job-orders/{photocopy_order['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "queued"},
+    )
+    assert photocopy_requeue.status_code == 409
 
     scan_product_response = client.post(
         "/products",
@@ -361,49 +369,75 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     scan_buffer = BytesIO()
     Image.new("RGB", (794, 1123), "white").save(scan_buffer, format="PNG")
     scan_output = scan_buffer.getvalue()
-    empty_scan = client.post(
-        "/job-orders/from-scan",
-        headers=headers,
-        data={"transaction": json.dumps({
-            "name": "Reyes contract scan",
-            "serviceId": photocopy_service["id"],
-            "productId": scan_product["id"],
-        })},
-    )
-    assert empty_scan.status_code == 422
-    assert empty_scan.json()["detail"] == "Acquire at least one page from the scanner."
 
-    scan_response = client.post(
+    # The scan job is created immediately, before any page is acquired: it
+    # waits in the queue, just like a print job, until the scan is submitted.
+    scan_create_response = client.post(
         "/job-orders/from-scan",
         headers=headers,
-        data={"transaction": json.dumps({
+        json={
             "name": "Reyes contract scan",
             "serviceId": photocopy_service["id"],
             "productId": scan_product["id"],
-        })},
+        },
+    )
+    assert scan_create_response.status_code == 201
+    scan_order = scan_create_response.json()
+    assert scan_order["workflowCategory"] == "photocopy"
+    assert scan_order["status"] == "queued"
+    assert scan_order["files"] == []
+    assert scan_order["items"][0]["operationKind"] == "scan"
+
+    empty_scan_output = client.post(f"/job-orders/{scan_order['id']}/scan-output", headers=headers)
+    assert empty_scan_output.status_code == 422
+    assert empty_scan_output.json()["detail"] == "Acquire at least one page from the scanner."
+
+    scan_output_response = client.post(
+        f"/job-orders/{scan_order['id']}/scan-output",
+        headers=headers,
         files=[
             ("files", ("reyes-contract-front.png", scan_output, "image/png")),
             ("files", ("reyes-contract-back.png", scan_output, "image/png")),
         ],
     )
-    assert scan_response.status_code == 201
-    scan_order = scan_response.json()
-    assert scan_order["workflowCategory"] == "photocopy"
-    assert scan_order["status"] == "ready"
-    assert scan_order["total"] == 8
-    assert scan_order["items"][0]["operationKind"] == "scan"
-    assert scan_order["items"][0]["materials"] == []
-    assert scan_order["files"][0]["kind"] == "scan_output"
-    assert scan_order["items"][0]["pagesPerCopy"] == 2
-    assert scan_order["files"][0]["originalFilename"] == "scanner-output.pdf"
-    assert scan_order["files"][0]["detectedPageCount"] == 2
+    assert scan_output_response.status_code == 201
+    scanned_order = scan_output_response.json()
+    assert scanned_order["status"] == "ready"
+    assert scanned_order["total"] == 8
+    assert scanned_order["items"][0]["materials"] == []
+    assert scanned_order["files"][0]["kind"] == "scan_output"
+    assert scanned_order["items"][0]["pagesPerCopy"] == 2
+    assert scanned_order["files"][0]["originalFilename"] == "scanner-output.pdf"
+    assert scanned_order["files"][0]["detectedPageCount"] == 2
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 69
     download = client.get(
-        f"/job-orders/{scan_order['id']}/files/{scan_order['files'][0]['id']}",
+        f"/job-orders/{scanned_order['id']}/files/{scanned_order['files'][0]['id']}",
         headers=headers,
     )
     assert download.status_code == 200
     assert download.content.startswith(b"%PDF-")
+
+    # A failed quality check sends the scan back to the queue for a re-scan;
+    # resubmitting replaces the prior softcopy rather than keeping both.
+    requeued = client.post(
+        f"/job-orders/{scanned_order['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "queued"},
+    )
+    assert requeued.status_code == 200
+    assert requeued.json()["status"] == "queued"
+    rescan_output_response = client.post(
+        f"/job-orders/{scanned_order['id']}/scan-output",
+        headers=headers,
+        files=[("files", ("reyes-contract-final.png", scan_output, "image/png"))],
+    )
+    assert rescan_output_response.status_code == 201
+    rescanned_order = rescan_output_response.json()
+    assert rescanned_order["status"] == "ready"
+    assert len(rescanned_order["files"]) == 1
+    assert rescanned_order["files"][0]["originalFilename"] == "reyes-contract-final.png"
+    assert rescanned_order["items"][0]["pagesPerCopy"] == 1
+    assert rescanned_order["total"] == 4
 
 
 def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tmp_path, monkeypatch) -> None:

@@ -1,10 +1,8 @@
-import { ChangeEvent, FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { getDocument } from "pdfjs-dist";
+import { FormEvent, useEffect, useState } from "react";
 import { Button } from "../../components/Button/Button";
 import { Modal } from "../../components/Modal/Modal";
-import { PdfViewer } from "../../components/PdfViewer/PdfViewer";
 import { ApiError, api } from "../../lib/apiClient";
-import { formatCurrency, formatFileSize, formatProductPrintType } from "../../lib/format";
+import { formatCurrency, formatProductPrintType } from "../../lib/format";
 import { computeSelectedMaterialPrice } from "../../lib/productPricing";
 import type { Customer, DocumentPricingRule, InventoryItem, JobOrder, Product, Service } from "../../types/domain";
 import "../workspaceForm.css";
@@ -21,44 +19,6 @@ interface Props {
   onCreated: (order: JobOrder) => void;
 }
 
-interface ScanCapture {
-  id: string;
-  file: File;
-  pageCount: number;
-  previewUrl: string;
-  source: "scanner" | "import";
-  settings?: ScanSettings;
-}
-
-interface ScanSettings {
-  source: "auto" | "flatbed" | "feeder";
-  contentType: "color" | "grayscale" | "text";
-  resolutionDpi: 150 | 300 | 600;
-  pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
-}
-
-interface ScanFeedback {
-  tone: "info" | "progress" | "success";
-  title: string;
-  detail: string;
-}
-
-interface ScannerDeviceState {
-  id: string;
-  name: string;
-  isOnline: boolean;
-  supportsFlatbed: boolean;
-  supportsFeeder: boolean;
-  supportsDuplex: boolean;
-  detectsFlatbed: boolean;
-  detectsFeeder: boolean;
-  flatbedReady: boolean | null;
-  feederReady: boolean | null;
-  coverOpen: boolean;
-  paperJam: boolean;
-  issue: string | null;
-}
-
 const BLANK = {
   name: "",
   productId: "",
@@ -71,162 +31,45 @@ const BLANK = {
   notes: "",
 };
 
-const SCAN_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp"];
-const MAX_SCAN_BYTES = 25 * 1024 * 1024;
-const DEFAULT_SCAN_SETTINGS: ScanSettings = { source: "auto", contentType: "color", resolutionDpi: 300, pageSize: "auto" };
-const SCAN_PAGE_SIZES: Array<{ value: ScanSettings["pageSize"]; label: string; dimensions: string }> = [
-  { value: "auto", label: "Automatic", dimensions: "Driver capture area" },
-  { value: "a4", label: "A4", dimensions: "210 × 297 mm" },
-  { value: "letter", label: "US Letter", dimensions: "216 × 279 mm" },
-  { value: "legal", label: "US Legal", dimensions: "216 × 356 mm" },
-  { value: "4x6", label: "4 × 6", dimensions: "102 × 152 mm" },
-  { value: "5x7", label: "5 × 7", dimensions: "127 × 178 mm" },
-  { value: "8x10", label: "8 × 10", dimensions: "203 × 254 mm" },
-];
-
-function scannerHasDetectedOriginal(device: ScannerDeviceState | undefined, source: ScanSettings["source"]): boolean {
-  return Boolean(device?.supportsFeeder && source !== "flatbed" && device.feederReady);
-}
-
-function scannerRequiresPlacementConfirmation(device: ScannerDeviceState | undefined, source: ScanSettings["source"]): boolean {
-  if (!device || scannerHasDetectedOriginal(device, source)) return false;
-  // WIA can reliably report paper in a feeder. Flatbeds normally expose only
-  // source/cover readiness, not whether an original is physically on the glass.
-  if (source === "flatbed") return device.supportsFlatbed;
-  if (source === "feeder") return device.supportsFeeder && !device.detectsFeeder;
-  return device.supportsFlatbed || (device.supportsFeeder && !device.detectsFeeder);
-}
-
-function scannerReportsNoOriginal(device: ScannerDeviceState | undefined, source: ScanSettings["source"]): boolean {
-  if (!device?.supportsFeeder || !device.detectsFeeder || device.feederReady) return false;
-  return source === "feeder" || (source === "auto" && !device.supportsFlatbed);
-}
-
-function scanSourceLabel(source: ScanSettings["source"]): string {
-  return source === "feeder" ? "document feeder" : source === "flatbed" ? "flatbed" : "automatic source";
-}
-
 export function PhotocopyJobCreateModal({ open, service, customers, products, inventoryItems, pricingRules, onClose, onCreated }: Props) {
-  const scanFileInputId = useId();
   const [form, setForm] = useState(BLANK);
-  const [scanCaptures, setScanCaptures] = useState<ScanCapture[]>([]);
-  const scanCapturesRef = useRef<ScanCapture[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [acquiring, setAcquiring] = useState(false);
-  const [checkingScanners, setCheckingScanners] = useState(false);
-  const [scannerDevices, setScannerDevices] = useState<ScannerDeviceState[]>([]);
-  const [selectedScannerId, setSelectedScannerId] = useState("");
-  const [scanSettings, setScanSettings] = useState<ScanSettings>(DEFAULT_SCAN_SETTINGS);
-  const [placementConfirmed, setPlacementConfirmed] = useState(false);
-  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
-  const [scannerError, setScannerError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const availableProducts = products.filter((product) => product.isActive && product.serviceId === service.id);
   const selectedProduct = availableProducts.find((product) => product.id === form.productId);
   const isScan = selectedProduct?.operationKind === "scan";
-  const inventoryById = useMemo(() => new Map(inventoryItems.map((item) => [item.id, item])), [inventoryItems]);
+  const inventoryById = new Map(inventoryItems.map((item) => [item.id, item]));
   const papers = selectedProduct?.materialAssignments
     .map((assignment) => inventoryById.get(assignment.inventoryItemId))
     .filter((item): item is InventoryItem => Boolean(item?.isActive && item.paperSize)) ?? [];
   const selectedPaper = papers.find((paper) => paper.id === form.paperInventoryItemId);
   const duplexVariant = selectedProduct?.variants.find((variant) => variant.requiresManualDuplex);
   const requireCustomRate = selectedProduct?.printType === "black_and_white";
-  const baseRate = isScan
-    ? selectedProduct?.standalonePricePerPage ?? null
-    : selectedProduct && selectedPaper
-      ? computeSelectedMaterialPrice(selectedProduct.printType, selectedProduct.documentRates, pricingRules, selectedPaper.id, requireCustomRate)
-      : null;
+  const baseRate = !isScan && selectedProduct && selectedPaper
+    ? computeSelectedMaterialPrice(selectedProduct.printType, selectedProduct.documentRates, pricingRules, selectedPaper.id, requireCustomRate)
+    : null;
   const unitPrice = baseRate === null ? null : Math.max(0, baseRate + (form.backToBack ? duplexVariant?.priceAdjustment ?? 0 : 0));
-  const scannedPages = scanCaptures.reduce((sum, capture) => sum + capture.pageCount, 0);
-  const totalPages = isScan ? scannedPages : Math.max(0, form.pagesPerCopy) * Math.max(0, form.copies);
+  const totalPages = Math.max(0, form.pagesPerCopy) * Math.max(0, form.copies);
   const sheets = (form.backToBack ? Math.ceil(Math.max(0, form.pagesPerCopy) / 2) : Math.max(0, form.pagesPerCopy)) * Math.max(0, form.copies);
   const total = unitPrice === null ? null : Math.round(unitPrice * totalPages * 100) / 100;
-  const valid = Boolean(form.name.trim() && selectedProduct && unitPrice !== null && (
+  const scanRate = isScan ? selectedProduct?.standalonePricePerPage ?? null : null;
+  const valid = Boolean(form.name.trim() && selectedProduct && (
     isScan
-      ? scanCaptures.length > 0 && scannedPages >= 1
-      : form.pagesPerCopy >= 1 && selectedPaper && form.copies >= 1 && (!form.backToBack || duplexVariant) && sheets <= selectedPaper.quantityOnHand
+      ? scanRate !== null
+      : unitPrice !== null && form.pagesPerCopy >= 1 && selectedPaper && form.copies >= 1 && (!form.backToBack || duplexVariant) && sheets <= selectedPaper.quantityOnHand
   ));
-  const scannerAvailable = window.paperClub?.platform === "win32";
-  const selectedScanner = scannerDevices.find((device) => device.id === selectedScannerId);
-  const requiresPlacementConfirmation = scannerRequiresPlacementConfirmation(selectedScanner, scanSettings.source);
-  const reportsNoOriginal = scannerReportsNoOriginal(selectedScanner, scanSettings.source);
-  const placementReady = scannerHasDetectedOriginal(selectedScanner, scanSettings.source) || (requiresPlacementConfirmation && placementConfirmed);
-  const sourceAvailable = Boolean(selectedScanner && (scanSettings.source === "auto" ? selectedScanner.supportsFlatbed || selectedScanner.supportsFeeder : scanSettings.source === "feeder" ? selectedScanner.supportsFeeder : selectedScanner.supportsFlatbed));
-  const hardwareReady = Boolean(selectedScanner?.isOnline && !selectedScanner.coverOpen && !selectedScanner.paperJam && !reportsNoOriginal && sourceAvailable);
-  const canAcquire = scannerAvailable && hardwareReady && placementReady && !checkingScanners && !saving && !acquiring;
-
-  const refreshScanners = useCallback(async (announce = true) => {
-    setCheckingScanners(true);
-    setScannerError(null);
-    setPlacementConfirmed(false);
-    if (announce) setScanFeedback({ tone: "progress", title: "Checking scanner", detail: "Reading available devices, sources, and feeder status from Windows." });
-    try {
-      if (!window.paperClub?.inspectScanners || window.paperClub.platform !== "win32") {
-        setScannerDevices([]);
-        setScannerError("Direct scanning requires the Windows desktop app.");
-        setScanFeedback(null);
-        return;
-      }
-      const inspection = await window.paperClub.inspectScanners();
-      setScannerDevices(inspection.devices);
-      if (!inspection.devices.length) {
-        setSelectedScannerId("");
-        setScannerError(inspection.message ?? "No Windows scanner was found.");
-        setScanFeedback(null);
-        return;
-      }
-      const preferred = inspection.devices.find((device) => device.isOnline) ?? inspection.devices[0];
-      setSelectedScannerId((current) => inspection.devices.some((device) => device.id === current) ? current : preferred.id);
-      if (announce) setScanFeedback({ tone: "info", title: "Scanner check complete", detail: `${inspection.devices.length} ${inspection.devices.length === 1 ? "device" : "devices"} found. Automatic source will prefer a loaded feeder.` });
-    } catch (caught) {
-      setScannerDevices([]);
-      setSelectedScannerId("");
-      setScannerError(caught instanceof Error ? caught.message : "Scanner discovery failed.");
-      setScanFeedback(null);
-    } finally {
-      setCheckingScanners(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    scanCapturesRef.current = scanCaptures;
-  }, [scanCaptures]);
-
-  useEffect(() => () => {
-    scanCapturesRef.current.forEach((capture) => URL.revokeObjectURL(capture.previewUrl));
-  }, []);
 
   useEffect(() => {
     if (!open) return;
-    clearScanCaptures();
     setForm(BLANK);
     setSubmitted(false);
     setSaving(false);
-    setAcquiring(false);
-    setCheckingScanners(false);
-    setScannerDevices([]);
-    setSelectedScannerId("");
-    setScanSettings(DEFAULT_SCAN_SETTINGS);
-    setPlacementConfirmed(false);
-    setScanFeedback(null);
-    setScannerError(null);
     setError(null);
   }, [open, service.id]);
 
-  useEffect(() => {
-    if (open && isScan) void refreshScanners();
-  }, [isScan, open, refreshScanners]);
-
-  function clearScanCaptures() {
-    scanCapturesRef.current.forEach((capture) => URL.revokeObjectURL(capture.previewUrl));
-    scanCapturesRef.current = [];
-    setScanCaptures([]);
-  }
-
   function selectProduct(productId: string) {
     const product = availableProducts.find((candidate) => candidate.id === productId);
-    clearScanCaptures();
     setForm((current) => ({
       ...current,
       productId,
@@ -234,103 +77,28 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
       backToBack: false,
       name: current.name.trim() ? current.name : product?.name ?? "",
     }));
-    setPlacementConfirmed(false);
-    setScanFeedback(null);
-    setScannerError(null);
     setError(null);
-  }
-
-  async function addScanFiles(files: File[], source: ScanCapture["source"], settings?: ScanSettings) {
-    const currentBytes = scanCapturesRef.current.reduce((sum, capture) => sum + capture.file.size, 0);
-    const nextBytes = files.reduce((sum, file) => sum + file.size, currentBytes);
-    if (nextBytes > MAX_SCAN_BYTES) throw new Error("The combined scan output must be 25 MB or smaller.");
-
-    const captures: ScanCapture[] = [];
-    for (const file of files) {
-      const extension = file.name.split(".").pop()?.toLowerCase();
-      if (!extension || !SCAN_EXTENSIONS.includes(extension)) throw new Error("Scanner outputs must be PDF or image files.");
-      if (!file.size) throw new Error("The scanner returned an empty file.");
-      captures.push({ id: crypto.randomUUID(), file, pageCount: await pageCountFor(file), previewUrl: URL.createObjectURL(file), source, settings });
-    }
-    setScanCaptures((current) => [...current, ...captures]);
-  }
-
-  async function acquirePage() {
-    if (!window.paperClub?.acquireScannerPage || !canAcquire || acquiring) {
-      setScannerError("Select an online scanner, place the original in its feeder or on the glass, then try again.");
-      return;
-    }
-    setAcquiring(true);
-    setScannerError(null);
-    setError(null);
-    try {
-      setScanFeedback({ tone: "progress", title: "Scanning in progress", detail: `Starting ${scanSourceLabel(scanSettings.source)} in ${scanSettings.contentType === "text" ? "B&W text" : scanSettings.contentType} at ${scanSettings.resolutionDpi} DPI. Keep the original in place.` });
-      const requestedSettings = { ...scanSettings, placementConfirmed: scannerHasDetectedOriginal(selectedScanner, scanSettings.source) || placementConfirmed };
-      const result = await window.paperClub.acquireScannerPage(selectedScannerId, requestedSettings);
-      if (result.status === "cancelled") {
-        setScanFeedback({ tone: "info", title: "Scan cancelled", detail: "No page was added. Check the source and profile, then try again." });
-        return;
-      }
-      if (result.status === "not_ready" || result.status === "error") {
-        await refreshScanners(false);
-        setScannerError(result.message ?? "The scanner is not ready.");
-        setScanFeedback(null);
-        return;
-      }
-      if (!result.file) {
-        setScannerError("The scanner completed without returning a page.");
-        setScanFeedback(null);
-        return;
-      }
-      const bytes = decodeBase64(result.file.base64);
-      const appliedSettings: ScanSettings = { ...scanSettings, ...result.settings, source: result.source ?? scanSettings.source };
-      await addScanFiles([new File([bytes], result.file.filename, { type: result.file.mimeType })], "scanner", appliedSettings);
-      setPlacementConfirmed(false);
-      await refreshScanners(false);
-      setScanFeedback({ tone: "success", title: "Scan completed", detail: `${result.file.filename} was acquired from the ${scanSourceLabel(appliedSettings.source)}. ${result.message ?? "Review the preview, then scan another page or create the job."}` });
-    } catch (caught) {
-      setScannerError(caught instanceof Error ? caught.message : "The scanner could not acquire this page.");
-      setScanFeedback(null);
-    } finally {
-      setAcquiring(false);
-    }
-  }
-
-  async function importScanFiles(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (!files.length) return;
-    setError(null);
-    try {
-      await addScanFiles(files, "import");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The scanner output could not be imported.");
-    }
-  }
-
-  function removeCapture(id: string) {
-    setScanCaptures((current) => {
-      const removed = current.find((capture) => capture.id === id);
-      if (removed) URL.revokeObjectURL(removed.previewUrl);
-      return current.filter((capture) => capture.id !== id);
-    });
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitted(true);
     setError(null);
-    if (!valid || saving || acquiring) {
+    if (!valid || saving) {
       window.requestAnimationFrame(() => document.querySelector<HTMLElement>(".photocopy-job-modal [aria-invalid='true']")?.focus());
       return;
     }
     setSaving(true);
     try {
       if (isScan) {
-        const body = new FormData();
-        scanCaptures.forEach((capture) => body.append("files", capture.file));
-        body.append("transaction", JSON.stringify({ name: form.name.trim(), serviceId: service.id, productId: form.productId, customerId: form.customerId || null, dueDate: form.dueDate ? `${form.dueDate}T17:00:00` : null, notes: form.notes.trim() || null }));
-        onCreated(await api.upload<JobOrder>("/job-orders/from-scan", body));
+        onCreated(await api.post<JobOrder>("/job-orders/from-scan", {
+          name: form.name.trim(),
+          serviceId: service.id,
+          productId: form.productId,
+          customerId: form.customerId || null,
+          dueDate: form.dueDate ? `${form.dueDate}T17:00:00` : null,
+          notes: form.notes.trim() || null,
+        }));
         return;
       }
       onCreated(await api.post<JobOrder>("/job-orders/from-photocopy", { name: form.name.trim(), serviceId: service.id, productId: form.productId, paperInventoryItemId: form.paperInventoryItemId, pagesPerCopy: form.pagesPerCopy, copies: form.copies, backToBack: form.backToBack, customerId: form.customerId || null, dueDate: form.dueDate ? `${form.dueDate}T17:00:00` : null, notes: form.notes.trim() || null }));
@@ -342,31 +110,20 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
   }
 
   return (
-    <Modal open={open} title={`New ${service.name} job`} description="Choose Scan or Photocopy. The selected product reveals only the information that operation needs." onClose={onClose} busy={saving || acquiring} status={error ? "error" : saving || acquiring ? "loading" : "idle"} className="photocopy-job-modal">
+    <Modal open={open} title={`New ${service.name} job`} description="Choose Scan or Photocopy. The selected product reveals only the information that operation needs." onClose={onClose} busy={saving} status={error ? "error" : saving ? "loading" : "idle"} className="photocopy-job-modal">
       <form className="photocopy-job-form" onSubmit={submit} noValidate>
         <div className="photocopy-job-form__content">
           {availableProducts.length === 0 ? <div className="photocopy-job-form__empty"><strong>This service has no active products.</strong><p>Add a Scan or Photocopy product and configure its custom rate first.</p></div> : (
             <>
               <section className="photocopy-job-form__fields">
-                <div className="photocopy-job-form__section-heading"><span className="numeric">01 / SERVICE SETUP</span><h3>{isScan ? "Acquire the document" : "Record the photocopy work"}</h3></div>
+                <div className="photocopy-job-form__section-heading"><span className="numeric">01 / SERVICE SETUP</span><h3>{isScan ? "Set up the scan job" : "Record the photocopy work"}</h3></div>
                 <label className="form-field"><span>Product</span><select value={form.productId} onChange={(event) => selectProduct(event.target.value)} aria-invalid={submitted && !selectedProduct} autoFocus><option value="">Select product</option>{availableProducts.map((product) => <option key={product.id} value={product.id}>{product.operationKind === "scan" ? "Scan" : "Photocopy"} · {product.name}{product.operationKind === "scan" ? "" : ` · ${product.printTypeLabel || formatProductPrintType(product.printType)}`}</option>)}</select></label>
                 {isScan ? (
-                  <>
-                    <section className={`scan-acquisition${submitted && !scanCaptures.length ? " is-invalid" : ""}`} aria-invalid={submitted && !scanCaptures.length} tabIndex={submitted && !scanCaptures.length ? -1 : undefined}>
-                      <div className="scan-acquisition__heading"><span><b className="numeric">SCANNER PREFLIGHT</b><strong>{scanCaptures.length ? `${scannedPages} ${scannedPages === 1 ? "page" : "pages"} acquired` : checkingScanners ? "Checking Windows devices" : selectedScanner ? selectedScanner.name : "Scanner unavailable"}</strong><small>Automatic source prefers a loaded feeder. You can explicitly choose Feeder or Flatbed when the driver cannot sense placement.</small></span><Button type="button" variant="secondary" onClick={() => void refreshScanners()} loading={checkingScanners} disabled={!scannerAvailable || acquiring || saving}>Refresh</Button></div>
-                      <div className="scan-preflight">
-                        <label className="form-field"><span>Scanner device</span><select value={selectedScannerId} onChange={(event) => { setSelectedScannerId(event.target.value); setScanSettings((current) => ({ ...current, source: "auto" })); setPlacementConfirmed(false); setScannerError(null); setScanFeedback({ tone: "info", title: "Scanner changed", detail: "Source returned to Automatic and will prefer a loaded feeder." }); }} disabled={checkingScanners || acquiring || !scannerDevices.length}><option value="">{checkingScanners ? "Checking devices…" : "Select scanner"}</option>{scannerDevices.map((device) => <option key={device.id} value={device.id}>{device.name}{device.isOnline ? "" : " · Offline"}</option>)}</select></label>
-                        {selectedScanner ? <ScannerReadiness device={selectedScanner} source={scanSettings.source} /> : <div className="scan-readiness is-error" role="status"><span aria-hidden="true">!</span><p><strong>No usable scanner detected</strong><small>Turn on the Canon device, check USB/Wi-Fi, and install or repair Canon IJPAT/MP Drivers, then refresh.</small></p></div>}
-                        {requiresPlacementConfirmation ? <label className={`scan-placement-confirm${placementConfirmed ? " is-confirmed" : ""}`}><input type="checkbox" checked={placementConfirmed} onChange={(event) => { setPlacementConfirmed(event.target.checked); setScannerError(null); }} disabled={acquiring || saving} /><span><strong>Document is loaded</strong><small>{scanSettings.source === "flatbed" ? "Confirm the original is on the glass and the cover is closed." : scanSettings.source === "feeder" ? "Confirm the original is seated between the feeder guides." : "Confirm placement. Automatic source will try the feeder first; choose Flatbed explicitly for an original on the glass."}</small></span></label> : null}
-                        {selectedScanner ? <fieldset className="scan-profile" disabled={acquiring || saving}><legend><span className="numeric">SCAN PROFILE</span><small>Standard Windows scanner controls, kept inside Printing-MS.</small></legend><div><label className="form-field"><span>Document source</span><select value={scanSettings.source} onChange={(event) => { setScanSettings((current) => ({ ...current, source: event.target.value as ScanSettings["source"] })); setPlacementConfirmed(false); setScannerError(null); setScanFeedback({ tone: "info", title: "Source changed", detail: `The next scan will use ${scanSourceLabel(event.target.value as ScanSettings["source"])}.` }); }}><option value="auto">Automatic · feeder first</option><option value="feeder" disabled={!selectedScanner.supportsFeeder}>Document feeder</option><option value="flatbed" disabled={!selectedScanner.supportsFlatbed}>Flatbed glass</option></select></label><label className="form-field"><span>Document content</span><select value={scanSettings.contentType} onChange={(event) => { setScanSettings((current) => ({ ...current, contentType: event.target.value as ScanSettings["contentType"] })); setScannerError(null); }}><option value="color">Color document</option><option value="grayscale">Grayscale</option><option value="text">Black &amp; white text</option></select></label><label className="form-field"><span>Resolution</span><select value={scanSettings.resolutionDpi} onChange={(event) => setScanSettings((current) => ({ ...current, resolutionDpi: Number(event.target.value) as ScanSettings["resolutionDpi"] }))}><option value={150}>150 DPI · Quick</option><option value={300}>300 DPI · Standard</option><option value={600}>600 DPI · Fine detail</option></select></label><label className="form-field"><span>Page size</span><select value={scanSettings.pageSize} onChange={(event) => setScanSettings((current) => ({ ...current, pageSize: event.target.value as ScanSettings["pageSize"] }))}>{SCAN_PAGE_SIZES.map((size) => <option key={size.value} value={size.value}>{size.label} · {size.dimensions}</option>)}</select><small>This controls the captured area, not printing paper or inventory.</small></label></div></fieldset> : null}
-                        {scanFeedback ? <ScanFeedbackNotice feedback={scanFeedback} /> : null}
-                        {scannerError ? <p className="scan-preflight__error" role="alert">{scannerError}</p> : null}
-                        <div className="scan-preflight__action"><Button type="button" variant="primary" onClick={acquirePage} loading={acquiring} disabled={!canAcquire}>{scanCaptures.length ? "Scan another page" : "Start scanning"}</Button><small>{canAcquire ? "Starts the scanner with this profile. Windows only shows transfer progress." : reportsNoOriginal ? "Load a document in the feeder, then refresh readiness." : requiresPlacementConfirmation && !placementConfirmed ? "Confirm document placement to continue." : "Resolve the scanner issue above to continue."}</small></div>
-                      </div>
-                      {scanCaptures.length ? <ScanCaptureList captures={scanCaptures} onRemove={removeCapture} /> : <div className="scan-acquisition__empty"><span aria-hidden="true">◎</span><p>Place the original on the platen or feeder, then start scanning. The captured page will appear here before the job is created.</p></div>}
-                    </section>
-                    <details className="scan-import-fallback"><summary>Scanner unavailable? Import an existing output</summary><input id={scanFileInputId} className="scan-output-input" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp" onChange={importScanFiles} /><label className="scan-output-dropzone" htmlFor={scanFileInputId}><span className="numeric" aria-hidden="true">FILE</span><span><strong>Import PDF or image output</strong><small>Recovery option for scans produced outside Printing-MS.</small></span><b>Browse</b></label></details>
-                  </>
+                  <div className="scan-defer-note">
+                    <span className="numeric">SCANNING HAPPENS IN THE JOB</span>
+                    <p>Creating this job places it in the queue right away. Open it afterward to run the scanner, review the softcopy preview, and attach the acquired pages — nothing is scanned here.</p>
+                    {scanRate === null ? <p className="workspace-form__error" aria-invalid="true" tabIndex={-1}>Set a scan price per page for this product before creating a job.</p> : null}
+                  </div>
                 ) : selectedProduct ? (
                   <>
                     <label className="form-field"><span>Paper used</span><select value={form.paperInventoryItemId} onChange={(event) => setForm((current) => ({ ...current, paperInventoryItemId: event.target.value }))} aria-invalid={submitted && !selectedPaper}><option value="">Select paper</option>{papers.map((paper) => <option key={paper.id} value={paper.id}>{paper.paperSize} · {paper.name} · {paper.quantityOnHand} {paper.unit} available</option>)}</select></label>
@@ -381,98 +138,27 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
                 <div className="photocopy-job-form__numbers"><label className="form-field"><span>Customer</span><select value={form.customerId} onChange={(event) => setForm((current) => ({ ...current, customerId: event.target.value }))}><option value="">Walk-in / no customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select></label><label className="form-field"><span>Due date</span><input type="date" value={form.dueDate} onChange={(event) => setForm((current) => ({ ...current, dueDate: event.target.value }))} /></label></div>
                 <label className="form-field"><span>Notes</span><textarea rows={2} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
               </section>
-              <aside className={`photocopy-quote${isScan ? " photocopy-quote--scan" : ""}`} aria-live="polite">
-                {isScan && scanCaptures.length ? <ScanDocumentPreview captures={scanCaptures} /> : null}
-                <span className="numeric">COMPUTED TRANSACTION</span><strong>{total === null ? "—" : formatCurrency(total)}</strong><small>{unitPrice === null ? (isScan ? "Select a configured Scan product" : "Select configured paper") : `${formatCurrency(unitPrice)} per page × ${totalPages.toLocaleString()} ${isScan ? "scanner-detected pages" : "page impressions"}`}</small>
-                {isScan ? <dl><div><dt>Scanned pages</dt><dd>{scannedPages || "—"}</dd></div><div><dt>Acquisitions</dt><dd>{scanCaptures.length || "—"}</dd></div><div><dt>Inventory used</dt><dd>None</dd></div><div><dt>Deliverable</dt><dd>{scanCaptures.length > 1 ? "Combined PDF" : "Retained softcopy"}</dd></div></dl> : <dl><div><dt>Document pages</dt><dd>{form.pagesPerCopy.toLocaleString()}</dd></div><div><dt>Copies</dt><dd>{form.copies.toLocaleString()}</dd></div><div><dt>Page impressions</dt><dd>{totalPages.toLocaleString()}</dd></div><div><dt>Paper deducted</dt><dd>{sheets.toLocaleString()} sheets</dd></div><div><dt>Sides</dt><dd>{form.backToBack ? "Back-to-back" : "Single-sided"}</dd></div></dl>}
-                {!isScan && selectedPaper && sheets > selectedPaper.quantityOnHand ? <p className="workspace-form__error" aria-invalid="true" tabIndex={-1}>Only {selectedPaper.quantityOnHand} {selectedPaper.unit} are available.</p> : null}
-                <p>{isScan ? "The acquired document is retained with the job and opens Ready for payment and delivery." : "The photocopy is recorded as produced, paper is deducted immediately, and the job opens Ready for payment."}</p>
+              <aside className="photocopy-quote" aria-live="polite">
+                {isScan ? (
+                  <>
+                    <span className="numeric">SCAN RATE</span><strong>{scanRate === null ? "—" : `${formatCurrency(scanRate)} / page`}</strong><small>Select a configured Scan product</small>
+                    <p>The final price is computed automatically from the pages you scan inside the job. The job opens Ready for payment once the softcopy is attached.</p>
+                  </>
+                ) : (
+                  <>
+                    <span className="numeric">COMPUTED TRANSACTION</span><strong>{total === null ? "—" : formatCurrency(total)}</strong><small>{unitPrice === null ? "Select configured paper" : `${formatCurrency(unitPrice)} per page × ${totalPages.toLocaleString()} page impressions`}</small>
+                    <dl><div><dt>Document pages</dt><dd>{form.pagesPerCopy.toLocaleString()}</dd></div><div><dt>Copies</dt><dd>{form.copies.toLocaleString()}</dd></div><div><dt>Page impressions</dt><dd>{totalPages.toLocaleString()}</dd></div><div><dt>Paper deducted</dt><dd>{sheets.toLocaleString()} sheets</dd></div><div><dt>Sides</dt><dd>{form.backToBack ? "Back-to-back" : "Single-sided"}</dd></div></dl>
+                    {selectedPaper && sheets > selectedPaper.quantityOnHand ? <p className="workspace-form__error" aria-invalid="true" tabIndex={-1}>Only {selectedPaper.quantityOnHand} {selectedPaper.unit} are available.</p> : null}
+                    <p>The photocopy is recorded as produced, paper is deducted immediately, and the job opens Ready for payment.</p>
+                  </>
+                )}
               </aside>
             </>
           )}
           {error ? <p className="workspace-form__error photocopy-job-form__error" role="alert">{error}</p> : null}
         </div>
-        <footer className="photocopy-job-form__actions"><Button type="button" variant="ghost" onClick={onClose} disabled={saving || acquiring}>Cancel</Button><Button type="submit" variant="primary" loading={saving} disabled={!availableProducts.length || acquiring || (submitted && !valid)}>Create {isScan ? "scan" : "photocopy"} job</Button></footer>
+        <footer className="photocopy-job-form__actions"><Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button><Button type="submit" variant="primary" loading={saving} disabled={!availableProducts.length || (submitted && !valid)}>Create {isScan ? "scan" : "photocopy"} job</Button></footer>
       </form>
     </Modal>
   );
-}
-
-function ScannerReadiness({ device, source }: { device: ScannerDeviceState; source: ScanSettings["source"] }) {
-  let tone = "is-ready";
-  let title = "Automatic source ready";
-  let detail = "Start scanning after placing the original in the feeder or on the glass.";
-  if (!device.isOnline) {
-    tone = "is-error";
-    title = "Scanner is offline";
-    detail = device.issue ?? "Turn it on and check its USB or network connection.";
-  } else if (device.paperJam) {
-    tone = "is-error";
-    title = "Paper jam detected";
-    detail = "Clear the feeder path and refresh readiness.";
-  } else if (device.coverOpen) {
-    tone = "is-error";
-    title = "Scanner cover is open";
-    detail = "Close the platen or paper-path cover and refresh readiness.";
-  } else if (!device.supportsFlatbed && !device.supportsFeeder) {
-    tone = "is-error";
-    title = "No scanner source available";
-    detail = "Install the full scanner driver, then refresh devices.";
-  } else if (scannerHasDetectedOriginal(device, source)) {
-    title = "Document feeder detected";
-    detail = "The loaded feeder will be used automatically.";
-  } else if (scannerReportsNoOriginal(device, source)) {
-    tone = "is-error";
-    title = "No document detected";
-    detail = "Load an original in the feeder, then refresh readiness.";
-  } else if (scannerRequiresPlacementConfirmation(device, source)) {
-    tone = "is-manual";
-    title = "Placement confirmation required";
-    detail = source === "flatbed" ? "WIA cannot verify an original on the glass. Place it, close the cover, then confirm below." : source === "feeder" ? "The driver cannot report feeder paper. Seat it between the guides, then confirm below." : `${device.name} cannot verify placement. Automatic mode will try the feeder first.`;
-  } else {
-    tone = "is-error";
-    title = "Scanner is not ready";
-    detail = "Check the device and refresh readiness.";
-  }
-  return <div className={`scan-readiness ${tone}`} role="status"><span aria-hidden="true">{tone === "is-ready" ? "✓" : tone === "is-manual" ? "?" : "!"}</span><p><strong>{title}</strong><small>{detail}</small></p></div>;
-}
-
-function ScanFeedbackNotice({ feedback }: { feedback: ScanFeedback }) {
-  return <div className={`scan-feedback is-${feedback.tone}`} role="status" aria-live="polite"><span aria-hidden="true">{feedback.tone === "success" ? "✓" : feedback.tone === "progress" ? "…" : "i"}</span><p><strong>{feedback.title}</strong><small>{feedback.detail}</small></p></div>;
-}
-
-function ScanCaptureList({ captures, onRemove }: { captures: ScanCapture[]; onRemove: (id: string) => void }) {
-  return <ol className="scan-capture-list">{captures.map((capture, index) => <li key={capture.id}><span className="numeric">{String(index + 1).padStart(2, "0")}</span><span><strong>{capture.file.name}</strong><small>{capture.source === "scanner" ? `Scanned · ${formatScanProfile(capture.settings)}` : "Imported recovery output"} · {capture.pageCount} {capture.pageCount === 1 ? "page" : "pages"} · {formatFileSize(capture.file.size)}</small></span><button type="button" onClick={() => onRemove(capture.id)} aria-label={`Remove ${capture.file.name}`}>Remove</button></li>)}</ol>;
-}
-
-function formatScanProfile(settings?: ScanSettings): string {
-  if (!settings) return "Windows scanner";
-  const source = settings.source === "feeder" ? "Feeder" : settings.source === "flatbed" ? "Flatbed" : "Automatic source";
-  const content = settings.contentType === "color" ? "Color" : settings.contentType === "grayscale" ? "Grayscale" : "B&W text";
-  const pageSize = SCAN_PAGE_SIZES.find((size) => size.value === settings.pageSize)?.label ?? "Automatic";
-  return `${source} · ${content} · ${settings.resolutionDpi} DPI · ${pageSize}`;
-}
-
-function ScanDocumentPreview({ captures }: { captures: ScanCapture[] }) {
-  if (captures.length === 1 && captures[0].file.type === "application/pdf") return <div className="scan-document-preview scan-document-preview--pdf"><PdfViewer file={captures[0].file} filename={captures[0].file.name} downloadUrl={captures[0].previewUrl} /></div>;
-  return <div className="scan-document-preview" aria-label="Scanned document preview"><span className="numeric">DOCUMENT PREVIEW</span><div>{captures.map((capture, index) => capture.file.type.startsWith("image/") && !capture.file.type.includes("tiff") ? <ScanImagePreview key={capture.id} capture={capture} index={index} /> : <figure className="scan-document-preview__file" key={capture.id}><span aria-hidden="true">FILE</span><figcaption>{capture.file.name} · {capture.pageCount} pages</figcaption></figure>)}</div></div>;
-}
-
-function ScanImagePreview({ capture, index }: { capture: ScanCapture; index: number }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) return <figure className="scan-document-preview__file"><span aria-hidden="true">!</span><figcaption>Page {index + 1} preview unavailable</figcaption></figure>;
-  return <figure><img src={capture.previewUrl} alt={`Scanned page ${index + 1}`} onError={() => setFailed(true)} /><figcaption>Page {index + 1}</figcaption></figure>;
-}
-
-async function pageCountFor(file: File): Promise<number> {
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) return 1;
-  const task = getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
-  try { return (await task.promise).numPages; } finally { await task.destroy(); }
-}
-
-function decodeBase64(value: string): ArrayBuffer {
-  const binary = window.atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes.buffer as ArrayBuffer;
 }

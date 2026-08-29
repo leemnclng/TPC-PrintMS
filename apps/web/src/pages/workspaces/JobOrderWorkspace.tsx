@@ -18,6 +18,7 @@ import type { InventoryMovement, JobFile, JobOrder, JobOrderStatus } from "../..
 import { JobMaterialUsageModal } from "../jobOrders/JobMaterialUsageModal";
 import { JobPaymentModal } from "../jobOrders/JobPaymentModal";
 import { JobPrintSetupModal } from "../jobOrders/JobPrintSetupModal";
+import { JobScanSetupModal } from "../jobOrders/JobScanSetupModal";
 import { JobTransitionModal } from "../jobOrders/JobTransitionModal";
 import "./Workspace.css";
 
@@ -43,6 +44,7 @@ export function JobOrderWorkspace() {
   const [usageOpen, setUsageOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [transitionTarget, setTransitionTarget] = useState<TransitionTarget | null>(null);
   const [scanPreviewOpen, setScanPreviewOpen] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -61,8 +63,15 @@ export function JobOrderWorkspace() {
   const { order, materialMovements } = data;
   const operationKind = order.items[0]?.operationKind ?? "printing";
   const isScan = operationKind === "scan";
-  const isDeviceSide = operationKind === "scan" || operationKind === "photocopy";
-  const productionSteps: readonly JobOrderStatus[] = isDeviceSide ? ["ready", "paid", "completed"] : PRODUCTION_STEPS;
+  const isPhotocopy = operationKind === "photocopy";
+  // Photocopy is produced entirely on the device, so it has no queue step.
+  // Scan does: the acquisition happens inside this job after creation, so it
+  // waits in Queued just like a print job does before Ready.
+  const productionSteps: readonly JobOrderStatus[] = isPhotocopy
+    ? ["ready", "paid", "completed"]
+    : isScan
+      ? ["queued", "ready", "paid", "completed"]
+      : PRODUCTION_STEPS;
   const activeStepIndex = productionSteps.indexOf(order.status);
   const outstanding = Math.max(order.total - order.amountPaid, 0);
   const printFile = order.files.find((file) => file.kind === "print_ready");
@@ -74,16 +83,17 @@ export function JobOrderWorkspace() {
   const canRecordFallbackUsage = hasRemainingMaterials && ["printing", "ready", "paid", "completed"].includes(order.status);
   function workflowAction() {
     if (order.status === "queued") {
+      if (isScan) return <Button variant="primary" onClick={() => setScanOpen(true)}>Proceed to scan</Button>;
       return <Button variant="primary" onClick={() => setPrintOpen(true)}>Proceed to print</Button>;
     }
     if (order.status === "printing") return <Button variant="primary" onClick={() => setTransitionTarget("ready")}>Printing finished</Button>;
     if (order.status === "ready") {
-      if (isDeviceSide) {
+      if (isPhotocopy) {
         return <Button variant="primary" onClick={() => (outstanding > 0 ? setPaymentOpen(true) : setTransitionTarget("paid"))}>Record payment</Button>;
       }
       return (
         <div className="job-command__quality-actions">
-          <Button variant="secondary" onClick={() => setTransitionTarget("queued")}>Needs re-print</Button>
+          <Button variant="secondary" onClick={() => setTransitionTarget("queued")}>{isScan ? "Needs re-scan" : "Needs re-print"}</Button>
           <Button variant="primary" onClick={() => (outstanding > 0 ? setPaymentOpen(true) : setTransitionTarget("paid"))}>Mark ready</Button>
         </div>
       );
@@ -95,6 +105,7 @@ export function JobOrderWorkspace() {
   function handleUpdated() {
     setPaymentOpen(false);
     setPrintOpen(false);
+    setScanOpen(false);
     setTransitionTarget(null);
     reload();
   }
@@ -126,14 +137,14 @@ export function JobOrderWorkspace() {
 
       <section className="job-command" aria-labelledby="job-command-title">
         <div className="job-command__heading">
-          <div><span className="numeric">CURRENT STEP</span><h2 id="job-command-title">{isDeviceSide && order.status === "ready" ? (isScan ? "Softcopy ready" : "Photocopy recorded") : jobOrderStatusMeta[order.status].label}</h2><p>{isDeviceSide && order.status === "ready" ? (isScan ? "The scanner output is retained. Collect payment, then deliver the softcopy." : "Device-side work is recorded and materials are deducted. Collect payment to continue.") : NEXT_STEP_COPY[order.status] ?? "This job has no active production action."}</p></div>
+          <div><span className="numeric">CURRENT STEP</span><h2 id="job-command-title">{(isScan || isPhotocopy) && order.status === "ready" ? (isScan ? "Softcopy ready" : "Photocopy recorded") : jobOrderStatusMeta[order.status].label}</h2><p>{isPhotocopy && order.status === "ready" ? "Device-side work is recorded and materials are deducted. Collect payment to continue." : isScan && order.status === "ready" ? "The scanner output is retained. Inspect it, then collect payment or send it back for a re-scan." : NEXT_STEP_COPY[order.status] ?? "This job has no active production action."}</p></div>
           {workflowAction()}
         </div>
         <ol className="job-workflow-steps">
           {productionSteps.map((status, index) => (
             <li className={index < activeStepIndex ? "is-complete" : index === activeStepIndex ? "is-active" : ""} key={status} aria-current={index === activeStepIndex ? "step" : undefined}>
               <span className="numeric">{String(index + 1).padStart(2, "0")}</span>
-              <strong>{isDeviceSide && status === "ready" ? (isScan ? "Softcopy ready" : "Photocopy recorded") : jobOrderStatusMeta[status].label}</strong>
+              <strong>{(isScan || isPhotocopy) && status === "ready" ? (isScan ? "Softcopy ready" : "Photocopy recorded") : jobOrderStatusMeta[status].label}</strong>
             </li>
           ))}
         </ol>
@@ -194,6 +205,7 @@ export function JobOrderWorkspace() {
       <JobPaymentModal open={paymentOpen} order={order} onClose={() => setPaymentOpen(false)} onRecorded={handleUpdated} />
       <JobTransitionModal open={transitionTarget !== null} order={order} targetStatus={transitionTarget ?? "queued"} onClose={() => setTransitionTarget(null)} onTransitioned={handleUpdated} />
       <JobPrintSetupModal open={printOpen} order={order} onClose={() => { setPrintOpen(false); reload(); }} onPrinted={handleUpdated} />
+      <JobScanSetupModal open={scanOpen} order={order} onClose={() => { setScanOpen(false); reload(); }} onScanned={handleUpdated} />
       <JobMaterialUsageModal open={usageOpen} order={order} onClose={() => setUsageOpen(false)} onRecorded={() => { setUsageOpen(false); reload(); }} />
       {scanOutput ? <ScanOutputPreviewModal open={scanPreviewOpen} orderId={order.id} jobFile={scanOutput} onClose={() => setScanPreviewOpen(false)} /> : null}
     </>

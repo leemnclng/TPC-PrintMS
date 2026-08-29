@@ -376,17 +376,17 @@ async def _read_scan_outputs(uploaded_files: list[UploadFile]) -> tuple[str, byt
 
 
 @router.post("/from-scan", response_model=JobOrderRead, status_code=201)
-async def create_scan_job_order(
-    transaction: str = Form(...),
-    files: list[UploadFile] | None = File(default=None),
-    file: UploadFile | None = File(default=None),
+def create_scan_job_order(
+    payload: ScanJobOrderCreate,
     db: Session = Depends(get_db),
 ) -> JobOrderRead:
-    try:
-        payload = ScanJobOrderCreate.model_validate_json(transaction)
-    except ValidationError as error:
-        raise HTTPException(status_code=422, detail="The scan transaction details are incomplete or invalid.") from error
+    """Create the scan job immediately, before any page has been acquired.
 
+    Scanning is not a prerequisite for the job to exist: the job is placed in
+    the queue right away, and the owner runs the scanner from inside it via
+    `/job-orders/{id}/scan-output`, mirroring how a print job is created
+    queued and then submitted to a printer.
+    """
     service = db.get(Service, payload.service_id)
     if not service or service.category != "photocopy":
         raise HTTPException(status_code=422, detail="Select the Scan or Photocopy service.")
@@ -400,6 +400,44 @@ async def create_scan_job_order(
     if product.standalone_price_per_page is None:
         raise HTTPException(status_code=422, detail="Set this product's scan price per page before creating a job.")
 
+    created = _create_job_order(
+        JobOrderCreate(
+            name=payload.name,
+            customer_id=payload.customer_id,
+            due_date=payload.due_date,
+            notes=payload.notes,
+            # Placeholder pages/copies: the real page count is only known once
+            # the document is scanned, which updates this line item in place.
+            items=[{"product_id": product.id, "pages_per_copy": 1, "copies": 1, "materials": []}],
+        ),
+        db,
+        allow_device_side=True,
+    )
+    job_order = db.get(JobOrder, created.id)
+    if job_order is None:
+        raise HTTPException(status_code=500, detail="The scan job could not be created.")
+    return _to_read(job_order)
+
+
+@router.post("/{job_order_id}/scan-output", response_model=JobOrderRead, status_code=201)
+async def submit_scan_output(
+    job_order_id: str,
+    files: list[UploadFile] | None = File(default=None),
+    file: UploadFile | None = File(default=None),
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    if not job_order:
+        raise HTTPException(status_code=404, detail="Job order not found.")
+    if job_order.status != JobOrderStatus.queued:
+        raise HTTPException(status_code=409, detail="This job order is not waiting on a scan.")
+    if len(job_order.items) != 1 or job_order.items[0].operation_kind != "scan":
+        raise HTTPException(status_code=422, detail="This job order is not a scan job.")
+    item = job_order.items[0]
+    product = db.get(Product, item.product_id)
+    if not product or product.standalone_price_per_page is None:
+        raise HTTPException(status_code=422, detail="Set this product's scan price per page before completing this scan.")
+
     uploaded_files = [*(files or []), *([file] if file else [])]
     filename, data, content_type = await _read_scan_outputs(uploaded_files)
     try:
@@ -408,33 +446,20 @@ async def create_scan_job_order(
         raise HTTPException(status_code=415, detail="The acquired scanner output must be a PDF or image.") from error
     except (InvalidDocumentError, UnsafeArchiveError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    created = _create_job_order(
-        JobOrderCreate(
-            name=payload.name,
-            customer_id=payload.customer_id,
-            due_date=payload.due_date,
-            notes=payload.notes,
-            items=[{
-                "product_id": product.id,
-                "pages_per_copy": analysis.page_count,
-                "copies": 1,
-                "materials": [],
-            }],
-        ),
-        db,
-        allow_device_side=True,
-    )
-    job_order = db.get(JobOrder, created.id)
-    if job_order is None:
-        raise HTTPException(status_code=500, detail="The scan job could not be finalized.")
 
     storage_directory = settings.resolved_data_dir / "files" / job_order.id
     stored_filename = f"{uuid4().hex}-{filename}"
     stored_path = storage_directory / stored_filename
+    # A re-scan (after a failed quality check sent the job back to the queue)
+    # replaces the prior softcopy rather than accumulating stale deliverables.
+    stale_files = [existing for existing in job_order.files if existing.kind == "scan_output"]
     try:
-        storage_directory.mkdir(parents=True, exist_ok=False)
+        storage_directory.mkdir(parents=True, exist_ok=True)
         stored_path.write_bytes(data)
         relative_path = stored_path.relative_to(settings.resolved_data_dir)
+        for stale in stale_files:
+            job_order.files.remove(stale)
+            db.delete(stale)
         job_order.files.append(
             JobFile(
                 original_filename=filename,
@@ -451,18 +476,20 @@ async def create_scan_job_order(
                 analysis_confidence=analysis.confidence,
             )
         )
+        item.pages_per_copy = analysis.page_count
+        item.unit_price = product.standalone_price_per_page
+        item.line_total = round(item.unit_price * analysis.page_count, 2)
+        job_order.total = item.line_total
         job_order.suggested_total = job_order.total
         _record_status(job_order, JobOrderStatus.ready, "Scanner softcopy attached; ready for payment and delivery.")
         db.commit()
         db.refresh(job_order)
     except Exception as error:
         db.rollback()
-        persisted = db.get(JobOrder, job_order.id)
-        if persisted is not None:
-            db.delete(persisted)
-            db.commit()
         shutil.rmtree(storage_directory, ignore_errors=True)
         raise HTTPException(status_code=500, detail="The scan output could not be saved.") from error
+    for stale in stale_files:
+        (settings.resolved_data_dir / stale.stored_path).unlink(missing_ok=True)
     return _to_read(job_order)
 
 
@@ -869,7 +896,11 @@ def transition_job_order(
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
     target = JobOrderStatus(payload.to_status)
-    if job_order.workflow_category == "photocopy" and target == JobOrderStatus.queued:
+    operation_kind = job_order.items[0].operation_kind if job_order.items else None
+    # Photocopy is produced entirely on the device with no computer queue to
+    # return to. Scan does have a queue: the acquisition happens inside this
+    # job, so a failed quality check can send it back to re-scan.
+    if operation_kind == "photocopy" and target == JobOrderStatus.queued:
         raise HTTPException(status_code=409, detail="Photocopy jobs are produced on the device and cannot enter the computer print queue.")
     # Quality inspection is not its own status: printing lands in Ready, where
     # the owner either sends the job back to Queued for a re-print or, once
@@ -897,7 +928,7 @@ def transition_job_order(
 
     default_notes = {
         JobOrderStatus.ready: "Printing finished; owner started quality review.",
-        JobOrderStatus.queued: "Quality check did not pass; job requeued for a re-print.",
+        JobOrderStatus.queued: f"Quality check did not pass; job requeued for a {'re-scan' if operation_kind == 'scan' else 're-print'}.",
         JobOrderStatus.paid: "No payment due; job marked paid without a payment record.",
         JobOrderStatus.completed: "Owner completed the job order.",
     }

@@ -87,6 +87,9 @@
 .scan-document-preview--pdf > .pdf-viewer { min-height: 0; }
 .scan-document-preview--pdf .pdf-viewer__viewport { padding: var(--space-3); }
 .scan-document-preview--pdf .pdf-viewer__canvas-shell { min-width: 14rem; min-height: 18rem; }
+.scan-defer-note { display: grid; gap: var(--space-2); border: 1px solid var(--color-hairline-strong); padding: var(--space-4); background: var(--color-paper-2); }
+.scan-defer-note > span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .06em; }
+.scan-defer-note > p { margin: 0; color: var(--color-ink-soft); font-size: var(--text-sm); }
 .photocopy-quote { position: sticky; top: 0; align-self: start; min-height: 100%; border-left: 1px solid var(--color-hairline); padding: var(--space-6); background: var(--color-paper-2); }
 .photocopy-quote > span { color: var(--color-accent); font-size: var(--text-xs); }
 .photocopy-quote > strong { display: block; margin-top: var(--space-2); color: var(--color-accent); font-family: var(--font-mono); font-size: var(--text-display-s); }
