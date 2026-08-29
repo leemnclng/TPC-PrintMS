@@ -1,31 +1,231 @@
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$OutputDirectory
+  [ValidateSet("Inspect", "Acquire")]
+  [string]$Mode = "Inspect",
+  [string]$OutputDirectory = "",
+  [string]$DeviceId = "",
+  [ValidateSet("flatbed", "feeder")]
+  [string]$Source = "flatbed"
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$WiaScannerDeviceType = 1
+$WiaDocumentHandlingCapabilities = 3086
+$WiaDocumentHandlingStatus = 3087
+$WiaDocumentHandlingSelect = 3088
+$CapabilityFeed = 0x001
+$CapabilityFlatbed = 0x002
+$CapabilityDuplex = 0x004
+$CapabilityDetectFlatbed = 0x008
+$CapabilityDetectFeeder = 0x020
+$StatusFeedReady = 0x001
+$StatusFlatbedReady = 0x002
+$StatusFlatbedCoverUp = 0x008
+$StatusPathCoverUp = 0x010
+$StatusPaperJam = 0x020
+$UnspecifiedFormat = "{00000000-0000-0000-0000-000000000000}"
+
+function Get-WiaPropertyValue {
+  param($Properties, [int]$PropertyId)
+  foreach ($property in $Properties) {
+    if ([int]$property.PropertyID -eq $PropertyId) {
+      return $property.Value
+    }
+  }
+  return $null
+}
+
+function Set-WiaPropertyValue {
+  param($Properties, [int]$PropertyId, [int]$Value)
+  foreach ($property in $Properties) {
+    if ([int]$property.PropertyID -eq $PropertyId) {
+      try {
+        $property.Value = $Value
+        return $true
+      }
+      catch {
+        return $false
+      }
+    }
+  }
+  return $false
+}
+
+function Get-DeviceName {
+  param($DeviceInfo)
+  foreach ($property in $DeviceInfo.Properties) {
+    if ([string]$property.Name -eq "Name") {
+      return [string]$property.Value
+    }
+  }
+  return "Windows scanner"
+}
+
+function Get-ScannerState {
+  param($DeviceInfo)
+  $name = Get-DeviceName $DeviceInfo
+  try {
+    $device = $DeviceInfo.Connect()
+    $capabilitiesValue = Get-WiaPropertyValue $device.Properties $WiaDocumentHandlingCapabilities
+    $statusValue = Get-WiaPropertyValue $device.Properties $WiaDocumentHandlingStatus
+    $capabilities = if ($null -eq $capabilitiesValue) { 0 } else { [int]$capabilitiesValue }
+    $status = if ($null -eq $statusValue) { 0 } else { [int]$statusValue }
+    $supportsFeeder = ($capabilities -band $CapabilityFeed) -ne 0
+    $supportsFlatbed = ($capabilities -band $CapabilityFlatbed) -ne 0
+    # Some WIA drivers omit the capability property even though they expose a
+    # working flatbed item. Keep flatbed available as the conservative fallback.
+    if (-not $supportsFeeder -and -not $supportsFlatbed) {
+      $supportsFlatbed = $true
+    }
+    return [pscustomobject]@{
+      id = [string]$DeviceInfo.DeviceID
+      name = $name
+      isOnline = $true
+      supportsFlatbed = $supportsFlatbed
+      supportsFeeder = $supportsFeeder
+      supportsDuplex = ($capabilities -band $CapabilityDuplex) -ne 0
+      detectsFlatbed = ($capabilities -band $CapabilityDetectFlatbed) -ne 0
+      detectsFeeder = ($capabilities -band $CapabilityDetectFeeder) -ne 0
+      flatbedReady = if (($capabilities -band $CapabilityDetectFlatbed) -ne 0) { ($status -band $StatusFlatbedReady) -ne 0 } else { $null }
+      feederReady = if (($capabilities -band $CapabilityDetectFeeder) -ne 0) { ($status -band $StatusFeedReady) -ne 0 } else { $null }
+      coverOpen = ($status -band ($StatusFlatbedCoverUp -bor $StatusPathCoverUp)) -ne 0
+      paperJam = ($status -band $StatusPaperJam) -ne 0
+      issue = $null
+    }
+  }
+  catch {
+    return [pscustomobject]@{
+      id = [string]$DeviceInfo.DeviceID
+      name = $name
+      isOnline = $false
+      supportsFlatbed = $true
+      supportsFeeder = $false
+      supportsDuplex = $false
+      detectsFlatbed = $false
+      detectsFeeder = $false
+      flatbedReady = $null
+      feederReady = $null
+      coverOpen = $false
+      paperJam = $false
+      issue = "Windows found this scanner, but it could not connect. Turn it on and check its USB or network connection."
+    }
+  }
+}
+
+function Get-ScannerDeviceInfos {
+  param($Manager)
+  $scannerInfos = @()
+  foreach ($deviceInfo in $Manager.DeviceInfos) {
+    if ([int]$deviceInfo.Type -eq $WiaScannerDeviceType) {
+      $scannerInfos += $deviceInfo
+    }
+  }
+  return $scannerInfos
+}
+
+function Write-Result {
+  param($Value)
+  $Value | ConvertTo-Json -Compress -Depth 6
+}
+
+function Write-WiaError {
+  param([System.Exception]$Exception)
+  $hex = "0x{0:X8}" -f ($Exception.HResult -band 0xffffffffL)
+  $known = @{
+    "0x80210002" = @("paper_jam", "Paper is jammed in the scanner feeder. Clear the paper path, then refresh readiness.")
+    "0x80210003" = @("paper_empty", "No document was detected in the feeder. Insert the originals between the feeder guides, then try again.")
+    "0x80210004" = @("paper_problem", "The scanner reported a feeder problem. Reinsert the originals and check the paper guides.")
+    "0x80210005" = @("offline", "The scanner is offline. Turn it on and check its USB or network connection.")
+    "0x80210006" = @("busy", "The scanner is busy in another application. Finish that scan, then try again.")
+    "0x80210007" = @("warming_up", "The scanner is warming up. Wait a moment, then try again.")
+    "0x80210008" = @("device_attention", "The scanner needs attention. Check its display, covers, cable, and network connection.")
+    "0x8021000A" = @("device_communication", "Windows lost communication with the scanner. Check its USB or network connection.")
+    "0x8021000C" = @("hardware_setting", "The scanner settings are not valid for the loaded source. Review the driver settings and try again.")
+    "0x8021000D" = @("device_locked", "The scanner is locked by another application. Close the other scanning app, then try again.")
+    "0x80210010" = @("cover_open", "A scanner cover or paper path is open. Close it before scanning.")
+    "0x80210011" = @("lamp_off", "The scanner lamp is unavailable. Check the device display or restart the scanner.")
+    "0x80210015" = @("no_scanner", "No Windows scanner is available. Turn on the Canon device and install or repair its MP/WIA driver.")
+    "0x80210020" = @("multiple_feed", "The feeder detected multiple sheets. Separate and reinsert the originals.")
+  }
+  if ($known.ContainsKey($hex)) {
+    Write-Result ([pscustomobject]@{ status = "error"; code = $known[$hex][0]; message = $known[$hex][1] })
+    return
+  }
+  Write-Result ([pscustomobject]@{
+    status = "error"
+    code = "wia_error"
+    message = "Windows could not complete the scan ($hex). Check the scanner display and Canon MP/WIA driver, then try again."
+  })
+}
+
+$manager = $null
 $dialog = $null
+$device = $null
+$selectedItems = $null
+$selectedItem = $null
 $image = $null
 
 try {
-  $dialog = New-Object -ComObject WIA.CommonDialog
-  # Scanner device, unspecified intent/bias/format. The Windows WIA and
-  # installed vendor driver UI remain authoritative for source, color, DPI,
-  # paper size, cropping, and any Canon-specific acquisition controls.
-  $image = $dialog.ShowAcquireImage(
-    1,
-    0,
-    0,
-    "{00000000-0000-0000-0000-000000000000}",
-    $true,
-    $true,
-    $false
-  )
+  $manager = New-Object -ComObject WIA.DeviceManager
+  $scannerInfos = @(Get-ScannerDeviceInfos $manager)
 
+  if ($Mode -eq "Inspect") {
+    $devices = @($scannerInfos | ForEach-Object { Get-ScannerState $_ })
+    Write-Result ([pscustomobject]@{
+      status = if ($devices.Count -gt 0) { "ready" } else { "unavailable" }
+      message = if ($devices.Count -gt 0) { $null } else { "No Windows scanner was found. Turn on the Canon device and install or repair its MP/WIA driver." }
+      devices = $devices
+    })
+    exit 0
+  }
+
+  if ([string]::IsNullOrWhiteSpace($OutputDirectory) -or [string]::IsNullOrWhiteSpace($DeviceId)) {
+    Write-Result ([pscustomobject]@{ status = "error"; code = "invalid_request"; message = "Select a scanner before starting acquisition." })
+    exit 0
+  }
+  $deviceInfo = $scannerInfos | Where-Object { [string]$_.DeviceID -eq $DeviceId } | Select-Object -First 1
+  if ($null -eq $deviceInfo) {
+    Write-Result ([pscustomobject]@{ status = "error"; code = "no_scanner"; message = "The selected scanner is no longer available. Refresh devices and check its connection." })
+    exit 0
+  }
+
+  $state = Get-ScannerState $deviceInfo
+  if (-not $state.isOnline) {
+    Write-Result ([pscustomobject]@{ status = "error"; code = "offline"; message = $state.issue })
+    exit 0
+  }
+  if ($state.paperJam) {
+    Write-Result ([pscustomobject]@{ status = "not_ready"; code = "paper_jam"; message = "Paper is jammed in the scanner feeder. Clear the paper path before scanning." })
+    exit 0
+  }
+  if ($state.coverOpen) {
+    Write-Result ([pscustomobject]@{ status = "not_ready"; code = "cover_open"; message = "A scanner cover or paper path is open. Close it before scanning." })
+    exit 0
+  }
+  if ($Source -eq "feeder" -and $state.detectsFeeder -and -not $state.feederReady) {
+    Write-Result ([pscustomobject]@{ status = "not_ready"; code = "paper_empty"; message = "No document was detected in the feeder. Insert the originals between the guides, then refresh readiness." })
+    exit 0
+  }
+  if ($Source -eq "flatbed" -and $state.detectsFlatbed -and -not $state.flatbedReady) {
+    Write-Result ([pscustomobject]@{ status = "not_ready"; code = "paper_empty"; message = "No document was detected on the flatbed. Place it on the glass and close the cover." })
+    exit 0
+  }
+
+  $device = $deviceInfo.Connect()
+  $dialog = New-Object -ComObject WIA.CommonDialog
+  foreach ($item in $device.Items) {
+    [void](Set-WiaPropertyValue $item.Properties $WiaDocumentHandlingSelect $(if ($Source -eq "feeder") { 1 } else { 2 }))
+  }
+  $selectedItems = $dialog.ShowSelectItems($device, 0, 0, $true, $true, $false)
+  if ($null -eq $selectedItems -or $selectedItems.Count -eq 0) {
+    Write-Result ([pscustomobject]@{ status = "cancelled" })
+    exit 0
+  }
+  $selectedItem = $selectedItems.Item(1)
+  $image = $dialog.ShowTransfer($selectedItem, $UnspecifiedFormat, $false)
   if ($null -eq $image) {
-    [pscustomobject]@{ status = "cancelled" } | ConvertTo-Json -Compress
+    Write-Result ([pscustomobject]@{ status = "cancelled" })
     exit 0
   }
 
@@ -33,22 +233,25 @@ try {
   if ([string]::IsNullOrWhiteSpace($extension) -or $extension -notmatch '^[A-Za-z0-9]{2,5}$') {
     $extension = "bmp"
   }
-
   $filename = "scan-{0}.{1}" -f ([DateTime]::UtcNow.ToString("yyyyMMdd-HHmmssfff")), $extension.ToLowerInvariant()
   $outputPath = Join-Path -Path $OutputDirectory -ChildPath $filename
   $image.SaveFile($outputPath)
-
-  [pscustomobject]@{
-    status = "acquired"
-    path = $outputPath
-    filename = $filename
-  } | ConvertTo-Json -Compress
+  Write-Result ([pscustomobject]@{ status = "acquired"; path = $outputPath; filename = $filename; deviceName = $state.name })
+}
+catch [System.Runtime.InteropServices.COMException] {
+  Write-WiaError $_.Exception
+}
+catch {
+  Write-Result ([pscustomobject]@{
+    status = "error"
+    code = "scanner_bridge_error"
+    message = "Windows could not initialize scanner acquisition. Restart the app and repair the Canon MP/WIA driver if this continues."
+  })
 }
 finally {
-  if ($null -ne $image) {
-    [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($image)
-  }
-  if ($null -ne $dialog) {
-    [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($dialog)
+  foreach ($comObject in @($image, $selectedItem, $selectedItems, $dialog, $device, $manager)) {
+    if ($null -ne $comObject -and [System.Runtime.InteropServices.Marshal]::IsComObject($comObject)) {
+      [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject)
+    }
   }
 }

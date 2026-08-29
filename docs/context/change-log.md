@@ -217,6 +217,8 @@ Track notable app changes by date.
 - Changed: Scan job creation now starts the installed Windows scanner through WIA, previews acquired pages, and derives its billable page count without manual entry.
 - Added: Multiple scanner captures are combined into one retained PDF; saved scan outputs can be viewed and downloaded inside the job workspace.
 - Changed: Importing an existing scanner PDF/image remains available only as a recovery option when direct acquisition is unavailable.
+- Fixed: Direct Scan no longer exposes PowerShell/COM stack traces when Windows cannot find or use a scanner; the modal now gives specific device, driver, connection, paper, jam, cover, busy, and warm-up guidance.
+- Added: Scan intake now discovers Windows scanners, separates flatbed and document-feeder placement, checks hardware readiness when reported by the driver, and requires owner placement confirmation before acquisition.
 - Changed: Scan jobs consume no inventory and open Ready for payment and delivery immediately after the output is retained.
 - Added: The Overview shortcut opens the complete upload-and-analysis job-order modal in one click.
 - Changed: New Job Order is now a guided transaction flow for customer file upload, configured product/variant selection, analysis, price review, and Print Center handoff.

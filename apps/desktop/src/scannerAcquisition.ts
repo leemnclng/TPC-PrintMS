@@ -6,14 +6,37 @@ import { app } from "electron";
 
 const MAX_SCAN_PAGE_BYTES = 25 * 1024 * 1024;
 
+export interface ScannerDeviceState {
+  id: string;
+  name: string;
+  isOnline: boolean;
+  supportsFlatbed: boolean;
+  supportsFeeder: boolean;
+  supportsDuplex: boolean;
+  detectsFlatbed: boolean;
+  detectsFeeder: boolean;
+  flatbedReady: boolean | null;
+  feederReady: boolean | null;
+  coverOpen: boolean;
+  paperJam: boolean;
+  issue: string | null;
+}
+
 interface ScriptResult {
-  status: "acquired" | "cancelled";
+  status: "ready" | "unavailable" | "acquired" | "cancelled" | "not_ready" | "error";
+  code?: string;
+  message?: string;
+  devices?: ScannerDeviceState[];
   path?: string;
   filename?: string;
+  deviceName?: string;
 }
 
 export interface NativeScanResult {
-  status: "acquired" | "cancelled";
+  status: "acquired" | "cancelled" | "not_ready" | "error";
+  code?: string;
+  message?: string;
+  deviceName?: string;
   file?: {
     filename: string;
     mimeType: string;
@@ -22,13 +45,19 @@ export interface NativeScanResult {
   };
 }
 
+export interface ScannerInspection {
+  status: "ready" | "unavailable" | "error";
+  message?: string;
+  devices: ScannerDeviceState[];
+}
+
 function scannerScriptPath(): string {
   return app.isPackaged
     ? path.join(process.resourcesPath, "scanner", "windows_scan.ps1")
     : path.join(__dirname, "..", "resources", "windows_scan.ps1");
 }
 
-function executeScannerScript(outputDirectory: string): Promise<ScriptResult> {
+function executeScannerScript(args: string[]): Promise<ScriptResult> {
   return new Promise((resolve, reject) => {
     execFile(
       "powershell.exe",
@@ -40,13 +69,12 @@ function executeScannerScript(outputDirectory: string): Promise<ScriptResult> {
         "Bypass",
         "-File",
         scannerScriptPath(),
-        "-OutputDirectory",
-        outputDirectory,
+        ...args,
       ],
       { windowsHide: false, maxBuffer: 1024 * 1024 },
-      (error, stdout, stderr) => {
+      (error, stdout, _stderr) => {
         if (error) {
-          reject(new Error(stderr.trim() || "Windows could not start the scanner. Check that its WIA driver is installed and the device is online."));
+          reject(new Error("Windows could not initialize scanner support. Restart the app and repair the Canon MP/WIA driver if this continues."));
           return;
         }
         try {
@@ -59,6 +87,22 @@ function executeScannerScript(outputDirectory: string): Promise<ScriptResult> {
       },
     );
   });
+}
+
+export async function inspectScannerDevices(): Promise<ScannerInspection> {
+  if (process.platform !== "win32") {
+    return { status: "unavailable", message: "Direct scanner acquisition is currently available on Windows only.", devices: [] };
+  }
+  try {
+    const result = await executeScannerScript(["-Mode", "Inspect"]);
+    return {
+      status: result.status === "ready" ? "ready" : result.status === "unavailable" ? "unavailable" : "error",
+      message: result.message,
+      devices: result.devices ?? [],
+    };
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "Scanner discovery failed.", devices: [] };
+  }
 }
 
 function mimeTypeFor(filename: string): string {
@@ -74,15 +118,32 @@ function mimeTypeFor(filename: string): string {
   }[extension] ?? "application/octet-stream";
 }
 
-export async function acquireScannerPage(): Promise<NativeScanResult> {
+export async function acquireScannerPage(deviceId: unknown, source: unknown): Promise<NativeScanResult> {
   if (process.platform !== "win32") {
     throw new Error("Direct scanner acquisition is currently available on Windows only.");
+  }
+  if (typeof deviceId !== "string" || !deviceId.trim() || deviceId.length > 1000) {
+    return { status: "error", code: "invalid_request", message: "Select an available scanner before starting." };
+  }
+  if (source !== "flatbed" && source !== "feeder") {
+    return { status: "error", code: "invalid_request", message: "Select where the original is loaded before starting." };
   }
 
   const outputDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "printing-ms-scan-"));
   try {
-    const result = await executeScannerScript(outputDirectory);
+    const result = await executeScannerScript([
+      "-Mode", "Acquire",
+      "-OutputDirectory", outputDirectory,
+      "-DeviceId", deviceId,
+      "-Source", source,
+    ]);
     if (result.status === "cancelled") return { status: "cancelled" };
+    if (result.status === "not_ready" || result.status === "error") {
+      return { status: result.status, code: result.code, message: result.message };
+    }
+    if (result.status !== "acquired") {
+      return { status: "error", code: "scanner_bridge_error", message: "The scanner returned an unexpected response." };
+    }
     if (!result.path || !result.filename) throw new Error("The scanner did not return an output file.");
 
     const resolvedDirectory = await fs.realpath(outputDirectory);
@@ -97,6 +158,7 @@ export async function acquireScannerPage(): Promise<NativeScanResult> {
     if (data.length > MAX_SCAN_PAGE_BYTES) throw new Error("The scanned page is larger than 25 MB.");
     return {
       status: "acquired",
+      deviceName: result.deviceName,
       file: {
         filename: path.basename(result.filename),
         mimeType: mimeTypeFor(result.filename),

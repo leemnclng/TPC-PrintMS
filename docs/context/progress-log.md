@@ -436,3 +436,9 @@ Chronological notes about app progress.
 - Summary: Replaced upload-first Scan intake with scanner-first acquisition and retained in-app preview.
 - Completed: Added a narrow Electron-to-WIA bridge, installed-driver acquisition UI, repeated page capture, automatic page counting/pricing, multi-page PDF composition, recovery import, pre-confirmation previews, and an authenticated saved-softcopy viewer.
 - Verified: All 28 API tests and renderer/desktop typechecks and lint pass. Physical Canon WIA validation remains required on Windows.
+
+## 2026-08-29 (scanner readiness preflight)
+
+- Summary: Replaced raw WIA failures with actionable device and original-placement validation.
+- Completed: Added scanner discovery, selectable flatbed/ADF sources, online/capability/readiness checks, jam and cover blocking, manual placement confirmation for drivers without paper sensing, and concise mappings for standard WIA acquisition errors.
+- Verified: Renderer/desktop typechecks, lint, production builds, API regression tests, and diff validation pass. Physical Canon status-flag validation remains open.

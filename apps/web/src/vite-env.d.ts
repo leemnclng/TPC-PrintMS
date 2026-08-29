@@ -29,8 +29,30 @@ export interface PaperClubBridge {
   getApiConfig: () => Promise<PaperClubApiConfig>;
   openPrinterSettings: () => Promise<void>;
   openPrinterPreferences: (printerName: string) => Promise<void>;
-  acquireScannerPage: () => Promise<{
-    status: "acquired" | "cancelled";
+  inspectScanners: () => Promise<{
+    status: "ready" | "unavailable" | "error";
+    message?: string;
+    devices: Array<{
+      id: string;
+      name: string;
+      isOnline: boolean;
+      supportsFlatbed: boolean;
+      supportsFeeder: boolean;
+      supportsDuplex: boolean;
+      detectsFlatbed: boolean;
+      detectsFeeder: boolean;
+      flatbedReady: boolean | null;
+      feederReady: boolean | null;
+      coverOpen: boolean;
+      paperJam: boolean;
+      issue: string | null;
+    }>;
+  }>;
+  acquireScannerPage: (deviceId: string, source: "flatbed" | "feeder") => Promise<{
+    status: "acquired" | "cancelled" | "not_ready" | "error";
+    code?: string;
+    message?: string;
+    deviceName?: string;
     file?: {
       filename: string;
       mimeType: string;
