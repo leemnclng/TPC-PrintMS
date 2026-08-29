@@ -442,3 +442,15 @@ Chronological notes about app progress.
 - Summary: Replaced raw WIA failures with actionable device and original-placement validation.
 - Completed: Added scanner discovery, selectable flatbed/ADF sources, online/capability/readiness checks, jam and cover blocking, manual placement confirmation for drivers without paper sensing, and concise mappings for standard WIA acquisition errors.
 - Verified: Renderer/desktop typechecks, lint, production builds, API regression tests, and diff validation pass. Physical Canon status-flag validation remains open.
+
+## 2026-08-29 (Windows Canon scanner deployment prerequisite)
+
+- Summary: Recorded the driver installation that resolved Canon scanner discovery on the Windows workstation.
+- Completed: Added a Windows installation guide covering the model-specific IJPAT/full MP/WIA prerequisite, Canon network-scanner selection, Windows Scan and Printing-MS acceptance checks, troubleshooting, and requirements for a future production installer.
+- Verified: The owner confirmed that installing the IJPAT package made the connected scanner discoverable. Remaining physical acquisition and readiness scenarios stay open for validation.
+
+## 2026-08-30 (scan preview and automatic source)
+
+- Summary: Repaired WIA page previews and removed manual source selection from Scan intake.
+- Completed: WIA capture now converts driver-native output to validated PNG before IPC. Automatic acquisition prefers a driver-reported loaded feeder or flatbed and otherwise lets the Canon/Windows dialog choose; offline, jam, cover, cancellation, and acquisition errors remain actionable. Broken image icons now degrade to an explicit preview-unavailable tile.
+- Verified: Renderer and desktop typechecks/builds, renderer lint, all 28 API tests, and diff validation pass. Physical feeder/flatbed selection still requires confirmation on the Windows Canon workstation.

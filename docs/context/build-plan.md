@@ -108,6 +108,7 @@ Job order:
 ### Phase 7: Release Hardening
 
 - Test backend startup recovery, upgrades, migration rollback, backup/restore, offline use, large files, and printer failures.
+- Add a Windows prerequisite check and post-install hardware verification for the OS printer queue and WIA scanner. Canon deployments must guide the owner to install the model-specific IJPAT/full MP/WIA package and configure IJ Network Scanner Selector EX2 for network scanning.
 - Add code signing, macOS notarization, installer verification, and release documentation.
 - Build and verify the bundled Python backend independently on Windows and macOS.
 - Exit: Reproducible Windows and macOS release candidates pass acceptance testing.

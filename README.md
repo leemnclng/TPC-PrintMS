@@ -9,10 +9,14 @@ full product and engineering history; this file only covers running it.
 - Node.js 20+ and npm
 - [`uv`](https://docs.astral.sh/uv/) for the Python backend (`brew install uv`,
   or see the uv docs for other platforms)
-- macOS or Linux for printer detection today — the Print Center reads
-  installed printers via CUPS (`lpstat`). Windows detection (`win32print`) is
-  a documented stub, not yet implemented (see
-  [docs/context/issues-log.md](docs/context/issues-log.md)).
+- An operating-system-installed printer driver. Windows printer discovery uses
+  the Windows queue; macOS/Linux discovery uses CUPS.
+- Windows direct scanning requires a WIA-compatible scanner driver. The Canon
+  workstation required the model-specific IJPAT/full MP/WIA driver package;
+  Canon PRINT working alone does not guarantee WIA registration.
+
+See the [Windows installation and hardware setup guide](docs/windows-installation.md)
+for Canon network selection, verification, and future installer requirements.
 
 ## First run
 

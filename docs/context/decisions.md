@@ -499,6 +499,22 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 ### Acquire Scans Through the Installed Windows WIA Driver
 
+- Status: Refined on 2026-08-30 by “Normalize WIA Captures and Prefer Automatic Source Selection.”
+
 - Decision: Start scanning from a narrowly scoped Electron IPC operation backed by Windows Image Acquisition. Let the WIA/vendor dialog choose the scanner and control source, color, resolution, size, and cropping; return only the captured page bytes to the renderer. Repeat acquisition for more pages, combine them server-side, and keep manual file import as recovery.
 - Rationale: Canon documents the printer as usable from WIA-compliant Windows applications, while Canon PRINT does not expose a supported app-to-app acquisition handoff. WIA keeps Printing-MS vendor-neutral and makes the captured document available for preview, automatic page pricing, retention, and delivery.
-- Impact: Direct acquisition is Windows-only and requires the installed scanner/MP driver. Scanner discovery and known WIA errors are structured, feeder/flatbed sensing is honored when exposed, and manual placement confirmation covers hardware that cannot detect an original before transfer. Cancelling creates no page or job, multiple captures become one retained PDF, and physical Canon validation remains required.
+- Impact: Direct acquisition is Windows-only and requires the installed scanner/MP driver. Scanner discovery and known WIA errors are structured, feeder/flatbed sensing is honored when exposed, and the driver chooses when placement cannot be detected. Cancelling creates no page or job, multiple captures become one retained PDF, and physical Canon validation remains required.
+
+### Keep Vendor Scanner Drivers as an Explicit Windows Prerequisite
+
+- Decision: Distribute Printing-MS separately from vendor drivers. Document and check for WIA availability during setup; for the validated Canon workstation, the model-specific IJPAT/full MP/WIA package is required even when Canon PRINT can already scan.
+- Rationale: Canon PRINT may use Canon-specific discovery while Printing-MS uses the Windows WIA boundary. Printer connectivity or success in Canon PRINT therefore does not prove that Windows has registered a scanner available to third-party applications.
+- Impact: The Windows installer should provide a non-blocking prerequisite check and link to model-specific setup guidance, but must not silently redistribute or install Canon software. Release acceptance includes successful acquisition in Windows Scan and Printing-MS.
+
+## 2026-08-30
+
+### Normalize WIA Captures and Prefer Automatic Source Selection
+
+- Decision: Convert every WIA-acquired page to validated PNG before returning it to the renderer. Request an automatic source: use a feeder or flatbed reported ready at acquisition time, and otherwise leave source selection to the installed vendor/WIA dialog.
+- Rationale: WIA drivers may return BMP/TIFF variants that Chromium cannot decode consistently. Many multifunction drivers also omit reliable pre-scan placement flags, so a mandatory owner-selected source and confirmation creates false certainty and blocks valid scans.
+- Impact: New captures preview consistently and no longer require a manual source control or placement checkbox. Offline, jam, and open-cover states still block scanning. When a driver exposes no placement signal, the vendor dialog/default source remains authoritative and a paper-empty acquisition error provides recovery guidance.

@@ -29,25 +29,14 @@
 .scan-acquisition__heading b { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .06em; }
 .scan-acquisition__heading small { color: var(--color-ink-soft); }
 .scan-preflight { display: grid; gap: var(--space-4); border-top: 1px solid var(--color-hairline); padding: var(--space-4); }
-.scan-source { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin: 0; border: 0; padding: 0; }
-.scan-source legend { grid-column: 1 / -1; margin-bottom: var(--space-2); color: var(--color-ink-soft); font-size: var(--text-sm); }
-.scan-source label { position: relative; display: flex; min-height: 5rem; align-items: flex-start; gap: var(--space-3); border: 1px solid var(--color-hairline-strong); padding: var(--space-3); background: var(--color-paper); cursor: pointer; }
-.scan-source label:has(input:checked) { border-color: var(--color-accent); box-shadow: inset 3px 0 var(--color-accent); background: var(--color-accent-softer); }
-.scan-source label.is-disabled { opacity: .5; cursor: not-allowed; }
-.scan-source input { margin-top: .2rem; accent-color: var(--color-accent); }
-.scan-source label > span { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); }
-.scan-source small { color: var(--color-ink-soft); }
 .scan-readiness { display: flex; min-height: 4.5rem; align-items: center; gap: var(--space-3); border: 1px solid var(--color-success); border-left-width: 3px; padding: var(--space-3); background: var(--color-success-soft); }
 .scan-readiness > span { display: grid; width: 2rem; height: 2rem; flex: 0 0 auto; place-items: center; border: 1px solid currentColor; border-radius: 50%; color: var(--color-success); font-family: var(--font-mono); }
-.scan-readiness p, .scan-placement-confirm > span { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); margin: 0; }
-.scan-readiness small, .scan-placement-confirm small { color: var(--color-ink-soft); }
+.scan-readiness p { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); margin: 0; }
+.scan-readiness small { color: var(--color-ink-soft); }
 .scan-readiness.is-manual { border-color: var(--color-warning); background: var(--color-warning-soft); }
 .scan-readiness.is-manual > span { color: var(--color-warning); }
 .scan-readiness.is-error { border-color: var(--color-danger); background: var(--color-danger-soft); }
 .scan-readiness.is-error > span { color: var(--color-danger); }
-.scan-placement-confirm { display: flex; min-height: 4.5rem; align-items: flex-start; gap: var(--space-3); border: 1px solid var(--color-hairline-strong); padding: var(--space-3); background: var(--color-paper); cursor: pointer; }
-.scan-placement-confirm:has(input:checked) { border-color: var(--color-accent); background: var(--color-accent-softer); }
-.scan-placement-confirm input { margin-top: .2rem; accent-color: var(--color-accent); }
 .scan-preflight__error { margin: 0; border-left: 3px solid var(--color-danger); padding: var(--space-3); background: var(--color-danger-soft); color: var(--color-danger); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .scan-preflight__action { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
 .scan-preflight__action small { max-width: 34ch; color: var(--color-ink-soft); text-align: right; }
@@ -92,4 +81,4 @@
 .photocopy-job-form__empty p { margin-top: var(--space-2); color: var(--color-ink-soft); }
 .photocopy-job-form__actions { display: flex; justify-content: flex-end; gap: var(--space-2); border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-5); }
 @media (max-width: 48rem) { .photocopy-job-form__content { display: block; } .photocopy-quote { position: static; min-height: 0; border-top: 1px solid var(--color-hairline); border-left: 0; } .scan-document-preview { margin-inline: calc(var(--space-6) * -1); } }
-@media (max-width: 34rem) { .photocopy-job-form__numbers, .scan-source { grid-template-columns: 1fr; } .scan-acquisition__heading, .scan-preflight__action { align-items: stretch; flex-direction: column; } .scan-preflight__action small { max-width: none; text-align: left; } .scan-capture-list li { grid-template-columns: auto minmax(0, 1fr); } .scan-capture-list button { grid-column: 2; justify-self: start; } }
+@media (max-width: 34rem) { .photocopy-job-form__numbers { grid-template-columns: 1fr; } .scan-acquisition__heading, .scan-preflight__action { align-items: stretch; flex-direction: column; } .scan-preflight__action small { max-width: none; text-align: left; } .scan-capture-list li { grid-template-columns: auto minmax(0, 1fr); } .scan-capture-list button { grid-column: 2; justify-self: start; } }

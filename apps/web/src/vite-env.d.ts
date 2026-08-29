@@ -48,11 +48,12 @@ export interface PaperClubBridge {
       issue: string | null;
     }>;
   }>;
-  acquireScannerPage: (deviceId: string, source: "flatbed" | "feeder") => Promise<{
+  acquireScannerPage: (deviceId: string, source: "auto" | "flatbed" | "feeder") => Promise<{
     status: "acquired" | "cancelled" | "not_ready" | "error";
     code?: string;
     message?: string;
     deviceName?: string;
+    source?: "auto" | "flatbed" | "feeder";
     file?: {
       filename: string;
       mimeType: string;

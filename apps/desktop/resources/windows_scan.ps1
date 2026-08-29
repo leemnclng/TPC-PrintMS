@@ -3,8 +3,8 @@ param(
   [string]$Mode = "Inspect",
   [string]$OutputDirectory = "",
   [string]$DeviceId = "",
-  [ValidateSet("flatbed", "feeder")]
-  [string]$Source = "flatbed"
+  [ValidateSet("auto", "flatbed", "feeder")]
+  [string]$Source = "auto"
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +25,7 @@ $StatusFlatbedCoverUp = 0x008
 $StatusPathCoverUp = 0x010
 $StatusPaperJam = 0x020
 $UnspecifiedFormat = "{00000000-0000-0000-0000-000000000000}"
+$PngFormat = "{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}"
 
 function Get-WiaPropertyValue {
   param($Properties, [int]$PropertyId)
@@ -124,6 +125,31 @@ function Get-ScannerDeviceInfos {
   return $scannerInfos
 }
 
+function Resolve-ScanSource {
+  param($State, [string]$RequestedSource)
+  if ($RequestedSource -ne "auto") {
+    return $RequestedSource
+  }
+  if ($State.supportsFeeder -and $State.detectsFeeder -and $State.feederReady) {
+    return "feeder"
+  }
+  if ($State.supportsFlatbed -and $State.detectsFlatbed -and $State.flatbedReady) {
+    return "flatbed"
+  }
+  if (-not $State.detectsFeeder -and -not $State.detectsFlatbed) {
+    return "auto"
+  }
+  if ($State.supportsFeeder -and -not $State.supportsFlatbed) {
+    return "feeder"
+  }
+  if ($State.supportsFlatbed -and -not $State.supportsFeeder) {
+    return "flatbed"
+  }
+  # When the WIA driver cannot report paper presence, leave source selection to
+  # its vendor dialog instead of incorrectly forcing the flatbed or feeder.
+  return "auto"
+}
+
 function Write-Result {
   param($Value)
   $Value | ConvertTo-Json -Compress -Depth 6
@@ -165,6 +191,8 @@ $device = $null
 $selectedItems = $null
 $selectedItem = $null
 $image = $null
+$imageProcess = $null
+$previewImage = $null
 
 try {
   $manager = New-Object -ComObject WIA.DeviceManager
@@ -191,6 +219,7 @@ try {
   }
 
   $state = Get-ScannerState $deviceInfo
+  $resolvedSource = Resolve-ScanSource $state $Source
   if (-not $state.isOnline) {
     Write-Result ([pscustomobject]@{ status = "error"; code = "offline"; message = $state.issue })
     exit 0
@@ -203,19 +232,27 @@ try {
     Write-Result ([pscustomobject]@{ status = "not_ready"; code = "cover_open"; message = "A scanner cover or paper path is open. Close it before scanning." })
     exit 0
   }
-  if ($Source -eq "feeder" -and $state.detectsFeeder -and -not $state.feederReady) {
+  if ($resolvedSource -eq "feeder" -and $state.detectsFeeder -and -not $state.feederReady) {
     Write-Result ([pscustomobject]@{ status = "not_ready"; code = "paper_empty"; message = "No document was detected in the feeder. Insert the originals between the guides, then refresh readiness." })
     exit 0
   }
-  if ($Source -eq "flatbed" -and $state.detectsFlatbed -and -not $state.flatbedReady) {
+  if ($resolvedSource -eq "flatbed" -and $state.detectsFlatbed -and -not $state.flatbedReady) {
     Write-Result ([pscustomobject]@{ status = "not_ready"; code = "paper_empty"; message = "No document was detected on the flatbed. Place it on the glass and close the cover." })
     exit 0
   }
 
   $device = $deviceInfo.Connect()
   $dialog = New-Object -ComObject WIA.CommonDialog
-  foreach ($item in $device.Items) {
-    [void](Set-WiaPropertyValue $item.Properties $WiaDocumentHandlingSelect $(if ($Source -eq "feeder") { 1 } else { 2 }))
+  if ($resolvedSource -ne "auto") {
+    $sourceValue = if ($resolvedSource -eq "feeder") { 1 } else { 2 }
+    $sourceWasSet = Set-WiaPropertyValue $device.Properties $WiaDocumentHandlingSelect $sourceValue
+    if (-not $sourceWasSet) {
+      foreach ($item in $device.Items) {
+        if (Set-WiaPropertyValue $item.Properties $WiaDocumentHandlingSelect $sourceValue) {
+          break
+        }
+      }
+    }
   }
   $selectedItems = $dialog.ShowSelectItems($device, 0, 0, $true, $true, $false)
   if ($null -eq $selectedItems -or $selectedItems.Count -eq 0) {
@@ -229,14 +266,17 @@ try {
     exit 0
   }
 
-  $extension = [string]$image.FileExtension
-  if ([string]::IsNullOrWhiteSpace($extension) -or $extension -notmatch '^[A-Za-z0-9]{2,5}$') {
-    $extension = "bmp"
-  }
-  $filename = "scan-{0}.{1}" -f ([DateTime]::UtcNow.ToString("yyyyMMdd-HHmmssfff")), $extension.ToLowerInvariant()
+  # WIA drivers commonly return DIB/BMP or TIFF variants that Chromium cannot
+  # preview consistently. Normalize every acquired page to a standard PNG
+  # before it crosses the Electron IPC boundary.
+  $imageProcess = New-Object -ComObject WIA.ImageProcess
+  [void]$imageProcess.Filters.Add($imageProcess.FilterInfos.Item("Convert").FilterID)
+  $imageProcess.Filters.Item(1).Properties.Item("FormatID").Value = $PngFormat
+  $previewImage = $imageProcess.Apply($image)
+  $filename = "scan-{0}.png" -f ([DateTime]::UtcNow.ToString("yyyyMMdd-HHmmssfff"))
   $outputPath = Join-Path -Path $OutputDirectory -ChildPath $filename
-  $image.SaveFile($outputPath)
-  Write-Result ([pscustomobject]@{ status = "acquired"; path = $outputPath; filename = $filename; deviceName = $state.name })
+  $previewImage.SaveFile($outputPath)
+  Write-Result ([pscustomobject]@{ status = "acquired"; path = $outputPath; filename = $filename; deviceName = $state.name; source = $resolvedSource })
 }
 catch [System.Runtime.InteropServices.COMException] {
   Write-WiaError $_.Exception
@@ -249,7 +289,7 @@ catch {
   })
 }
 finally {
-  foreach ($comObject in @($image, $selectedItem, $selectedItems, $dialog, $device, $manager)) {
+  foreach ($comObject in @($previewImage, $imageProcess, $image, $selectedItem, $selectedItems, $dialog, $device, $manager)) {
     if ($null -ne $comObject -and [System.Runtime.InteropServices.Marshal]::IsComObject($comObject)) {
       [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject)
     }

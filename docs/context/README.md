@@ -14,6 +14,7 @@ Use these files as living notes when features are added, issues are found, or im
 - [build-plan.md](build-plan.md): phased plan for the initial Windows and macOS desktop application.
 - [initial-pages.md](initial-pages.md): initial navigation, page contents, workspaces, and functionality coverage.
 - [ux-development-standard.md](ux-development-standard.md): required interaction patterns, UI states, accessibility, and completion checklist for user-facing features.
+- [../windows-installation.md](../windows-installation.md): Windows workstation prerequisites, Canon IJPAT/WIA setup, hardware acceptance checks, and installer requirements.
 
 ## Update Habit
 

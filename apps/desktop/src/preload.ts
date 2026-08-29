@@ -11,6 +11,6 @@ contextBridge.exposeInMainWorld("paperClub", {
   openPrinterSettings: () => ipcRenderer.invoke("paper-club:open-printer-settings"),
   openPrinterPreferences: (printerName: string) => ipcRenderer.invoke("paper-club:open-printer-preferences", printerName),
   inspectScanners: () => ipcRenderer.invoke("paper-club:inspect-scanners"),
-  acquireScannerPage: (deviceId: string, source: "flatbed" | "feeder") => ipcRenderer.invoke("paper-club:acquire-scanner-page", deviceId, source),
+  acquireScannerPage: (deviceId: string, source: "auto" | "flatbed" | "feeder") => ipcRenderer.invoke("paper-club:acquire-scanner-page", deviceId, source),
   platform: process.platform,
 });

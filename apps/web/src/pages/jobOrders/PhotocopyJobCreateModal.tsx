@@ -71,8 +71,6 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
   const [checkingScanners, setCheckingScanners] = useState(false);
   const [scannerDevices, setScannerDevices] = useState<ScannerDeviceState[]>([]);
   const [selectedScannerId, setSelectedScannerId] = useState("");
-  const [scanSource, setScanSource] = useState<"flatbed" | "feeder">("flatbed");
-  const [placementConfirmed, setPlacementConfirmed] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const availableProducts = products.filter((product) => product.isActive && product.serviceId === service.id);
@@ -102,12 +100,8 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
   ));
   const scannerAvailable = window.paperClub?.platform === "win32";
   const selectedScanner = scannerDevices.find((device) => device.id === selectedScannerId);
-  const sourceSupported = Boolean(selectedScanner && (scanSource === "feeder" ? selectedScanner.supportsFeeder : selectedScanner.supportsFlatbed));
-  const sourceDetectedReady = selectedScanner
-    ? scanSource === "feeder" ? selectedScanner.feederReady : selectedScanner.flatbedReady
-    : null;
-  const hardwareReady = Boolean(selectedScanner?.isOnline && sourceSupported && !selectedScanner.coverOpen && !selectedScanner.paperJam && sourceDetectedReady !== false);
-  const canAcquire = scannerAvailable && hardwareReady && placementConfirmed && !checkingScanners && !saving;
+  const hardwareReady = Boolean(selectedScanner?.isOnline && !selectedScanner.coverOpen && !selectedScanner.paperJam && (selectedScanner.supportsFlatbed || selectedScanner.supportsFeeder));
+  const canAcquire = scannerAvailable && hardwareReady && !checkingScanners && !saving;
 
   const refreshScanners = useCallback(async () => {
     setCheckingScanners(true);
@@ -154,8 +148,6 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
     setCheckingScanners(false);
     setScannerDevices([]);
     setSelectedScannerId("");
-    setScanSource("flatbed");
-    setPlacementConfirmed(false);
     setScannerError(null);
     setError(null);
   }, [open, service.id]);
@@ -163,17 +155,6 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
   useEffect(() => {
     if (open && isScan) void refreshScanners();
   }, [isScan, open, refreshScanners]);
-
-  useEffect(() => {
-    if (!selectedScanner) return;
-    if (scanSource === "flatbed" && !selectedScanner.supportsFlatbed && selectedScanner.supportsFeeder) {
-      setScanSource("feeder");
-      setPlacementConfirmed(false);
-    } else if (scanSource === "feeder" && !selectedScanner.supportsFeeder && selectedScanner.supportsFlatbed) {
-      setScanSource("flatbed");
-      setPlacementConfirmed(false);
-    }
-  }, [scanSource, selectedScanner]);
 
   function clearScanCaptures() {
     scanCapturesRef.current.forEach((capture) => URL.revokeObjectURL(capture.previewUrl));
@@ -191,7 +172,6 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
       backToBack: false,
       name: current.name.trim() ? current.name : product?.name ?? "",
     }));
-    setPlacementConfirmed(false);
     setScannerError(null);
     setError(null);
   }
@@ -213,14 +193,14 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
 
   async function acquirePage() {
     if (!window.paperClub?.acquireScannerPage || !canAcquire || acquiring) {
-      setScannerError("Select a ready scanner, place the original in the chosen source, and confirm placement first.");
+      setScannerError("Select an online scanner, place the original in its feeder or on the glass, then try again.");
       return;
     }
     setAcquiring(true);
     setScannerError(null);
     setError(null);
     try {
-      const result = await window.paperClub.acquireScannerPage(selectedScannerId, scanSource);
+      const result = await window.paperClub.acquireScannerPage(selectedScannerId, "auto");
       if (result.status === "cancelled") return;
       if (result.status === "not_ready" || result.status === "error") {
         setScannerError(result.message ?? "The scanner is not ready.");
@@ -233,7 +213,6 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
       }
       const bytes = decodeBase64(result.file.base64);
       await addScanFiles([new File([bytes], result.file.filename, { type: result.file.mimeType })], "scanner");
-      setPlacementConfirmed(false);
       void refreshScanners();
     } catch (caught) {
       setScannerError(caught instanceof Error ? caught.message : "The scanner could not acquire this page.");
@@ -299,14 +278,12 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
                 {isScan ? (
                   <>
                     <section className={`scan-acquisition${submitted && !scanCaptures.length ? " is-invalid" : ""}`} aria-invalid={submitted && !scanCaptures.length} tabIndex={submitted && !scanCaptures.length ? -1 : undefined}>
-                      <div className="scan-acquisition__heading"><span><b className="numeric">SCANNER PREFLIGHT</b><strong>{scanCaptures.length ? `${scannedPages} ${scannedPages === 1 ? "page" : "pages"} acquired` : checkingScanners ? "Checking Windows devices" : selectedScanner ? selectedScanner.name : "Scanner unavailable"}</strong><small>Printing-MS checks the selected source before opening the installed scanner settings.</small></span><Button type="button" variant="secondary" onClick={refreshScanners} loading={checkingScanners} disabled={!scannerAvailable || acquiring || saving}>Refresh</Button></div>
+                      <div className="scan-acquisition__heading"><span><b className="numeric">SCANNER PREFLIGHT</b><strong>{scanCaptures.length ? `${scannedPages} ${scannedPages === 1 ? "page" : "pages"} acquired` : checkingScanners ? "Checking Windows devices" : selectedScanner ? selectedScanner.name : "Scanner unavailable"}</strong><small>Place the original in the feeder or on the glass. Printing-MS asks the installed driver to choose the available source.</small></span><Button type="button" variant="secondary" onClick={refreshScanners} loading={checkingScanners} disabled={!scannerAvailable || acquiring || saving}>Refresh</Button></div>
                       <div className="scan-preflight">
-                        <label className="form-field"><span>Scanner device</span><select value={selectedScannerId} onChange={(event) => { setSelectedScannerId(event.target.value); setPlacementConfirmed(false); setScannerError(null); }} disabled={checkingScanners || acquiring || !scannerDevices.length}><option value="">{checkingScanners ? "Checking devices…" : "Select scanner"}</option>{scannerDevices.map((device) => <option key={device.id} value={device.id}>{device.name}{device.isOnline ? "" : " · Offline"}</option>)}</select></label>
-                        {selectedScanner ? <fieldset className="scan-source"><legend>Original placement</legend><label className={!selectedScanner.supportsFlatbed ? "is-disabled" : ""}><input type="radio" name="scan-source" value="flatbed" checked={scanSource === "flatbed"} disabled={!selectedScanner.supportsFlatbed || acquiring} onChange={() => { setScanSource("flatbed"); setPlacementConfirmed(false); setScannerError(null); }} /><span><strong>Flatbed glass</strong><small>One original, face down; align it to the platen mark and close the cover.</small></span></label><label className={!selectedScanner.supportsFeeder ? "is-disabled" : ""}><input type="radio" name="scan-source" value="feeder" checked={scanSource === "feeder"} disabled={!selectedScanner.supportsFeeder || acquiring} onChange={() => { setScanSource("feeder"); setPlacementConfirmed(false); setScannerError(null); }} /><span><strong>Document feeder</strong><small>Insert originals into the ADF guides following the printer's direction mark.</small></span></label></fieldset> : null}
-                        {selectedScanner ? <ScannerReadiness device={selectedScanner} source={scanSource} /> : <div className="scan-readiness is-error" role="status"><span aria-hidden="true">!</span><p><strong>No usable scanner detected</strong><small>Turn on the Canon device, check USB/Wi-Fi, and install or repair Canon MP Drivers, then refresh.</small></p></div>}
-                        {selectedScanner && hardwareReady ? <label className="scan-placement-confirm"><input type="checkbox" checked={placementConfirmed} disabled={acquiring} onChange={(event) => { setPlacementConfirmed(event.target.checked); setScannerError(null); }} /><span><strong>I placed the original in the selected source</strong><small>{sourceDetectedReady === true ? "The scanner also reports this source ready." : "This driver cannot confirm paper placement before scanning, so visual confirmation is required."}</small></span></label> : null}
+                        <label className="form-field"><span>Scanner device</span><select value={selectedScannerId} onChange={(event) => { setSelectedScannerId(event.target.value); setScannerError(null); }} disabled={checkingScanners || acquiring || !scannerDevices.length}><option value="">{checkingScanners ? "Checking devices…" : "Select scanner"}</option>{scannerDevices.map((device) => <option key={device.id} value={device.id}>{device.name}{device.isOnline ? "" : " · Offline"}</option>)}</select></label>
+                        {selectedScanner ? <ScannerReadiness device={selectedScanner} /> : <div className="scan-readiness is-error" role="status"><span aria-hidden="true">!</span><p><strong>No usable scanner detected</strong><small>Turn on the Canon device, check USB/Wi-Fi, and install or repair Canon IJPAT/MP Drivers, then refresh.</small></p></div>}
                         {scannerError ? <p className="scan-preflight__error" role="alert">{scannerError}</p> : null}
-                        <div className="scan-preflight__action"><Button type="button" variant="primary" onClick={acquirePage} loading={acquiring} disabled={!canAcquire}>{scanCaptures.length ? "Scan another page" : "Start scanning"}</Button><small>{canAcquire ? "Windows will open the scanner's settings and acquisition dialog." : "Complete the readiness checks above to continue."}</small></div>
+                        <div className="scan-preflight__action"><Button type="button" variant="primary" onClick={acquirePage} loading={acquiring} disabled={!canAcquire}>{scanCaptures.length ? "Scan another page" : "Start scanning"}</Button><small>{canAcquire ? "Automatic source: loaded feeder first when reported, otherwise the Canon/Windows driver decides." : "Resolve the scanner issue above to continue."}</small></div>
                       </div>
                       {scanCaptures.length ? <ScanCaptureList captures={scanCaptures} onRemove={removeCapture} /> : <div className="scan-acquisition__empty"><span aria-hidden="true">◎</span><p>Place the original on the platen or feeder, then start scanning. The captured page will appear here before the job is created.</p></div>}
                     </section>
@@ -343,10 +320,10 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
   );
 }
 
-function ScannerReadiness({ device, source }: { device: ScannerDeviceState; source: "flatbed" | "feeder" }) {
+function ScannerReadiness({ device }: { device: ScannerDeviceState }) {
   let tone = "is-ready";
-  let title = "Scanner source ready";
-  let detail = "Hardware checks passed. Confirm the original's placement to continue.";
+  let title = "Automatic source ready";
+  let detail = "Start scanning after placing the original in the feeder or on the glass.";
   if (!device.isOnline) {
     tone = "is-error";
     title = "Scanner is offline";
@@ -359,26 +336,24 @@ function ScannerReadiness({ device, source }: { device: ScannerDeviceState; sour
     tone = "is-error";
     title = "Scanner cover is open";
     detail = "Close the platen or paper-path cover and refresh readiness.";
-  } else if (source === "feeder" && !device.supportsFeeder) {
+  } else if (!device.supportsFlatbed && !device.supportsFeeder) {
     tone = "is-error";
-    title = "Document feeder unavailable";
-    detail = "Choose the flatbed or install the full scanner driver if this device has an ADF.";
-  } else if (source === "flatbed" && !device.supportsFlatbed) {
-    tone = "is-error";
-    title = "Flatbed unavailable";
-    detail = "Choose the document feeder for this scanner.";
+    title = "No scanner source available";
+    detail = "Install the full scanner driver, then refresh devices.";
+  } else if (device.supportsFeeder && device.detectsFeeder && device.feederReady) {
+    title = "Document feeder detected";
+    detail = "The loaded feeder will be used automatically.";
+  } else if (device.supportsFlatbed && device.detectsFlatbed && device.flatbedReady) {
+    title = "Flatbed original detected";
+    detail = "The flatbed will be used automatically.";
+  } else if (!device.detectsFlatbed && !device.detectsFeeder) {
+    tone = "is-manual";
+    title = "Source handled by scanner driver";
+    detail = `${device.name} does not report placement in advance; its Canon/Windows dialog will choose the available or default source.`;
   } else {
-    const detected = source === "feeder" ? device.detectsFeeder : device.detectsFlatbed;
-    const ready = source === "feeder" ? device.feederReady : device.flatbedReady;
-    if (detected && ready === false) {
-      tone = "is-error";
-      title = source === "feeder" ? "No paper detected in feeder" : "No original detected on flatbed";
-      detail = source === "feeder" ? "Insert the originals between the ADF guides, then refresh." : "Place the original on the glass, close the cover, then refresh.";
-    } else if (!detected) {
-      tone = "is-manual";
-      title = "Manual placement check required";
-      detail = `The ${device.name} driver does not report ${source} paper presence before acquisition.`;
-    }
+    tone = "is-manual";
+    title = "Place the original, then scan";
+    detail = "Source readiness is checked again when acquisition starts; the driver can still choose the source.";
   }
   return <div className={`scan-readiness ${tone}`} role="status"><span aria-hidden="true">{tone === "is-ready" ? "✓" : tone === "is-manual" ? "?" : "!"}</span><p><strong>{title}</strong><small>{detail}</small></p></div>;
 }
@@ -389,7 +364,13 @@ function ScanCaptureList({ captures, onRemove }: { captures: ScanCapture[]; onRe
 
 function ScanDocumentPreview({ captures }: { captures: ScanCapture[] }) {
   if (captures.length === 1 && captures[0].file.type === "application/pdf") return <div className="scan-document-preview scan-document-preview--pdf"><PdfViewer file={captures[0].file} filename={captures[0].file.name} downloadUrl={captures[0].previewUrl} /></div>;
-  return <div className="scan-document-preview" aria-label="Scanned document preview"><span className="numeric">DOCUMENT PREVIEW</span><div>{captures.map((capture, index) => capture.file.type.startsWith("image/") && !capture.file.type.includes("tiff") ? <figure key={capture.id}><img src={capture.previewUrl} alt={`Scanned page ${index + 1}`} /><figcaption>Page {index + 1}</figcaption></figure> : <figure className="scan-document-preview__file" key={capture.id}><span aria-hidden="true">PDF</span><figcaption>{capture.file.name} · {capture.pageCount} pages</figcaption></figure>)}</div></div>;
+  return <div className="scan-document-preview" aria-label="Scanned document preview"><span className="numeric">DOCUMENT PREVIEW</span><div>{captures.map((capture, index) => capture.file.type.startsWith("image/") && !capture.file.type.includes("tiff") ? <ScanImagePreview key={capture.id} capture={capture} index={index} /> : <figure className="scan-document-preview__file" key={capture.id}><span aria-hidden="true">FILE</span><figcaption>{capture.file.name} · {capture.pageCount} pages</figcaption></figure>)}</div></div>;
+}
+
+function ScanImagePreview({ capture, index }: { capture: ScanCapture; index: number }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <figure className="scan-document-preview__file"><span aria-hidden="true">!</span><figcaption>Page {index + 1} preview unavailable</figcaption></figure>;
+  return <figure><img src={capture.previewUrl} alt={`Scanned page ${index + 1}`} onError={() => setFailed(true)} /><figcaption>Page {index + 1}</figcaption></figure>;
 }
 
 async function pageCountFor(file: File): Promise<number> {

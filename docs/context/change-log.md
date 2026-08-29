@@ -165,6 +165,8 @@ Track notable app changes by date.
 
 ## 2026-08-29
 
+- Documented: Windows Canon scanning requires the model-specific IJPAT/full MP/WIA package so the device is registered with WIA; Canon PRINT connectivity alone is not sufficient.
+- Added: A Windows deployment checklist for Canon network selection, test printing/scanning, troubleshooting, and future installer prerequisite checks.
 - Fixed: The New print type modal now keeps fields away from its edges, separates actions into a stable footer, and remains usable on narrow windows.
 - Added: Semi-colored is available as a product and paper-pricing type, with color printer output and measured ink-coverage pricing.
 - Added: Configuration can create future print types in-app and automatically exposes a pricing column for each one.
@@ -226,3 +228,9 @@ Track notable app changes by date.
 - Added: Confirmed transactions retain their approved file and automatically plan the detected configured paper at pages × copies.
 - Changed: Cancelling before final confirmation creates no job order and retains no file.
 - Added: Print Center opens with the confirmed job, pricing decision, product/page details, and ready-to-print file visibly staged.
+
+## 2026-08-30
+
+- Fixed: Windows scanner pages are normalized to validated PNG before preview, preventing driver-native BMP/TIFF output from appearing as a broken image.
+- Changed: Scan intake no longer asks for flatbed/feeder selection or manual placement confirmation. It automatically uses a source reported ready and otherwise lets the Canon/Windows scanner dialog decide.
+- Preserved: Real offline, paper-jam, open-cover, busy, and acquisition errors remain visible and recoverable.

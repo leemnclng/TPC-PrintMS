@@ -30,6 +30,7 @@ interface ScriptResult {
   path?: string;
   filename?: string;
   deviceName?: string;
+  source?: "auto" | "flatbed" | "feeder";
 }
 
 export interface NativeScanResult {
@@ -37,6 +38,7 @@ export interface NativeScanResult {
   code?: string;
   message?: string;
   deviceName?: string;
+  source?: "auto" | "flatbed" | "feeder";
   file?: {
     filename: string;
     mimeType: string;
@@ -125,8 +127,8 @@ export async function acquireScannerPage(deviceId: unknown, source: unknown): Pr
   if (typeof deviceId !== "string" || !deviceId.trim() || deviceId.length > 1000) {
     return { status: "error", code: "invalid_request", message: "Select an available scanner before starting." };
   }
-  if (source !== "flatbed" && source !== "feeder") {
-    return { status: "error", code: "invalid_request", message: "Select where the original is loaded before starting." };
+  if (source !== "auto" && source !== "flatbed" && source !== "feeder") {
+    return { status: "error", code: "invalid_request", message: "The scanner source selection is invalid." };
   }
 
   const outputDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "printing-ms-scan-"));
@@ -156,9 +158,13 @@ export async function acquireScannerPage(deviceId: unknown, source: unknown): Pr
     const data = await fs.readFile(resolvedFile);
     if (!data.length) throw new Error("The scanner returned an empty page.");
     if (data.length > MAX_SCAN_PAGE_BYTES) throw new Error("The scanned page is larger than 25 MB.");
+    if (path.extname(result.filename).toLowerCase() === ".png" && !data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+      throw new Error("Windows acquired the page, but could not prepare a valid preview image.");
+    }
     return {
       status: "acquired",
       deviceName: result.deviceName,
+      source: result.source,
       file: {
         filename: path.basename(result.filename),
         mimeType: mimeTypeFor(result.filename),
