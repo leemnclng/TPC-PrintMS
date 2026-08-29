@@ -6,6 +6,13 @@ import { app } from "electron";
 
 const MAX_SCAN_PAGE_BYTES = 25 * 1024 * 1024;
 
+export interface ScannerAcquisitionSettings {
+  source: "auto" | "flatbed" | "feeder";
+  contentType: "color" | "grayscale" | "text";
+  resolutionDpi: 150 | 300 | 600;
+  pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
+}
+
 export interface ScannerDeviceState {
   id: string;
   name: string;
@@ -31,6 +38,9 @@ interface ScriptResult {
   filename?: string;
   deviceName?: string;
   source?: "auto" | "flatbed" | "feeder";
+  contentType?: "color" | "grayscale" | "text";
+  resolutionDpi?: 150 | 300 | 600;
+  pageSize?: ScannerAcquisitionSettings["pageSize"];
 }
 
 export interface NativeScanResult {
@@ -39,6 +49,7 @@ export interface NativeScanResult {
   message?: string;
   deviceName?: string;
   source?: "auto" | "flatbed" | "feeder";
+  settings?: Omit<ScannerAcquisitionSettings, "source">;
   file?: {
     filename: string;
     mimeType: string;
@@ -120,16 +131,30 @@ function mimeTypeFor(filename: string): string {
   }[extension] ?? "application/octet-stream";
 }
 
-export async function acquireScannerPage(deviceId: unknown, source: unknown): Promise<NativeScanResult> {
+export async function acquireScannerPage(deviceId: unknown, settings: unknown): Promise<NativeScanResult> {
   if (process.platform !== "win32") {
     throw new Error("Direct scanner acquisition is currently available on Windows only.");
   }
   if (typeof deviceId !== "string" || !deviceId.trim() || deviceId.length > 1000) {
     return { status: "error", code: "invalid_request", message: "Select an available scanner before starting." };
   }
-  if (source !== "auto" && source !== "flatbed" && source !== "feeder") {
+  if (!settings || typeof settings !== "object") {
+    return { status: "error", code: "invalid_request", message: "The scanner settings are missing." };
+  }
+  const candidate = settings as Partial<ScannerAcquisitionSettings>;
+  if (candidate.source !== "auto" && candidate.source !== "flatbed" && candidate.source !== "feeder") {
     return { status: "error", code: "invalid_request", message: "The scanner source selection is invalid." };
   }
+  if (candidate.contentType !== "color" && candidate.contentType !== "grayscale" && candidate.contentType !== "text") {
+    return { status: "error", code: "invalid_request", message: "The scanner content type is invalid." };
+  }
+  if (candidate.resolutionDpi !== 150 && candidate.resolutionDpi !== 300 && candidate.resolutionDpi !== 600) {
+    return { status: "error", code: "invalid_request", message: "The scanner resolution is invalid." };
+  }
+  if (!candidate.pageSize || !["auto", "a4", "letter", "legal", "4x6", "5x7", "8x10"].includes(candidate.pageSize)) {
+    return { status: "error", code: "invalid_request", message: "The scanner page size is invalid." };
+  }
+  const validatedSettings = candidate as ScannerAcquisitionSettings;
 
   const outputDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "printing-ms-scan-"));
   try {
@@ -137,7 +162,10 @@ export async function acquireScannerPage(deviceId: unknown, source: unknown): Pr
       "-Mode", "Acquire",
       "-OutputDirectory", outputDirectory,
       "-DeviceId", deviceId,
-      "-Source", source,
+      "-Source", validatedSettings.source,
+      "-ContentType", validatedSettings.contentType,
+      "-ResolutionDpi", String(validatedSettings.resolutionDpi),
+      "-PageSize", validatedSettings.pageSize,
     ]);
     if (result.status === "cancelled") return { status: "cancelled" };
     if (result.status === "not_ready" || result.status === "error") {
@@ -165,6 +193,11 @@ export async function acquireScannerPage(deviceId: unknown, source: unknown): Pr
       status: "acquired",
       deviceName: result.deviceName,
       source: result.source,
+      settings: {
+        contentType: result.contentType ?? validatedSettings.contentType,
+        resolutionDpi: result.resolutionDpi ?? validatedSettings.resolutionDpi,
+        pageSize: result.pageSize ?? validatedSettings.pageSize,
+      },
       file: {
         filename: path.basename(result.filename),
         mimeType: mimeTypeFor(result.filename),

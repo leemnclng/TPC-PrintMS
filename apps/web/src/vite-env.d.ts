@@ -48,12 +48,22 @@ export interface PaperClubBridge {
       issue: string | null;
     }>;
   }>;
-  acquireScannerPage: (deviceId: string, source: "auto" | "flatbed" | "feeder") => Promise<{
+  acquireScannerPage: (deviceId: string, settings: {
+    source: "auto" | "flatbed" | "feeder";
+    contentType: "color" | "grayscale" | "text";
+    resolutionDpi: 150 | 300 | 600;
+    pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
+  }) => Promise<{
     status: "acquired" | "cancelled" | "not_ready" | "error";
     code?: string;
     message?: string;
     deviceName?: string;
     source?: "auto" | "flatbed" | "feeder";
+    settings?: {
+      contentType: "color" | "grayscale" | "text";
+      resolutionDpi: 150 | 300 | 600;
+      pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
+    };
     file?: {
       filename: string;
       mimeType: string;

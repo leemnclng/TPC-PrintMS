@@ -4,7 +4,13 @@ param(
   [string]$OutputDirectory = "",
   [string]$DeviceId = "",
   [ValidateSet("auto", "flatbed", "feeder")]
-  [string]$Source = "auto"
+  [string]$Source = "auto",
+  [ValidateSet("color", "grayscale", "text")]
+  [string]$ContentType = "color",
+  [ValidateSet(150, 300, 600)]
+  [int]$ResolutionDpi = 300,
+  [ValidateSet("auto", "a4", "letter", "legal", "4x6", "5x7", "8x10")]
+  [string]$PageSize = "auto"
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,6 +20,13 @@ $WiaScannerDeviceType = 1
 $WiaDocumentHandlingCapabilities = 3086
 $WiaDocumentHandlingStatus = 3087
 $WiaDocumentHandlingSelect = 3088
+$WiaCurrentIntent = 6146
+$WiaHorizontalResolution = 6147
+$WiaVerticalResolution = 6148
+$WiaHorizontalStartPosition = 6149
+$WiaVerticalStartPosition = 6150
+$WiaHorizontalExtent = 6151
+$WiaVerticalExtent = 6152
 $CapabilityFeed = 0x001
 $CapabilityFlatbed = 0x002
 $CapabilityDuplex = 0x004
@@ -24,7 +37,7 @@ $StatusFlatbedReady = 0x002
 $StatusFlatbedCoverUp = 0x008
 $StatusPathCoverUp = 0x010
 $StatusPaperJam = 0x020
-$UnspecifiedFormat = "{00000000-0000-0000-0000-000000000000}"
+$BmpFormat = "{B96B3CAB-0728-11D3-9D7B-0000F81EF32E}"
 $PngFormat = "{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}"
 
 function Get-WiaPropertyValue {
@@ -150,6 +163,45 @@ function Resolve-ScanSource {
   return "auto"
 }
 
+function Set-WiaAcquisitionSettings {
+  param($Item, [string]$RequestedContentType, [int]$RequestedDpi, [string]$RequestedPageSize)
+  $intent = switch ($RequestedContentType) {
+    "grayscale" { 2 }
+    "text" { 4 }
+    default { 1 }
+  }
+  if (-not (Set-WiaPropertyValue $Item.Properties $WiaCurrentIntent $intent)) {
+    return "The scanner driver does not expose the selected content mode through WIA."
+  }
+  if (-not (Set-WiaPropertyValue $Item.Properties $WiaHorizontalResolution $RequestedDpi) -or
+      -not (Set-WiaPropertyValue $Item.Properties $WiaVerticalResolution $RequestedDpi)) {
+    return "The scanner does not support $RequestedDpi DPI for this content mode. Choose another resolution."
+  }
+  if ($RequestedPageSize -eq "auto") {
+    return $null
+  }
+
+  $sizesInInches = @{
+    "a4" = @(8.2677, 11.6929)
+    "letter" = @(8.5, 11.0)
+    "legal" = @(8.5, 14.0)
+    "4x6" = @(4.0, 6.0)
+    "5x7" = @(5.0, 7.0)
+    "8x10" = @(8.0, 10.0)
+  }
+  $dimensions = $sizesInInches[$RequestedPageSize]
+  $widthPixels = [int][Math]::Round([double]$dimensions[0] * $RequestedDpi)
+  $heightPixels = [int][Math]::Round([double]$dimensions[1] * $RequestedDpi)
+  $positionSet = (Set-WiaPropertyValue $Item.Properties $WiaHorizontalStartPosition 0) -and
+    (Set-WiaPropertyValue $Item.Properties $WiaVerticalStartPosition 0)
+  $extentSet = (Set-WiaPropertyValue $Item.Properties $WiaHorizontalExtent $widthPixels) -and
+    (Set-WiaPropertyValue $Item.Properties $WiaVerticalExtent $heightPixels)
+  if (-not $positionSet -or -not $extentSet) {
+    return "The selected page size is outside this scanner source's supported capture area. Choose Automatic or a smaller size."
+  }
+  return $null
+}
+
 function Write-Result {
   param($Value)
   $Value | ConvertTo-Json -Compress -Depth 6
@@ -186,9 +238,7 @@ function Write-WiaError {
 }
 
 $manager = $null
-$dialog = $null
 $device = $null
-$selectedItems = $null
 $selectedItem = $null
 $image = $null
 $imageProcess = $null
@@ -242,7 +292,6 @@ try {
   }
 
   $device = $deviceInfo.Connect()
-  $dialog = New-Object -ComObject WIA.CommonDialog
   if ($resolvedSource -ne "auto") {
     $sourceValue = if ($resolvedSource -eq "feeder") { 1 } else { 2 }
     $sourceWasSet = Set-WiaPropertyValue $device.Properties $WiaDocumentHandlingSelect $sourceValue
@@ -254,15 +303,21 @@ try {
       }
     }
   }
-  $selectedItems = $dialog.ShowSelectItems($device, 0, 0, $true, $true, $false)
-  if ($null -eq $selectedItems -or $selectedItems.Count -eq 0) {
-    Write-Result ([pscustomobject]@{ status = "cancelled" })
+  if ($device.Items.Count -eq 0) {
+    Write-Result ([pscustomobject]@{ status = "error"; code = "no_scan_item"; message = "The Windows scanner driver did not expose a transferable scan source." })
     exit 0
   }
-  $selectedItem = $selectedItems.Item(1)
-  $image = $dialog.ShowTransfer($selectedItem, $UnspecifiedFormat, $false)
+  $selectedItem = $device.Items.Item(1)
+  $settingsIssue = Set-WiaAcquisitionSettings $selectedItem $ContentType $ResolutionDpi $PageSize
+  if (-not [string]::IsNullOrWhiteSpace($settingsIssue)) {
+    Write-Result ([pscustomobject]@{ status = "error"; code = "unsupported_scan_setting"; message = $settingsIssue })
+    exit 0
+  }
+  # Item.Transfer acquires directly and does not open the redundant WIA
+  # selection/settings window. Printing-MS owns those standard controls.
+  $image = $selectedItem.Transfer($BmpFormat)
   if ($null -eq $image) {
-    Write-Result ([pscustomobject]@{ status = "cancelled" })
+    Write-Result ([pscustomobject]@{ status = "error"; code = "empty_transfer"; message = "The scanner completed without returning an image." })
     exit 0
   }
 
@@ -276,7 +331,7 @@ try {
   $filename = "scan-{0}.png" -f ([DateTime]::UtcNow.ToString("yyyyMMdd-HHmmssfff"))
   $outputPath = Join-Path -Path $OutputDirectory -ChildPath $filename
   $previewImage.SaveFile($outputPath)
-  Write-Result ([pscustomobject]@{ status = "acquired"; path = $outputPath; filename = $filename; deviceName = $state.name; source = $resolvedSource })
+  Write-Result ([pscustomobject]@{ status = "acquired"; path = $outputPath; filename = $filename; deviceName = $state.name; source = $resolvedSource; contentType = $ContentType; resolutionDpi = $ResolutionDpi; pageSize = $PageSize })
 }
 catch [System.Runtime.InteropServices.COMException] {
   Write-WiaError $_.Exception
@@ -289,7 +344,7 @@ catch {
   })
 }
 finally {
-  foreach ($comObject in @($previewImage, $imageProcess, $image, $selectedItem, $selectedItems, $dialog, $device, $manager)) {
+  foreach ($comObject in @($previewImage, $imageProcess, $image, $selectedItem, $device, $manager)) {
     if ($null -ne $comObject -and [System.Runtime.InteropServices.Marshal]::IsComObject($comObject)) {
       [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject)
     }

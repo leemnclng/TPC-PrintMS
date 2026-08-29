@@ -75,7 +75,7 @@ ipcMain.handle("paper-club:open-printer-preferences", async (_event, printerName
 });
 
 ipcMain.handle("paper-club:inspect-scanners", async () => inspectScannerDevices());
-ipcMain.handle("paper-club:acquire-scanner-page", async (_event, deviceId: unknown, source: unknown) => acquireScannerPage(deviceId, source));
+ipcMain.handle("paper-club:acquire-scanner-page", async (_event, deviceId: unknown, settings: unknown) => acquireScannerPage(deviceId, settings));
 
 app.whenReady().then(async () => {
   if (process.platform === "darwin" && !app.isPackaged) {

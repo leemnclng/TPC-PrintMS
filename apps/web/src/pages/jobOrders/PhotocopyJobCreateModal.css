@@ -37,6 +37,13 @@
 .scan-readiness.is-manual > span { color: var(--color-warning); }
 .scan-readiness.is-error { border-color: var(--color-danger); background: var(--color-danger-soft); }
 .scan-readiness.is-error > span { color: var(--color-danger); }
+.scan-profile { display: grid; gap: var(--space-3); margin: 0; border: 1px solid var(--color-hairline-strong); padding: var(--space-4); background: var(--color-paper); }
+.scan-profile:disabled { opacity: .68; }
+.scan-profile legend { display: flex; align-items: baseline; gap: var(--space-3); padding-inline: var(--space-1); }
+.scan-profile legend span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .06em; }
+.scan-profile legend small { color: var(--color-ink-soft); }
+.scan-profile > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.scan-profile > div > label:last-child { grid-column: 1 / -1; }
 .scan-preflight__error { margin: 0; border-left: 3px solid var(--color-danger); padding: var(--space-3); background: var(--color-danger-soft); color: var(--color-danger); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .scan-preflight__action { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
 .scan-preflight__action small { max-width: 34ch; color: var(--color-ink-soft); text-align: right; }
@@ -81,4 +88,4 @@
 .photocopy-job-form__empty p { margin-top: var(--space-2); color: var(--color-ink-soft); }
 .photocopy-job-form__actions { display: flex; justify-content: flex-end; gap: var(--space-2); border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-5); }
 @media (max-width: 48rem) { .photocopy-job-form__content { display: block; } .photocopy-quote { position: static; min-height: 0; border-top: 1px solid var(--color-hairline); border-left: 0; } .scan-document-preview { margin-inline: calc(var(--space-6) * -1); } }
-@media (max-width: 34rem) { .photocopy-job-form__numbers { grid-template-columns: 1fr; } .scan-acquisition__heading, .scan-preflight__action { align-items: stretch; flex-direction: column; } .scan-preflight__action small { max-width: none; text-align: left; } .scan-capture-list li { grid-template-columns: auto minmax(0, 1fr); } .scan-capture-list button { grid-column: 2; justify-self: start; } }
+@media (max-width: 34rem) { .photocopy-job-form__numbers, .scan-profile > div { grid-template-columns: 1fr; } .scan-profile > div > label:last-child { grid-column: auto; } .scan-profile legend { align-items: flex-start; flex-direction: column; gap: var(--space-1); } .scan-acquisition__heading, .scan-preflight__action { align-items: stretch; flex-direction: column; } .scan-preflight__action small { max-width: none; text-align: left; } .scan-capture-list li { grid-template-columns: auto minmax(0, 1fr); } .scan-capture-list button { grid-column: 2; justify-self: start; } }

@@ -27,6 +27,13 @@ interface ScanCapture {
   pageCount: number;
   previewUrl: string;
   source: "scanner" | "import";
+  settings?: ScanSettings;
+}
+
+interface ScanSettings {
+  contentType: "color" | "grayscale" | "text";
+  resolutionDpi: 150 | 300 | 600;
+  pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
 }
 
 interface ScannerDeviceState {
@@ -59,6 +66,16 @@ const BLANK = {
 
 const SCAN_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp"];
 const MAX_SCAN_BYTES = 25 * 1024 * 1024;
+const DEFAULT_SCAN_SETTINGS: ScanSettings = { contentType: "color", resolutionDpi: 300, pageSize: "auto" };
+const SCAN_PAGE_SIZES: Array<{ value: ScanSettings["pageSize"]; label: string; dimensions: string }> = [
+  { value: "auto", label: "Automatic", dimensions: "Driver capture area" },
+  { value: "a4", label: "A4", dimensions: "210 × 297 mm" },
+  { value: "letter", label: "US Letter", dimensions: "216 × 279 mm" },
+  { value: "legal", label: "US Legal", dimensions: "216 × 356 mm" },
+  { value: "4x6", label: "4 × 6", dimensions: "102 × 152 mm" },
+  { value: "5x7", label: "5 × 7", dimensions: "127 × 178 mm" },
+  { value: "8x10", label: "8 × 10", dimensions: "203 × 254 mm" },
+];
 
 export function PhotocopyJobCreateModal({ open, service, customers, products, inventoryItems, pricingRules, onClose, onCreated }: Props) {
   const scanFileInputId = useId();
@@ -71,6 +88,7 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
   const [checkingScanners, setCheckingScanners] = useState(false);
   const [scannerDevices, setScannerDevices] = useState<ScannerDeviceState[]>([]);
   const [selectedScannerId, setSelectedScannerId] = useState("");
+  const [scanSettings, setScanSettings] = useState<ScanSettings>(DEFAULT_SCAN_SETTINGS);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const availableProducts = products.filter((product) => product.isActive && product.serviceId === service.id);
@@ -148,6 +166,7 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
     setCheckingScanners(false);
     setScannerDevices([]);
     setSelectedScannerId("");
+    setScanSettings(DEFAULT_SCAN_SETTINGS);
     setScannerError(null);
     setError(null);
   }, [open, service.id]);
@@ -176,7 +195,7 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
     setError(null);
   }
 
-  async function addScanFiles(files: File[], source: ScanCapture["source"]) {
+  async function addScanFiles(files: File[], source: ScanCapture["source"], settings?: ScanSettings) {
     const currentBytes = scanCapturesRef.current.reduce((sum, capture) => sum + capture.file.size, 0);
     const nextBytes = files.reduce((sum, file) => sum + file.size, currentBytes);
     if (nextBytes > MAX_SCAN_BYTES) throw new Error("The combined scan output must be 25 MB or smaller.");
@@ -186,7 +205,7 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
       const extension = file.name.split(".").pop()?.toLowerCase();
       if (!extension || !SCAN_EXTENSIONS.includes(extension)) throw new Error("Scanner outputs must be PDF or image files.");
       if (!file.size) throw new Error("The scanner returned an empty file.");
-      captures.push({ id: crypto.randomUUID(), file, pageCount: await pageCountFor(file), previewUrl: URL.createObjectURL(file), source });
+      captures.push({ id: crypto.randomUUID(), file, pageCount: await pageCountFor(file), previewUrl: URL.createObjectURL(file), source, settings });
     }
     setScanCaptures((current) => [...current, ...captures]);
   }
@@ -200,7 +219,8 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
     setScannerError(null);
     setError(null);
     try {
-      const result = await window.paperClub.acquireScannerPage(selectedScannerId, "auto");
+      const requestedSettings = { source: "auto" as const, ...scanSettings };
+      const result = await window.paperClub.acquireScannerPage(selectedScannerId, requestedSettings);
       if (result.status === "cancelled") return;
       if (result.status === "not_ready" || result.status === "error") {
         setScannerError(result.message ?? "The scanner is not ready.");
@@ -212,7 +232,7 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
         return;
       }
       const bytes = decodeBase64(result.file.base64);
-      await addScanFiles([new File([bytes], result.file.filename, { type: result.file.mimeType })], "scanner");
+      await addScanFiles([new File([bytes], result.file.filename, { type: result.file.mimeType })], "scanner", result.settings ?? scanSettings);
       void refreshScanners();
     } catch (caught) {
       setScannerError(caught instanceof Error ? caught.message : "The scanner could not acquire this page.");
@@ -282,8 +302,9 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
                       <div className="scan-preflight">
                         <label className="form-field"><span>Scanner device</span><select value={selectedScannerId} onChange={(event) => { setSelectedScannerId(event.target.value); setScannerError(null); }} disabled={checkingScanners || acquiring || !scannerDevices.length}><option value="">{checkingScanners ? "Checking devices…" : "Select scanner"}</option>{scannerDevices.map((device) => <option key={device.id} value={device.id}>{device.name}{device.isOnline ? "" : " · Offline"}</option>)}</select></label>
                         {selectedScanner ? <ScannerReadiness device={selectedScanner} /> : <div className="scan-readiness is-error" role="status"><span aria-hidden="true">!</span><p><strong>No usable scanner detected</strong><small>Turn on the Canon device, check USB/Wi-Fi, and install or repair Canon IJPAT/MP Drivers, then refresh.</small></p></div>}
+                        {selectedScanner ? <fieldset className="scan-profile" disabled={acquiring || saving}><legend><span className="numeric">SCAN PROFILE</span><small>Standard Windows scanner controls, kept inside Printing-MS.</small></legend><div><label className="form-field"><span>Document content</span><select value={scanSettings.contentType} onChange={(event) => setScanSettings((current) => ({ ...current, contentType: event.target.value as ScanSettings["contentType"] }))}><option value="color">Color document</option><option value="grayscale">Grayscale</option><option value="text">Black &amp; white text</option></select></label><label className="form-field"><span>Resolution</span><select value={scanSettings.resolutionDpi} onChange={(event) => setScanSettings((current) => ({ ...current, resolutionDpi: Number(event.target.value) as ScanSettings["resolutionDpi"] }))}><option value={150}>150 DPI · Quick</option><option value={300}>300 DPI · Standard</option><option value={600}>600 DPI · Fine detail</option></select></label><label className="form-field"><span>Page size</span><select value={scanSettings.pageSize} onChange={(event) => setScanSettings((current) => ({ ...current, pageSize: event.target.value as ScanSettings["pageSize"] }))}>{SCAN_PAGE_SIZES.map((size) => <option key={size.value} value={size.value}>{size.label} · {size.dimensions}</option>)}</select><small>This controls the captured area, not printing paper or inventory.</small></label></div></fieldset> : null}
                         {scannerError ? <p className="scan-preflight__error" role="alert">{scannerError}</p> : null}
-                        <div className="scan-preflight__action"><Button type="button" variant="primary" onClick={acquirePage} loading={acquiring} disabled={!canAcquire}>{scanCaptures.length ? "Scan another page" : "Start scanning"}</Button><small>{canAcquire ? "Automatic source: loaded feeder first when reported, otherwise the Canon/Windows driver decides." : "Resolve the scanner issue above to continue."}</small></div>
+                        <div className="scan-preflight__action"><Button type="button" variant="primary" onClick={acquirePage} loading={acquiring} disabled={!canAcquire}>{scanCaptures.length ? "Scan another page" : "Start scanning"}</Button><small>{canAcquire ? "Scans directly with this profile—no separate Windows setup window." : "Resolve the scanner issue above to continue."}</small></div>
                       </div>
                       {scanCaptures.length ? <ScanCaptureList captures={scanCaptures} onRemove={removeCapture} /> : <div className="scan-acquisition__empty"><span aria-hidden="true">◎</span><p>Place the original on the platen or feeder, then start scanning. The captured page will appear here before the job is created.</p></div>}
                     </section>
@@ -359,7 +380,14 @@ function ScannerReadiness({ device }: { device: ScannerDeviceState }) {
 }
 
 function ScanCaptureList({ captures, onRemove }: { captures: ScanCapture[]; onRemove: (id: string) => void }) {
-  return <ol className="scan-capture-list">{captures.map((capture, index) => <li key={capture.id}><span className="numeric">{String(index + 1).padStart(2, "0")}</span><span><strong>{capture.file.name}</strong><small>{capture.source === "scanner" ? "Acquired from Windows scanner" : "Imported recovery output"} · {capture.pageCount} {capture.pageCount === 1 ? "page" : "pages"} · {formatFileSize(capture.file.size)}</small></span><button type="button" onClick={() => onRemove(capture.id)} aria-label={`Remove ${capture.file.name}`}>Remove</button></li>)}</ol>;
+  return <ol className="scan-capture-list">{captures.map((capture, index) => <li key={capture.id}><span className="numeric">{String(index + 1).padStart(2, "0")}</span><span><strong>{capture.file.name}</strong><small>{capture.source === "scanner" ? `Scanned · ${formatScanProfile(capture.settings)}` : "Imported recovery output"} · {capture.pageCount} {capture.pageCount === 1 ? "page" : "pages"} · {formatFileSize(capture.file.size)}</small></span><button type="button" onClick={() => onRemove(capture.id)} aria-label={`Remove ${capture.file.name}`}>Remove</button></li>)}</ol>;
+}
+
+function formatScanProfile(settings?: ScanSettings): string {
+  if (!settings) return "Windows scanner";
+  const content = settings.contentType === "color" ? "Color" : settings.contentType === "grayscale" ? "Grayscale" : "B&W text";
+  const pageSize = SCAN_PAGE_SIZES.find((size) => size.value === settings.pageSize)?.label ?? "Automatic";
+  return `${content} · ${settings.resolutionDpi} DPI · ${pageSize}`;
 }
 
 function ScanDocumentPreview({ captures }: { captures: ScanCapture[] }) {

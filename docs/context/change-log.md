@@ -231,6 +231,8 @@ Track notable app changes by date.
 
 ## 2026-08-30
 
+- Changed: Normal Scan acquisition no longer opens the Windows WIA settings window; content, resolution, and page-size choices now remain inside the job modal.
+- Added: Color document, grayscale, B&W text, 150/300/600 DPI, and Automatic/A4/Letter/Legal/4×6/5×7/8×10 scan profiles with inline unsupported-setting recovery.
 - Fixed: Windows scanner pages are normalized to validated PNG before preview, preventing driver-native BMP/TIFF output from appearing as a broken image.
 - Changed: Scan intake no longer asks for flatbed/feeder selection or manual placement confirmation. It automatically uses a source reported ready and otherwise lets the Canon/Windows scanner dialog decide.
 - Preserved: Real offline, paper-jam, open-cover, busy, and acquisition errors remain visible and recoverable.

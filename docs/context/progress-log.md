@@ -454,3 +454,9 @@ Chronological notes about app progress.
 - Summary: Repaired WIA page previews and removed manual source selection from Scan intake.
 - Completed: WIA capture now converts driver-native output to validated PNG before IPC. Automatic acquisition prefers a driver-reported loaded feeder or flatbed and otherwise lets the Canon/Windows dialog choose; offline, jam, cover, cancellation, and acquisition errors remain actionable. Broken image icons now degrade to an explicit preview-unavailable tile.
 - Verified: Renderer and desktop typechecks/builds, renderer lint, all 28 API tests, and diff validation pass. Physical feeder/flatbed selection still requires confirmation on the Windows Canon workstation.
+
+## 2026-08-30 (in-app scanner configuration)
+
+- Summary: Removed the redundant Windows WIA settings popup from normal Scan jobs.
+- Completed: Added in-app content mode, 150/300/600 DPI, and Automatic/A4/Letter/Legal/4×6/5×7/8×10 capture-size controls. The desktop bridge validates the profile, applies standard WIA properties, transfers directly as BMP without `ShowSelectItems`, normalizes to PNG, and returns unsupported combinations as actionable inline errors.
+- Verified: Renderer/desktop typechecks and production builds, renderer lint, all 28 API tests, and diff validation pass. Direct WIA transfer and each Canon paper/source combination still require physical Windows validation.
