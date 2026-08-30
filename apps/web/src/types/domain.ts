@@ -227,6 +227,7 @@ export interface JobOrderItem {
   serviceName: string;
   operationKind: ProductOperationKind;
   status: "queued" | "printing" | "ready";
+  reprocessCount: number;
   printType: ProductPrintType;
   printTypeLabel: string;
   printColorMode: "color" | "grayscale";

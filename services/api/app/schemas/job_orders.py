@@ -117,6 +117,7 @@ class JobOrderItemRead(CamelModel):
     service_name: str
     operation_kind: Literal["printing", "photocopy", "scan"]
     status: Literal["queued", "printing", "ready"]
+    reprocess_count: int
     print_type: str
     print_type_label: str
     print_color_mode: str
@@ -170,6 +171,10 @@ class JobOrderTransitionCreate(CamelModel):
 class JobOrderItemTransitionCreate(CamelModel):
     to_status: Literal["queued", "ready"]
     note: str | None = None
+
+
+class JobOrderCancelCreate(CamelModel):
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class PrintSubmissionCreate(CamelModel):

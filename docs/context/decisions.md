@@ -538,3 +538,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: A job order is one customer transaction containing product lines from any active service. The initially selected service scopes only the first line. Each line snapshots its operation and owns Queued/Printing/Ready status, files, printer attempts, materials, and rework; the parent owns the combined total, payment, and completion.
 - Rationale: Customers commonly purchase printing, scanning, and photocopying together, but combining their device processes would erase required validation and progress. Conversely, separate orders would fragment a single counter payment.
 - Impact: All product lines must be Ready before payment is accepted. Printing, Scan, and Photocopy retain their existing specialized modals/actions, while the workspace presents one payment breakdown and one final completion action.
+
+### Preserve Consumption Across Quality Reprocessing and Cancellation
+
+- Decision: Treat each failed-quality retry as a new product-level production cycle. Keep prior print attempts, scan history, status events, and consumed inventory; add one equivalent material allowance for a physical replacement and deduct it when that replacement is produced. Allow products to be appended only before the parent is Paid. Cancellation is transaction-level, requires a reason, and is allowed only before a verified payment or completion.
+- Rationale: Rejected output still consumed paper and supplies, while only the affected product needs to run again. Reversing stock would understate real usage, and changing a paid transaction would make its combined receipt unreliable.
+- Impact: Reprocess counts appear in the list and workspace. Cancelled transactions become immutable inside Printing-MS, but an already-submitted operating-system print may still require separate queue cancellation. Refund handling remains a prerequisite before cancelling a paid transaction.

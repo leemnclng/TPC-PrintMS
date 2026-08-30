@@ -389,6 +389,31 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     assert append_scan_response.status_code == 201
     assert append_scan_response.json()["status"] == "ready"
 
+    photocopy_item = appended_order["items"][0]
+    failed_photocopy = client.post(
+        f"/job-orders/{appended_order['id']}/items/{photocopy_item['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "queued", "note": "Toner streak on the reverse side."},
+    )
+    assert failed_photocopy.status_code == 200
+    assert failed_photocopy.json()["status"] == "queued"
+    failed_line = next(item for item in failed_photocopy.json()["items"] if item["id"] == photocopy_item["id"])
+    assert failed_line["reprocessCount"] == 1
+    assert failed_line["materials"][0]["plannedQuantity"] == 12
+    assert failed_line["materials"][0]["consumedQuantity"] == 6
+    assert "Toner streak" in failed_line["statusEvents"][0]["note"]
+
+    completed_reprocess = client.post(
+        f"/job-orders/{appended_order['id']}/items/{photocopy_item['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "ready"},
+    )
+    assert completed_reprocess.status_code == 200
+    assert completed_reprocess.json()["status"] == "ready"
+    completed_line = next(item for item in completed_reprocess.json()["items"] if item["id"] == photocopy_item["id"])
+    assert completed_line["materials"][0]["consumedQuantity"] == 12
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 63
+
     mixed_response = client.post(
         "/job-orders/transactions",
         headers=headers,
@@ -494,7 +519,7 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     assert scanned_order["items"][0]["pagesPerCopy"] == 2
     assert scanned_order["files"][0]["originalFilename"] == "scanner-output.pdf"
     assert scanned_order["files"][0]["detectedPageCount"] == 2
-    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 69
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 63
     download = client.get(
         f"/job-orders/{scanned_order['id']}/files/{scanned_order['files'][0]['id']}",
         headers=headers,
@@ -894,6 +919,13 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert partial_payment.status_code == 201
     assert partial_payment.json()["status"] == "ready"
     assert partial_payment.json()["amountPaid"] == 10
+    paid_cancel = client.post(
+        f"/job-orders/{order['id']}/cancel",
+        headers=headers,
+        json={"reason": "Customer requested cancellation after a deposit."},
+    )
+    assert paid_cancel.status_code == 409
+    assert "Resolve the refund" in paid_cancel.json()["detail"]
     overpayment = client.post(
         f"/job-orders/{order['id']}/payments",
         headers=headers,
@@ -972,8 +1004,12 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     )
     assert reprint.status_code == 200
     assert reprint.json()["status"] == "queued"
-    assert reprint.json()["statusEvents"][0]["note"] == "Quality check did not pass; job requeued for a re-print."
+    assert reprint.json()["items"][0]["reprocessCount"] == 1
+    assert reprint.json()["items"][0]["materials"][0]["plannedQuantity"] == 6
+    assert reprint.json()["items"][0]["materials"][0]["consumedQuantity"] == 3
+    assert "entered reprocess cycle 1" in reprint.json()["statusEvents"][0]["note"]
 
+    stock_before_reprint = client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"]
     second_pass = client.post(
         f"/job-orders/{suggested_order['id']}/print-attempts",
         headers=headers,
@@ -981,12 +1017,42 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     )
     assert second_pass.status_code == 201
     assert second_pass.json()["status"] == "printing"
-    # The planned paper was already fully deducted on the first pass, so the
-    # re-print deducts nothing further.
-    assert (
-        second_pass.json()["items"][0]["materials"][0]["consumedQuantity"]
-        == first_pass.json()["items"][0]["materials"][0]["consumedQuantity"]
+    # A quality-failed output is still consumed work. The re-print receives
+    # and deducts a fresh cycle of the same material plan.
+    assert second_pass.json()["items"][0]["materials"][0]["consumedQuantity"] == 6
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == stock_before_reprint - 3
+
+    cancelled = client.post(
+        f"/job-orders/{suggested_order['id']}/cancel",
+        headers=headers,
+        json={"reason": "Customer no longer needs the replacement output."},
     )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert cancelled.json()["items"][0]["reprocessCount"] == 1
+    assert "Customer no longer needs" in cancelled.json()["statusEvents"][0]["note"]
+    assert client.get(f"/job-orders/{suggested_order['id']}", headers=headers).status_code == 200
+    assert client.post(
+        f"/job-orders/{suggested_order['id']}/items/{suggested_order['items'][0]['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "ready"},
+    ).status_code == 409
+    assert client.post(
+        f"/job-orders/{suggested_order['id']}/print-attempts",
+        headers=headers,
+        json={"printerId": printer_id, "jobFileId": suggested_order["files"][0]["id"]},
+    ).status_code == 409
+    assert client.post(
+        f"/job-orders/{suggested_order['id']}/cancel",
+        headers=headers,
+        json={"reason": "Duplicate cancellation request."},
+    ).status_code == 409
+
+    assert client.post(
+        f"/job-orders/{order['id']}/cancel",
+        headers=headers,
+        json={"reason": "Completed orders stay immutable."},
+    ).status_code == 409
 
     # A job with no outstanding balance can move from Ready straight to Paid
     # without a payment record; one with a balance owed cannot.

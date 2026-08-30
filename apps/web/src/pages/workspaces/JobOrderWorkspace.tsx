@@ -21,6 +21,8 @@ import { JobPrintSetupModal } from "../jobOrders/JobPrintSetupModal";
 import { JobScanSetupModal } from "../jobOrders/JobScanSetupModal";
 import { JobTransitionModal } from "../jobOrders/JobTransitionModal";
 import { TransactionCreateModal } from "../jobOrders/TransactionCreateModal";
+import { JobQualityFailureModal } from "../jobOrders/JobQualityFailureModal";
+import { JobCancelModal } from "../jobOrders/JobCancelModal";
 import "./Workspace.css";
 
 type TransitionTarget = "queued" | "ready" | "paid" | "completed";
@@ -51,6 +53,8 @@ export function JobOrderWorkspace() {
   const [itemActionError, setItemActionError] = useState<string | null>(null);
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [addProductsOpen, setAddProductsOpen] = useState(false);
+  const [qualityFailureItem, setQualityFailureItem] = useState<JobOrderItem | null>(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const { data, state, error, reload } = useResource(async () => {
     const [order, materialMovements, services, products, inventoryItems, pricingRules] = await Promise.all([
       api.get<JobOrder>(`/job-orders/${jobOrderId}`),
@@ -88,6 +92,8 @@ export function JobOrderWorkspace() {
     setPrintItem(null);
     setScanItem(null);
     setTransitionTarget(null);
+    setQualityFailureItem(null);
+    setCancelOpen(false);
     reload();
   }
 
@@ -125,7 +131,7 @@ export function JobOrderWorkspace() {
         eyebrow="JOB ORDER WORKFLOW"
         title={order.name}
         description={`${order.number} · ${order.customerName ? order.customerName : "Walk-in order"} · complete every production step here`}
-        actions={<><LinkButton to="/job-orders" variant="secondary">All job orders</LinkButton><StatusPill label={jobOrderStatusMeta[order.status].label} tone={jobOrderStatusMeta[order.status].tone} /></>}
+        actions={<><LinkButton to="/job-orders" variant="secondary">All job orders</LinkButton>{["queued", "printing", "ready"].includes(order.status) && order.amountPaid === 0 ? <Button variant="danger" onClick={() => setCancelOpen(true)}>Cancel order</Button> : null}<StatusPill label={jobOrderStatusMeta[order.status].label} tone={jobOrderStatusMeta[order.status].tone} /></>}
       />
 
       <section className="job-command" aria-labelledby="job-command-title">
@@ -134,10 +140,10 @@ export function JobOrderWorkspace() {
           {workflowAction()}
         </div>
         <ol className="job-workflow-steps">
-          <li className={order.status === "queued" || order.status === "printing" ? "is-active" : "is-complete"}><span className="numeric">01</span><strong>Production</strong></li>
+          {order.status === "cancelled" ? <li className="is-cancelled"><span className="numeric">×</span><strong>Transaction cancelled</strong></li> : <><li className={order.status === "queued" || order.status === "printing" ? "is-active" : "is-complete"}><span className="numeric">01</span><strong>Production</strong></li>
           <li className={order.status === "ready" ? "is-active" : ["paid", "completed"].includes(order.status) ? "is-complete" : ""}><span className="numeric">02</span><strong>Ready together</strong></li>
           <li className={order.status === "paid" ? "is-active" : order.status === "completed" ? "is-complete" : ""}><span className="numeric">03</span><strong>Paid</strong></li>
-          <li className={order.status === "completed" ? "is-active" : ""}><span className="numeric">04</span><strong>Completed</strong></li>
+          <li className={order.status === "completed" ? "is-active" : ""}><span className="numeric">04</span><strong>Completed</strong></li></>}
         </ol>
       </section>
 
@@ -174,7 +180,7 @@ export function JobOrderWorkspace() {
             const tone = item.status === "ready" ? "success" : item.status === "printing" ? "info" : "warning";
             return (
               <article className="job-operation-card" key={item.id}>
-                <header><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><StatusPill label={statusLabel} tone={tone} /></header>
+                <header><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><span className="job-operation-card__status">{item.reprocessCount > 0 ? <b>Reprocess × {item.reprocessCount}</b> : null}<StatusPill label={statusLabel} tone={tone} /></span></header>
                 <div className="job-operation-card__title"><div><h3>{item.productName}</h3><p>{item.serviceName} · {item.operationKind} workflow</p></div><strong>{formatCurrency(item.lineTotal)}</strong></div>
                 <dl>
                   <div><dt>Quantity</dt><dd>{item.operationKind === "scan" && !scanOutput ? "Detected after scan" : `${item.pagesPerCopy} pages × ${item.copies}`}</dd></div>
@@ -183,11 +189,11 @@ export function JobOrderWorkspace() {
                   <div><dt>Progress records</dt><dd>{item.statusEvents.length} status · {order.printAttempts.filter((attempt) => attempt.jobOrderItemId === item.id).length} attempts</dd></div>
                 </dl>
                 <footer>
-                  {item.status === "queued" && item.operationKind === "printing" ? <Button variant="primary" onClick={() => setPrintItem(item)}>Open print setup</Button> : null}
-                  {item.status === "queued" && item.operationKind === "scan" ? <Button variant="primary" onClick={() => setScanItem(item)}>Start scanning</Button> : null}
-                  {item.status === "queued" && item.operationKind === "photocopy" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Record photocopy complete</Button> : null}
-                  {item.status === "printing" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Printing finished</Button> : null}
-                  {item.status === "ready" && order.status !== "paid" && order.status !== "completed" ? <Button variant="secondary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "queued")}>{item.operationKind === "scan" ? "Needs re-scan" : "Needs rework"}</Button> : null}
+                  {order.status !== "cancelled" && item.status === "queued" && item.operationKind === "printing" ? <Button variant="primary" onClick={() => setPrintItem(item)}>Open print setup</Button> : null}
+                  {order.status !== "cancelled" && item.status === "queued" && item.operationKind === "scan" ? <Button variant="primary" onClick={() => setScanItem(item)}>Start scanning</Button> : null}
+                  {order.status !== "cancelled" && item.status === "queued" && item.operationKind === "photocopy" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Record photocopy complete</Button> : null}
+                  {order.status !== "cancelled" && item.status === "printing" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Printing finished</Button> : null}
+                  {item.status === "ready" && ["queued", "printing", "ready"].includes(order.status) ? <Button variant="danger" onClick={() => setQualityFailureItem(item)}>Failed quality</Button> : null}
                   {scanOutput ? <><Button variant="secondary" onClick={() => setPreviewFile(scanOutput)}>View softcopy</Button><Button variant="ghost" onClick={() => downloadJobFile(scanOutput)}>Download</Button></> : null}
                 </footer>
               </article>
@@ -226,6 +232,8 @@ export function JobOrderWorkspace() {
       <JobMaterialUsageModal open={usageOpen} order={order} onClose={() => setUsageOpen(false)} onRecorded={() => { setUsageOpen(false); reload(); }} />
       {previewFile ? <ScanOutputPreviewModal open orderId={order.id} jobFile={previewFile} onClose={() => setPreviewFile(null)} /> : null}
       {initialService ? <TransactionCreateModal open={addProductsOpen} order={order} initialService={initialService} services={services} products={products} inventoryItems={inventoryItems} pricingRules={pricingRules} customers={[]} onClose={() => setAddProductsOpen(false)} onCreated={() => { setAddProductsOpen(false); reload(); }} /> : null}
+      {qualityFailureItem ? <JobQualityFailureModal open order={order} item={qualityFailureItem} onClose={() => setQualityFailureItem(null)} onReprocessed={handleUpdated} /> : null}
+      <JobCancelModal open={cancelOpen} order={order} onClose={() => setCancelOpen(false)} onCancelled={handleUpdated} />
     </>
   );
 }

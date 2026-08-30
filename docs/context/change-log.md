@@ -256,3 +256,8 @@ Track notable app changes by date.
 - Changed: Scan intake keeps automatic flatbed/feeder selection. Detected feeder paper proceeds automatically; flatbed or non-sensing drivers require owner confirmation because WIA cannot reliably prove an original is present.
 - Preserved: Real offline, paper-jam, open-cover, busy, and acquisition errors remain visible and recoverable.
 - Fixed: Canon acquisition now starts through WIA's transfer/progress path while the redundant Windows source/settings window remains disabled.
+- Added: Products can be added to an existing Queued, Printing, or Ready transaction until it is paid.
+- Added: Failed quality now opens a focused reprint/re-scan/reprocess confirmation with an optional audit reason and the next cycle's material impact.
+- Changed: Every physical reprocess receives a fresh material allowance; successful replacement printing or photocopy completion deducts it again without restoring the rejected output's consumption.
+- Added: Job lists and production cards show reprocess cycle counts for quick identification.
+- Added: Active unpaid transactions can be cancelled with a required reason; cancelled orders retain history and consumed inventory while blocking further production.

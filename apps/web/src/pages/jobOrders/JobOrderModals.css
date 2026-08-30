@@ -15,6 +15,24 @@
 .job-transition-confirmation__mark { display: grid; width: 3.25rem; height: 3.25rem; place-items: center; border: 1px solid var(--color-accent); border-radius: 50%; color: var(--color-accent); font-size: var(--text-xs); }
 .job-transition-confirmation p { margin: 0; color: var(--color-ink-soft); font-size: var(--text-sm); }
 .job-transition-error { margin: 0 var(--space-6) var(--space-4); }
+.job-quality-modal,
+.job-cancel-modal { width: min(calc(100% - var(--space-6)), 42rem); }
+.job-quality-modal .modal__body,
+.job-cancel-modal .modal__body { flex-direction: column; }
+.job-quality-failure,
+.job-cancel-confirmation { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-5); }
+.job-quality-failure__impact { border-left: 3px solid var(--color-danger); padding: var(--space-3) var(--space-4); background: var(--color-danger-soft); }
+.job-quality-failure__impact > span { color: var(--color-danger); font-size: var(--text-xs); letter-spacing: .05em; }
+.job-quality-failure__impact > strong { display: block; margin-top: var(--space-1); }
+.job-quality-failure__impact p,
+.job-quality-failure__digital,
+.job-cancel-confirmation > p { margin: var(--space-1) 0 0; color: var(--color-ink-soft); font-size: var(--text-sm); }
+.job-quality-failure__materials { display: flex; flex-direction: column; border: 1px solid var(--color-hairline); }
+.job-quality-failure__materials > strong { border-bottom: 1px solid var(--color-hairline); padding: var(--space-3); background: var(--color-paper-2); font-size: var(--text-sm); }
+.job-quality-failure__materials > span { display: flex; flex-direction: column; gap: var(--space-1); border-bottom: 1px solid var(--color-hairline); padding: var(--space-3); }
+.job-quality-failure__materials > span:last-child { border-bottom: 0; }
+.job-quality-failure__materials small { color: var(--color-ink-faint); }
+.job-cancel-confirmation > p { border-left: 3px solid var(--color-danger); padding: var(--space-3) var(--space-4); background: var(--color-danger-soft); }
 
 .job-print-modal { width: min(calc(100% - var(--space-6)), 70rem); }
 .duplex-progress { border-bottom: 1px solid var(--color-hairline); background: var(--color-paper-2); }

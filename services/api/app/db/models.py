@@ -469,6 +469,7 @@ class JobOrderItem(Base):
     )
     requires_manual_duplex: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[str] = mapped_column(String, default="queued", nullable=False)
+    reprocess_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship(back_populates="job_order_items")

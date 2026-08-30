@@ -53,6 +53,7 @@ from ..modules.document_analyzer.utils.file_detection import (
 from ..schemas.job_orders import (
     AnalyzedJobOrderCreate,
     JobOrderCreate,
+    JobOrderCancelCreate,
     JobOrderMaterialUsageCreate,
     JobOrderRead,
     JobOrderItemTransitionCreate,
@@ -96,6 +97,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "service_name": item.product.service.name,
                 "operation_kind": item.operation_kind,
                 "status": item.status,
+                "reprocess_count": item.reprocess_count,
                 "print_type": item.product.print_type,
                 "print_type_label": item.product.print_type_definition.label,
                 "print_color_mode": item.product.print_type_definition.color_mode,
@@ -468,6 +470,8 @@ async def _submit_scan_output(
     job_order = db.get(JobOrder, job_order_id)
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
+    if job_order.status == JobOrderStatus.cancelled:
+        raise HTTPException(status_code=409, detail="A cancelled transaction cannot acquire new scan output.")
     item = db.get(JobOrderItem, item_id) if item_id else None
     if item is None:
         scan_items = [value for value in job_order.items if value.operation_kind == "scan"]
@@ -567,9 +571,19 @@ def _record_item_status(item: JobOrderItem, to_status: str, note: str) -> None:
     )
 
 
+def _plan_item_reprocess(item: JobOrderItem) -> int:
+    """Add one fresh production cycle without rewriting consumed inventory history."""
+    completed_cycles = item.reprocess_count + 1
+    for plan in item.material_plans:
+        cycle_quantity = plan.planned_quantity / completed_cycles
+        plan.planned_quantity = round(plan.planned_quantity + cycle_quantity, 6)
+    item.reprocess_count += 1
+    return item.reprocess_count
+
+
 def _sync_transaction_status(job_order: JobOrder, note: str) -> None:
     """Mirror production progress onto the transaction without replacing line-item truth."""
-    if job_order.status in {JobOrderStatus.paid, JobOrderStatus.completed}:
+    if job_order.status in {JobOrderStatus.paid, JobOrderStatus.completed, JobOrderStatus.cancelled}:
         return
     statuses = {item.status for item in job_order.items}
     if statuses and statuses == {"ready"}:
@@ -1286,8 +1300,46 @@ def transition_job_order(
     }
     note = payload.note.strip() if payload.note else default_notes[target]
     if len(job_order.items) == 1 and target in {JobOrderStatus.ready, JobOrderStatus.queued}:
+        if target == JobOrderStatus.queued:
+            cycle = _plan_item_reprocess(job_order.items[0])
+            note = f"Quality failed; {job_order.items[0].product.name} entered reprocess cycle {cycle}."
+            if payload.note:
+                note += f" {payload.note.strip()}"
         _record_item_status(job_order.items[0], target.value, note)
     _record_status(job_order, target, note)
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.post("/{job_order_id}/cancel", response_model=JobOrderRead)
+def cancel_job_order(
+    job_order_id: str,
+    payload: JobOrderCancelCreate,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    if not job_order:
+        raise HTTPException(status_code=404, detail="Transaction not found.")
+    if job_order.status == JobOrderStatus.cancelled:
+        raise HTTPException(status_code=409, detail="This transaction is already cancelled.")
+    if job_order.status == JobOrderStatus.completed:
+        raise HTTPException(status_code=409, detail="A completed transaction cannot be cancelled.")
+    verified_total = sum(payment.amount for payment in job_order.payments if payment.verified)
+    if verified_total > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="This transaction has a recorded payment. Resolve the refund before cancellation.",
+        )
+    reason = payload.reason.strip()
+    active_attempt = any(
+        attempt.spooler_status in {"submitted", "queued", "spooling", "printing", "paused"}
+        for attempt in job_order.print_jobs
+    )
+    note = f"Transaction cancelled by owner: {reason}"
+    if active_attempt:
+        note += " Active operating-system print submissions may continue and require printer-queue review."
+    _record_status(job_order, JobOrderStatus.cancelled, note)
     db.commit()
     db.refresh(job_order)
     return _to_read(job_order)
@@ -1304,8 +1356,8 @@ def transition_job_order_item(
     item = db.get(JobOrderItem, item_id)
     if not job_order or not item or item.job_order_id != job_order.id:
         raise HTTPException(status_code=404, detail="Transaction product line not found.")
-    if job_order.status in {JobOrderStatus.paid, JobOrderStatus.completed}:
-        raise HTTPException(status_code=409, detail="A paid or completed transaction cannot return to production.")
+    if job_order.status in {JobOrderStatus.paid, JobOrderStatus.completed, JobOrderStatus.cancelled}:
+        raise HTTPException(status_code=409, detail="A paid, completed, or cancelled transaction cannot return to production.")
     target = payload.to_status
     allowed = {"queued": {"ready"}, "printing": {"ready"}, "ready": {"queued"}}
     if target not in allowed.get(item.status, set()):
@@ -1323,13 +1375,16 @@ def transition_job_order_item(
             db,
             note=f"Automatically deducted after device-side photocopy work for {job_order.number}",
         )
-    default_note = (
-        f"{item.product.name} finished production and passed owner review."
-        if target == "ready"
-        else f"{item.product.name} returned to its operation queue for rework."
-    )
-    _record_item_status(item, target, payload.note.strip() if payload.note else default_note)
-    _sync_transaction_status(job_order, f"Transaction progress recalculated after {item.product.name} changed status.")
+    if target == "queued":
+        cycle = _plan_item_reprocess(item)
+        default_note = f"Quality failed; {item.product.name} entered reprocess cycle {cycle}."
+        if payload.note:
+            default_note += f" {payload.note.strip()}"
+    else:
+        default_note = f"{item.product.name} finished production and passed owner review."
+    item_note = default_note if target == "queued" else payload.note.strip() if payload.note else default_note
+    _record_item_status(item, target, item_note)
+    _sync_transaction_status(job_order, item_note)
     db.commit()
     db.refresh(job_order)
     return _to_read(job_order)
@@ -1344,6 +1399,8 @@ async def submit_print_attempt(
     job_order = db.get(JobOrder, job_order_id)
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
+    if job_order.status == JobOrderStatus.cancelled:
+        raise HTTPException(status_code=409, detail="A cancelled transaction cannot be submitted to a printer.")
     item = db.get(JobOrderItem, payload.job_order_item_id) if payload.job_order_item_id else None
     if item is None:
         printing_items = [value for value in job_order.items if value.operation_kind == "printing"]
@@ -1373,6 +1430,10 @@ async def submit_print_attempt(
             status_code=422,
             detail="Supervised back-to-back printing is currently available on the Windows printer host.",
         )
+    cycle_started_at = max(
+        (event.occurred_at for event in item.status_events if event.to_status == "queued"),
+        default=None,
+    )
     successful_front = next(
         (
             attempt
@@ -1380,6 +1441,7 @@ async def submit_print_attempt(
             if attempt.job_order_item_id in {None, item.id}
             and attempt.result == PrintResult.succeeded
             and attempt.duplex_pass == "front"
+            and (cycle_started_at is None or attempt.submitted_at >= cycle_started_at)
         ),
         None,
     )
@@ -1508,6 +1570,8 @@ def record_material_usage(
     job_order = db.get(JobOrder, job_order_id)
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
+    if job_order.status == JobOrderStatus.cancelled:
+        raise HTTPException(status_code=409, detail="Material usage cannot be added to a cancelled transaction.")
     plan_ids = [entry.material_plan_id for entry in payload.entries]
     if len(plan_ids) != len(set(plan_ids)):
         raise HTTPException(status_code=400, detail="A material plan can be recorded only once per request.")

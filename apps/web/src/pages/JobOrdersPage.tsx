@@ -67,6 +67,14 @@ export function JobOrdersPage() {
       header: "Status",
       render: (r) => <StatusPill label={jobOrderStatusMeta[r.status].label} tone={jobOrderStatusMeta[r.status].tone} />,
     },
+    {
+      key: "reprocess",
+      header: "Reprocess",
+      render: (r) => {
+        const count = r.items.reduce((sum, item) => sum + item.reprocessCount, 0);
+        return count ? <StatusPill label={`${count} ${count === 1 ? "cycle" : "cycles"}`} tone="warning" /> : <span className="job-order-no-reprocess">—</span>;
+      },
+    },
     { key: "total", header: "Total", numeric: true, align: "right", render: (r) => formatCurrency(r.total) },
     {
       key: "paid",

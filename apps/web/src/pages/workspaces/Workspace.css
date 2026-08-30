@@ -36,6 +36,7 @@
 .job-workflow-steps li:last-child { border-right: 0; }
 .job-workflow-steps li.is-complete { background: var(--color-success-soft); color: var(--color-success); }
 .job-workflow-steps li.is-active { box-shadow: inset 0 3px var(--color-accent); background: var(--color-accent-softer); color: var(--color-accent); }
+.job-workflow-steps li.is-cancelled { grid-column: 1 / -1; box-shadow: inset 0 3px var(--color-danger); background: var(--color-danger-soft); color: var(--color-danger); }
 .job-workflow-steps span { font-size: var(--text-xs); }
 .job-workflow-steps strong { overflow-wrap: anywhere; color: var(--color-ink); font-size: var(--text-xs); }
 .workspace-action-error { margin: var(--space-3) 0 0; color: var(--color-danger); font-size: var(--text-sm); }
@@ -313,6 +314,8 @@
 .job-operation-card { display: flex; min-width: 0; flex-direction: column; border: 1px solid var(--color-hairline-strong); background: var(--color-paper); }
 .job-operation-card > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); background: var(--color-paper-2); }
 .job-operation-card > header > span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .05em; }
+.job-operation-card__status { display: flex; align-items: center; gap: var(--space-2); }
+.job-operation-card__status > b { border: 1px solid var(--color-warning); padding: .2rem .45rem; color: var(--color-warning); font-size: var(--text-xs); letter-spacing: 0; }
 .job-operation-card__title { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--space-4); }
 .job-operation-card__title h3 { font-family: var(--font-display); font-size: var(--text-lg); }
 .job-operation-card__title p { margin: var(--space-1) 0 0; color: var(--color-ink-faint); font-size: var(--text-xs); text-transform: capitalize; }

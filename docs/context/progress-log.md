@@ -490,3 +490,9 @@ Chronological notes about app progress.
 - Summary: Corrected Canon source selection, recovered unsupported B&W scans, and made every scanner trigger observable.
 - Completed: WIA 2.0 item-category discovery now selects the feeder/flatbed transfer item instead of item 1. Automatic mode honors the feeder-ready status bit and otherwise tries the feeder first, with explicit source overrides. Rejected B&W text intent retries as grayscale and reports the fallback. The modal retains check, progress, completion, cancellation, and error guidance.
 - Verified: Renderer/desktop typechecks, production builds, renderer lint, all 28 API tests, and diff validation pass. Physical Canon source and B&W validation remains open.
+
+## 2026-08-30 (transaction extension, reprocessing, and cancellation)
+
+- Summary: Completed the unpaid transaction correction workflow without splitting product work into new orders.
+- Completed: Ready and in-production transactions can append products from any service. Failed-quality product lines start an audited reprint/re-scan/reprocess cycle, receive a fresh material plan, and visibly retain their reprocess count. Unpaid active transactions can be cancelled with a required reason; cancellation preserves consumed inventory and blocks scanning, printing, line transitions, append operations, and manual material usage.
+- Verified: Fresh SQLite migration reaches `c2419a783f30`; all 28 API tests, renderer lint, and renderer production build pass.
