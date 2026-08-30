@@ -223,7 +223,7 @@ export function ProductCreateModal({
           ) : null}
 
           <div className="product-create-form__row">
-            {!isScan ? <label className="form-field">
+            <label className="form-field">
               <span>Print type</span>
               <select
                 value={form.printType}
@@ -237,8 +237,10 @@ export function ProductCreateModal({
                   <option key={printType.key} value={printType.key}>{printType.label}</option>
                 ))}
               </select>
-              <span className="form-field__message">Choose the output this product is designed to produce.</span>
-            </label> : null}
+              <span className="form-field__message">
+                {isScan ? "Classifies this scan product; it does not change the flat per-page rate below." : "Choose the output this product is designed to produce."}
+              </span>
+            </label>
 
             <label className="form-field">
               <span>Status</span>

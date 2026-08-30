@@ -2,6 +2,12 @@
 
 Chronological notes about app progress.
 
+## 2026-08-30 (safe product removal)
+
+- Summary: Fixed product removal when historical transactions or inventory records still reference the product.
+- Completed: Unused products are permanently deleted; referenced products are archived by deactivation so audit history remains valid. The workspace now prevents duplicate save/remove actions and shows API failures instead of leaving an unhandled rejection.
+- Verified: Product-removal regression coverage, the complete API suite, renderer build, renderer lint, and whitespace validation pass.
+
 ## 2026-08-30 (product-aware pricing matrices)
 
 - Summary: Added product as an explicit layer over the material-by-print-type global pricing matrix and compacted the Pricing Center.

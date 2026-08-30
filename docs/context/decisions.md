@@ -564,3 +564,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Let the owner open any product pane to reveal its current operation and controls, while requiring a separate explicit button for every status or inventory mutation.
 - Rationale: The production board should behave like an operational workflow rather than a passive report, but a broad card click must not accidentally submit printing, deduct stock, or start reprocessing.
 - Impact: Pointer users may open the whole pane, keyboard users receive a visible 44-pixel step control, only one pane stays open at a time, and paid, completed, or cancelled lines expose retained records without production controls.
+
+### Archive Historically Referenced Products
+
+- Decision: Interpret product removal as a hard delete only when no job item, quotation item, or inventory movement references the product. Otherwise mark it Inactive and preserve the row.
+- Rationale: Historical production and stock records depend on their original product relationship for names, pricing context, and audit integrity. Cascading or nulling that relationship would damage completed transaction evidence.
+- Impact: Removed products stop appearing in new-transaction choices immediately. Historically used products remain visible as Inactive for audit and may be reactivated deliberately; unused products leave the database permanently.

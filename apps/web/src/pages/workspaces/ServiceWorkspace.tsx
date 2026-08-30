@@ -115,7 +115,7 @@ export function ServiceWorkspace() {
               {
                 key: "printType",
                 header: "Print type",
-                render: (product) => product.operationKind === "scan" ? "Not applicable" : product.printTypeLabel || formatProductPrintType(product.printType),
+                render: (product) => product.printTypeLabel || formatProductPrintType(product.printType),
               },
               {
                 key: "variants",

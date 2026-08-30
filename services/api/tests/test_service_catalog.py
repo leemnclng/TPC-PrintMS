@@ -5,8 +5,87 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
+from app.db.models import JobOrder, JobOrderItem
 from app.db.session import get_db
 from app.routers import inventory, print_types, products, services, variants
+
+
+def test_removing_used_product_archives_history_while_unused_product_is_deleted(tmp_path) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'product-removal.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+
+    def override_db():
+        db = test_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(services.router)
+    app.include_router(products.router)
+    app.include_router(inventory.router)
+    app.include_router(print_types.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    service = client.post(
+        "/services",
+        headers=headers,
+        json={"name": "Removal service", "category": "printing", "isActive": True},
+    ).json()
+    material = client.post(
+        "/inventory-items",
+        headers=headers,
+        json={
+            "name": "Removal paper",
+            "category": "Paper",
+            "unit": "sheet",
+            "openingQuantity": 20,
+            "reorderLevel": 2,
+            "isActive": True,
+        },
+    ).json()
+
+    def create_product(name: str) -> dict:
+        response = client.post(
+            "/products",
+            headers=headers,
+            json={
+                "serviceId": service["id"],
+                "name": name,
+                "printType": "black_and_white",
+                "isActive": True,
+                "variants": [],
+                "materialAssignments": [{"inventoryItemId": material["id"]}],
+            },
+        )
+        assert response.status_code == 201
+        return response.json()
+
+    used_product = create_product("Historically used")
+    unused_product = create_product("Never ordered")
+    with test_session() as db:
+        order = JobOrder(number="JOB-DELETE-TEST", name="Retained history")
+        order.items.append(JobOrderItem(product_id=used_product["id"], pages_per_copy=1, copies=1))
+        db.add(order)
+        db.commit()
+        item_id = order.items[0].id
+
+    assert client.delete(f"/products/{used_product['id']}", headers=headers).status_code == 204
+    archived = client.get(f"/products/{used_product['id']}", headers=headers)
+    assert archived.status_code == 200
+    assert archived.json()["isActive"] is False
+    with test_session() as db:
+        assert db.get(JobOrderItem, item_id).product_id == used_product["id"]
+
+    assert client.delete(f"/products/{unused_product['id']}", headers=headers).status_code == 204
+    assert client.get(f"/products/{unused_product['id']}", headers=headers).status_code == 404
 
 
 def test_service_owns_products_and_cannot_be_removed_while_in_use(tmp_path) -> None:

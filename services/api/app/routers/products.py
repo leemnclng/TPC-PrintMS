@@ -7,11 +7,14 @@ from ..core.security import require_token
 from ..db.models import (
     DocumentPricingRule,
     InventoryItem,
+    InventoryMovement,
+    JobOrderItem,
     PrintType,
     Product,
     ProductDocumentRate,
     ProductMaterialAssignment,
     ProductVariant,
+    QuotationItem,
     Service,
     Variant,
 )
@@ -176,6 +179,18 @@ def delete_product(product_id: str, db: Session = Depends(get_db)) -> None:
     product = db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found.")
+    has_history = any((
+        db.query(JobOrderItem.id).filter(JobOrderItem.product_id == product_id).first(),
+        db.query(QuotationItem.id).filter(QuotationItem.product_id == product_id).first(),
+        db.query(InventoryMovement.id).filter(InventoryMovement.product_id == product_id).first(),
+    ))
+    if has_history:
+        # Completed work must keep its product relationship for audit, pricing,
+        # inventory, and job-order rendering. Removing a used product therefore
+        # means retiring it from new transactions rather than erasing history.
+        product.is_active = False
+        db.commit()
+        return
     db.delete(product)
     db.commit()
 

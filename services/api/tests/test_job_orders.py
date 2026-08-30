@@ -358,6 +358,10 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     )
     assert photocopy_requeue.status_code == 409
 
+    # Scan products take a print type just like Printing and Photocopy
+    # products do — it does not drive pricing (still the flat per-page rate
+    # below), but it stays a real, owner-set classification rather than a
+    # forced default.
     scan_product_response = client.post(
         "/products",
         headers=headers,
@@ -366,7 +370,7 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
             "name": "Document scan to PDF",
             "operationKind": "scan",
             "standalonePricePerPage": 4,
-            "printType": "black_and_white",
+            "printType": "colored",
             "isActive": True,
             "variants": [],
             "materialAssignments": [],
@@ -378,6 +382,8 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     assert scan_product["operationKind"] == "scan"
     assert scan_product["pricePerPage"] == 4
     assert scan_product["materialAssignments"] == []
+    assert scan_product["printType"] == "colored"
+    assert scan_product["printTypeLabel"] == "Colored"
 
     scan_buffer = BytesIO()
     Image.new("RGB", (794, 1123), "white").save(scan_buffer, format="PNG")
@@ -518,6 +524,9 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     assert scan_order["status"] == "queued"
     assert scan_order["files"] == []
     assert scan_order["items"][0]["operationKind"] == "scan"
+    # The job line snapshots the product's real print type, not a forced default.
+    assert scan_order["items"][0]["printType"] == "colored"
+    assert scan_order["items"][0]["printTypeLabel"] == "Colored"
 
     empty_scan_output = client.post(f"/job-orders/{scan_order['id']}/scan-output", headers=headers)
     assert empty_scan_output.status_code == 422

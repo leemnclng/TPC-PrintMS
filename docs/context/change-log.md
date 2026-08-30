@@ -2,6 +2,12 @@
 
 Track notable app changes by date.
 
+## 2026-08-30 (safe product removal)
+
+- Fixed: removing a product no longer fails when completed or active records reference it.
+- Changed: unused products are deleted permanently, while historically used products become Inactive and remain available to job, quotation, pricing, and inventory audit history.
+- Added: removal loading and error states in the product workspace, with confirmation copy explaining archival behavior.
+
 ## 2026-08-30 (product-aware pricing matrices)
 
 - Added: a centralized product pricing matrix in Configuration. Owners select a Printing or Photocopy product and choose whether its assigned material/output cell inherits the global rate or uses a product-specific amount.

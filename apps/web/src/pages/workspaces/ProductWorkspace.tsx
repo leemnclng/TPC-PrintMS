@@ -80,6 +80,7 @@ export function ProductWorkspace() {
 
   const [form, setForm] = useState<FormState>(BLANK);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -174,9 +175,17 @@ export function ProductWorkspace() {
 
   async function handleDelete() {
     if (!productId) return;
-    if (!window.confirm(`Remove ${form.name || "this product"}? This can't be undone.`)) return;
-    await api.del(`/products/${productId}`);
-    navigate(`/product-catalog/${serviceId}`);
+    if (!window.confirm(`Remove ${form.name || "this product"} from the catalog? Products used by existing transactions will be archived so their history remains accurate.`)) return;
+    setDeleting(true);
+    setSaveError(null);
+    try {
+      await api.del(`/products/${productId}`);
+      navigate(`/product-catalog/${serviceId}`);
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : "Couldn't remove this product.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   if (state === "loading") return <LoadingState label={isNew ? "Loading service…" : "Loading product…"} />;
@@ -259,7 +268,7 @@ export function ProductWorkspace() {
             </label>
           ) : null}
           <div className="workspace-form__row">
-            {!isScan ? <label className="form-field">
+            <label className="form-field">
               <span>Print type</span>
               <select
                 value={form.printType}
@@ -273,8 +282,10 @@ export function ProductWorkspace() {
                   <option key={printType.key} value={printType.key}>{printType.label}</option>
                 ))}
               </select>
-              <span className="form-field__message">The output type staff should use for this product.</span>
-            </label> : null}
+              <span className="form-field__message">
+                {isScan ? "Classifies this scan product; it does not change the flat per-page rate below." : "The output type staff should use for this product."}
+              </span>
+            </label>
             <label className="form-field">
               <span>Status</span>
               <select
@@ -396,16 +407,16 @@ export function ProductWorkspace() {
           </div>}
 
           <div className="workspace-form__actions">
-            <Button type="button" variant="ghost" onClick={() => navigate(`/product-catalog/${serviceId}`)}>
+            <Button type="button" variant="ghost" disabled={saving || deleting} onClick={() => navigate(`/product-catalog/${serviceId}`)}>
               Cancel
             </Button>
             {!isNew && (
-              <Button type="button" variant="danger" onClick={handleDelete}>
+              <Button type="button" variant="danger" loading={deleting} disabled={saving} onClick={handleDelete}>
                 Remove product
               </Button>
             )}
             {saveError && <span className="workspace-form__error">{saveError}</span>}
-            <Button type="submit" variant="primary" loading={saving}>
+            <Button type="submit" variant="primary" loading={saving} disabled={deleting}>
               {isNew ? "Create product" : "Save changes"}
             </Button>
           </div>

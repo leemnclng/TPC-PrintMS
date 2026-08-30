@@ -116,7 +116,7 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
             <>
               <section className="photocopy-job-form__fields">
                 <div className="photocopy-job-form__section-heading"><span className="numeric">01 / SERVICE SETUP</span><h3>{isScan ? "Set up the scan job" : "Record the photocopy work"}</h3></div>
-                <label className="form-field"><span>Product</span><select value={form.productId} onChange={(event) => selectProduct(event.target.value)} aria-invalid={submitted && !selectedProduct} autoFocus><option value="">Select product</option>{availableProducts.map((product) => <option key={product.id} value={product.id}>{product.operationKind === "scan" ? "Scan" : "Photocopy"} · {product.name}{product.operationKind === "scan" ? "" : ` · ${product.printTypeLabel || formatProductPrintType(product.printType)}`}</option>)}</select></label>
+                <label className="form-field"><span>Product</span><select value={form.productId} onChange={(event) => selectProduct(event.target.value)} aria-invalid={submitted && !selectedProduct} autoFocus><option value="">Select product</option>{availableProducts.map((product) => <option key={product.id} value={product.id}>{product.operationKind === "scan" ? "Scan" : "Photocopy"} · {product.name} · {product.printTypeLabel || formatProductPrintType(product.printType)}</option>)}</select></label>
                 {isScan ? (
                   <div className="scan-defer-note">
                     <span className="numeric">SCANNING HAPPENS IN THE JOB</span>
