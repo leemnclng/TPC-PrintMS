@@ -2,6 +2,12 @@
 
 Chronological notes about app progress.
 
+## 2026-08-30 (product-aware pricing matrices)
+
+- Summary: Added product as an explicit layer over the material-by-print-type global pricing matrix and compacted the Pricing Center.
+- Completed: Global tables now retain one row per inventory material, the centralized Configuration view can select a physical product and save its matching custom rate, and the read-only Pricing Center uses dense comparison matrices plus compact service-grouped product rows.
+- Verified: All 28 API tests, renderer production build, renderer lint, and whitespace validation pass.
+
 ## 2026-08-30 (interactive production panes)
 
 - Summary: Turned each production-line card into a compact launcher for its current operational step.

@@ -2,6 +2,13 @@
 
 Track notable app changes by date.
 
+## 2026-08-30 (product-aware pricing matrices)
+
+- Added: a centralized product pricing matrix in Configuration. Owners select a Printing or Photocopy product and choose whether its assigned material/output cell inherits the global rate or uses a product-specific amount.
+- Changed: global matrices now show individual inventory materials as rows instead of collapsing materials that share A4, Letter, or Legal sizing.
+- Changed: Pricing Center now presents compact material × print-type base matrices and denser service-grouped product comparisons.
+- Clarified: Scan-only products remain standalone per-page prices because they consume no paper or ink.
+
 ## 2026-08-30 (interactive production panes)
 
 - Changed: Production-line cards now open a contextual process panel when the owner clicks the pane or its keyboard-accessible step control.

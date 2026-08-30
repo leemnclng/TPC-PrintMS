@@ -547,9 +547,17 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 ### Scope Global Paper Pricing by Fixed Workflow
 
+- Status: Refined on 2026-08-30 by “Layer Product Rates Over the Material Matrix.”
+
 - Decision: Store global rates by `paper material × print type × workflow`, with fixed Printing and Photocopy scopes. Printing products resolve only from Printing; Photocopy products resolve only from the Scan or Photocopy table. Product-specific overrides remain attached to one rule in the matching scope. Scan pricing stays on the product and outside the material matrix.
 - Rationale: Printing and photocopy may use the same stocked paper and print-type vocabulary while having different operating prices. One shared matrix allowed unrelated products to inherit the wrong commercial default. Scan has no paper/ink relationship, so placing it in either physical-output matrix would fabricate a material dependency.
 - Impact: Existing global rates are copied into the new Photocopy scope during migration to preserve behavior; existing photocopy overrides are remapped to those copies. Owners may then change either workflow independently. New stocked paper and new print types receive entries in both physical-output tables.
+
+### Layer Product Rates Over the Material Matrix
+
+- Decision: Keep workflow defaults keyed by material and print type, then resolve an optional product-specific amount for the exact same cell before falling back to the workflow value. Expose this product layer centrally in Configuration while keeping Pricing Center read-only.
+- Rationale: Different products can consume the same Letter bond paper with the same Colored or B&W output while requiring different commercial prices. Duplicating inventory material or print types to express that difference would corrupt catalog meaning.
+- Impact: Each stocked material remains one global matrix row, products sharing that cell may price independently, and transaction/analyzer resolution continues to prefer product rate then global rate. Only the product's configured print type is active in its matrix; Scan remains a standalone per-page rate because it has no paper/ink consumption.
 
 ### Use Production Panes as Process Launchers
 

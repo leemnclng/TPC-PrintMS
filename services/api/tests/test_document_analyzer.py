@@ -304,6 +304,28 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
     assert priced["pricing"]["adjustments"][0]["kind"] == "inkCoverage"
     assert priced["pricing"]["suggestedPrice"] == 28.23
 
+    sibling_product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Same paper, different product price",
+            "printType": "colored",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": material["id"]}],
+            "documentRates": [{"pricingRuleId": a4_color_rule["id"], "pricePerPage": 22}],
+        },
+    ).json()
+    sibling_priced = client.post(
+        "/document-analyzer/analyze",
+        headers=headers,
+        data={"product_id": sibling_product["id"]},
+        files={"file": ("same-colored-a4.png", image, "image/png")},
+    ).json()
+    assert sibling_priced["pricing"]["baseSubtotal"] == 22
+    assert client.get(f"/products/{product['id']}", headers=headers).json()["pricePerPage"] == 15
+
     with_variant = client.post(
         "/document-analyzer/analyze",
         headers=headers,
