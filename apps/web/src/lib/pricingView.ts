@@ -1,4 +1,4 @@
-import type { DocumentPricingRule, InventoryPaperSize, Product } from "../types/domain";
+import type { DocumentPricingRule, InventoryPaperSize, Product, ScanPricingTier } from "../types/domain";
 
 export interface ProductPricePoint {
   key: string;
@@ -9,10 +9,18 @@ export interface ProductPricePoint {
   paperSize?: InventoryPaperSize;
 }
 
-/** Resolve the same active per-page values used by product and transaction pricing. */
-export function resolveProductPricePoints(product: Product, rules: DocumentPricingRule[]): ProductPricePoint[] {
+/** Resolve the same active per-page values used by product and transaction
+ * pricing. `scanTiers` is the global page-count table Scan products fall
+ * back to when they have no standalone price of their own — the 1-page tier
+ * stands in as a representative rate, since a scan's real price depends on
+ * how many pages it turns out to be. */
+export function resolveProductPricePoints(product: Product, rules: DocumentPricingRule[], scanTiers: ScanPricingTier[] = []): ProductPricePoint[] {
   if (product.operationKind === "scan") {
-    return product.standalonePricePerPage == null ? [] : [{ key: "scan", label: "Per scanned page", amount: product.standalonePricePerPage, custom: true }];
+    if (product.standalonePricePerPage != null) {
+      return [{ key: "scan", label: "Per scanned page", amount: product.standalonePricePerPage, custom: true }];
+    }
+    const tier = scanTiers.find((candidate) => candidate.isActive && candidate.minPages <= 1 && (candidate.maxPages === null || candidate.maxPages >= 1));
+    return tier ? [{ key: "scan", label: "Per scanned page", amount: tier.pricePerPage, custom: false }] : [];
   }
 
   const overrides = new Map(product.documentRates.map((rate) => [rate.pricingRuleId, rate]));

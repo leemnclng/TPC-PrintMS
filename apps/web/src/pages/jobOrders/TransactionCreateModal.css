@@ -2,6 +2,7 @@
 .transaction-create { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .transaction-create__body { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: var(--space-6); overflow-y: auto; padding: var(--space-5); }
 .transaction-create__identity { display: grid; grid-template-columns: minmax(16rem, 1.4fr) minmax(12rem, 1fr) minmax(10rem, .7fr); gap: var(--space-4); }
+.transaction-create__identity .form-field > span:first-child { font-weight: 700; color: var(--color-ink); }
 .transaction-create__existing { display: flex; flex-direction: column; gap: var(--space-1); border-left: 3px solid var(--color-accent); padding: var(--space-3) var(--space-4); background: var(--color-accent-softer); }
 .transaction-create__existing span { color: var(--color-accent); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .05em; }
 .transaction-create__existing small { color: var(--color-ink-soft); }
@@ -16,8 +17,16 @@
 .transaction-line > header span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .05em; }
 .transaction-line > header strong { overflow-wrap: anywhere; }
 .transaction-line > header small { color: var(--color-ink-faint); text-transform: capitalize; }
-.transaction-line__fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); padding: var(--space-4); }
+/* auto-fit rather than a fixed column count: a Scan line renders only two
+   fields, a Photocopy line up to six — a rigid 3-column grid left ragged
+   gaps or orphaned single fields depending on how many actually render. */
+.transaction-line__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--space-4); padding: var(--space-4); }
 .transaction-line__file { grid-column: span 2; }
+.transaction-line__fields .form-field > span:first-child,
+.transaction-line > footer span {
+  font-weight: 700;
+  color: var(--color-ink);
+}
 .transaction-line__analysis { display: flex; align-items: center; gap: var(--space-3); border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); }
 .transaction-line__analysis p,
 .transaction-line__notice { margin: 0; color: var(--color-ink-soft); font-size: var(--text-xs); }

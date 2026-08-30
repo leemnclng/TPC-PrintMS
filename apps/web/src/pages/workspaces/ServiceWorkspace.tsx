@@ -11,7 +11,7 @@ import { StatusPill } from "../../components/StatusPill/StatusPill";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../lib/apiClient";
 import { formatCurrency, formatProductPrintType } from "../../lib/format";
-import type { DocumentPricingRule, InventoryItem, PrintTypeDefinition, Product, Service, Variant } from "../../types/domain";
+import type { DocumentPricingRule, InventoryItem, PrintTypeDefinition, Product, ScanPricingTier, Service, Variant } from "../../types/domain";
 import { ProductCreateModal } from "./ProductCreateModal";
 import "./ServiceWorkspace.css";
 
@@ -21,6 +21,7 @@ interface WorkspaceData {
   inventoryItems: InventoryItem[];
   variants: Variant[];
   pricingRules: DocumentPricingRule[];
+  scanPricingTiers: ScanPricingTier[];
   printTypes: PrintTypeDefinition[];
 }
 
@@ -33,16 +34,17 @@ export function ServiceWorkspace() {
     async () => {
       if (!serviceId) throw new Error("Service not found.");
 
-      const [service, products, inventoryItems, variants, pricingRules, printTypes] = await Promise.all([
+      const [service, products, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes] = await Promise.all([
         api.get<Service>(`/services/${serviceId}`),
         api.get<Product[]>(`/products?service_id=${encodeURIComponent(serviceId)}`),
         api.get<InventoryItem[]>("/inventory-items"),
         api.get<Variant[]>("/variants"),
         api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
+        api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
         api.get<PrintTypeDefinition[]>("/print-types"),
       ]);
 
-      return { service, products, inventoryItems, variants, pricingRules, printTypes };
+      return { service, products, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes };
     },
     [serviceId],
   );
@@ -154,6 +156,7 @@ export function ServiceWorkspace() {
         inventoryItems={data.inventoryItems}
         variants={data.variants}
         pricingRules={data.pricingRules}
+        scanPricingTiers={data.scanPricingTiers}
         printTypes={data.printTypes}
         onClose={() => setCreateModalOpen(false)}
         onCreated={(product) => {

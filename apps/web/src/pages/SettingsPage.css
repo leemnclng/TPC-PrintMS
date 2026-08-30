@@ -146,66 +146,118 @@
 .settings-pricing-scope__header output { display: grid; justify-items: end; color: var(--color-accent); font-family: var(--font-mono); font-size: var(--text-base); }
 .settings-pricing-scope__header output small { color: var(--color-ink-faint); font-family: var(--font-body); font-size: var(--text-xs); }
 
-.settings-pricing-table {
-  max-width: 100%;
-  overflow-x: auto;
+/* Per-material summary rows (Document analyzer pricing). Each material is a
+   single button that opens MaterialRatesModal — rates live in a vertical
+   list there instead of a grid column per print type, which used to force
+   horizontal scrolling as the print-type catalog grew. */
+.pricing-materials { display: flex; flex-direction: column; }
+
+.pricing-material {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(9rem, .28fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
   border: 0;
+  border-top: 1px solid var(--color-hairline);
+  padding: var(--space-3) var(--space-4);
+  color: inherit;
+  text-align: left;
+  background: var(--color-paper);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
 }
+.pricing-material:hover,
+.pricing-material:focus-visible { background: var(--color-paper-2); }
+.pricing-material:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
 
-.settings-pricing-table__header,
-.settings-pricing-table__row { display: grid; min-width: max-content; }
+.pricing-material__label { display: flex; flex-direction: column; gap: 1px; }
+.pricing-material__label strong { font-size: var(--text-sm); }
+.pricing-material__label small { color: var(--color-ink-faint); font-size: var(--text-xs); }
 
-.settings-pricing-table__header {
-  background: var(--color-paper-3);
+.pricing-material__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.pricing-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+  background: var(--color-paper-2);
+  white-space: nowrap;
+}
+.pricing-chip b { color: var(--color-ink); font-family: var(--font-mono); font-weight: 500; }
+.pricing-chip.is-inactive { color: var(--color-ink-faint); border-style: dashed; background: transparent; }
+.pricing-chip.is-inactive b { color: var(--color-ink-faint); }
+
+.pricing-material__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   color: var(--color-ink-faint);
   font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pricing-material__meta b { color: var(--color-ink-soft); font-family: var(--font-mono); }
+.pricing-material__meta em { color: var(--color-accent); font-style: normal; }
+
+@media (max-width: 640px) {
+  .pricing-material { grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--space-2); }
+  .pricing-material__meta { justify-content: space-between; }
 }
 
-.settings-pricing-table__header > span,
-.settings-pricing-table__row > strong,
-.settings-pricing-table__row > div,
-.settings-pricing-table__row > span {
+/* Editing surface opened from a .pricing-material row (either a global
+   material rate or a product override). .modal__body lays out its direct
+   children in a row by default (it's built for side-by-side panes), so both
+   modals wrap their content in one column container instead of handing the
+   list and the footer to it as two separate children. */
+.settings-modal-body {
+  display: flex;
+  width: 100%;
   min-width: 0;
-  padding: var(--space-2) var(--space-3);
-  border-right: 1px solid var(--color-hairline);
+  min-height: 0;
+  flex-direction: column;
 }
-
-.settings-pricing-table__header > span { display: flex; flex-direction: column; gap: 1px; padding: var(--space-2) var(--space-3); border-right: 1px solid var(--color-hairline); }
-.settings-pricing-table__header > span strong { color: var(--color-ink-soft); font-size: var(--text-xs); }
-.settings-pricing-table__header > span small { font-weight: 400; letter-spacing: 0; text-transform: none; }
-.settings-pricing-table__header > :last-child,
-.settings-pricing-table__row > :last-child { border-right: 0; }
-.settings-pricing-table__row { border-top: 1px solid var(--color-hairline); background: var(--color-paper); }
-.settings-pricing-table__row > strong { display: flex; flex-direction: column; justify-content: center; font-size: var(--text-sm); }
-.settings-pricing-table__row > strong small { margin-top: 2px; color: var(--color-ink-faint); font-size: var(--text-xs); font-weight: 400; }
-
-.settings-pricing-table__rate {
+.material-rates-list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-5) var(--space-6); }
+.material-rates-row {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-top: 1px solid var(--color-hairline);
+  padding: var(--space-3) 0;
 }
-
-.settings-pricing-table__rate > label:first-child {
+.material-rates-row:first-child { border-top: 0; }
+.material-rates-row__label { display: flex; flex-direction: column; gap: 1px; }
+.material-rates-row__label strong { font-size: var(--text-sm); }
+.material-rates-row__label small { color: var(--color-ink-faint); font-size: var(--text-xs); }
+.material-rates-row__controls { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-4); }
+.material-rates-row__unset { flex-shrink: 0; color: var(--color-ink-faint); font-size: var(--text-xs); font-style: italic; }
+.material-rates-row__money {
   display: flex;
-  min-width: 0;
-  flex: 1;
   align-items: center;
+  width: 8rem;
   border: 1px solid var(--color-hairline-strong);
   border-radius: var(--radius-sm);
   background: var(--color-paper-2);
 }
-
-.settings-pricing-table__rate > label:first-child:focus-within {
-  border-color: var(--color-focus);
-  outline: 1px solid var(--color-focus);
+.material-rates-row__money:focus-within { border-color: var(--color-focus); outline: 1px solid var(--color-focus); }
+.material-rates-row__money span { padding-left: var(--space-3); color: var(--color-ink-faint); }
+.material-rates-row__money input { min-width: 0; height: var(--control-height); border: 0; background: transparent; }
+.material-rates-row__money input:focus { outline: 0; }
+.settings-modal-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-hairline);
+  padding: var(--space-3) var(--space-6);
+  background: var(--color-paper-2);
 }
-
-.settings-pricing-table__rate > label:first-child span { padding-left: var(--space-3); color: var(--color-ink-faint); }
-.settings-pricing-table__rate input[type="number"] { min-width: 0; border: 0; background: transparent; }
-.settings-pricing-table__rate input[type="number"]:focus { outline: 0; }
 
 .settings-pricing-table__toggle {
   display: flex;
@@ -216,30 +268,6 @@
   font-size: var(--text-xs);
 }
 
-.settings-product-pricing-card { margin-top: var(--space-4); }
-.settings-product-pricing { display: grid; gap: var(--space-4); }
-.settings-product-pricing__toolbar { display: grid; grid-template-columns: minmax(14rem, .72fr) minmax(12rem, 1fr); gap: var(--space-3); align-items: end; padding: var(--space-3); border: 1px solid var(--color-hairline); background: var(--color-paper-2); }
-.settings-product-pricing__toolbar > label,
-.settings-product-pricing__toolbar > div { display: grid; gap: var(--space-1); }
-.settings-product-pricing__toolbar span { color: var(--color-ink-faint); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; }
-.settings-product-pricing__toolbar > div { grid-template-columns: auto 1fr; align-items: baseline; }
-.settings-product-pricing__toolbar > div span { grid-column: 1 / -1; }
-.settings-product-pricing__toolbar > div strong { font-family: var(--font-display); font-size: var(--text-md); }
-.settings-product-pricing__toolbar > div small { justify-self: end; color: var(--color-ink-faint); font-size: var(--text-xs); }
-.settings-pricing-table--product { border: 1px solid var(--color-hairline-strong); }
-.settings-pricing-table__header > .is-selected { background: var(--color-accent-soft); color: var(--color-accent); }
-.settings-pricing-table__product-rate { display: grid; gap: var(--space-2); background: var(--color-accent-softer); }
-.settings-pricing-table__source { display: flex; min-height: 1.5rem; align-items: center; gap: var(--space-2); color: var(--color-ink-soft); font-size: var(--text-xs); }
-.settings-pricing-table__money { display: flex; min-width: 0; height: 2.25rem; align-items: center; border: 1px solid var(--color-hairline-strong); background: var(--color-paper); }
-.settings-pricing-table__money:focus-within { border-color: var(--color-focus); outline: 1px solid var(--color-focus); }
-.settings-pricing-table__money > span { padding-left: var(--space-2); color: var(--color-ink-faint); }
-.settings-pricing-table__money input { min-width: 0; height: 100%; border: 0; background: transparent; }
-.settings-pricing-table__money input:focus { outline: 0; }
-.settings-pricing-table__product-rate > strong { display: grid; gap: 1px; color: var(--color-ink); font-size: var(--text-sm); }
-.settings-pricing-table__product-rate > strong small { color: var(--color-info); font-family: var(--font-ui); font-size: .625rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
-.settings-pricing-table__not-used { display: grid; place-content: center; gap: 1px; color: var(--color-hairline-strong); text-align: center; }
-.settings-pricing-table__not-used small { color: var(--color-ink-faint); font-size: .625rem; text-transform: uppercase; }
-.settings-product-pricing__scan-note { margin: var(--space-3) 0 0; padding-left: var(--space-3); border-left: 2px solid var(--color-info); color: var(--color-ink-soft); font-size: var(--text-xs); }
 
 .settings-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
 
@@ -250,10 +278,6 @@
   .settings-card-actions { align-items: stretch; flex-direction: column; }
   .settings-pricing-scope__header { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
   .settings-pricing-scope__header > span { grid-column: 1 / -1; }
-  .settings-pricing-table__header,
-  .settings-pricing-table__row { min-width: 650px; }
-  .settings-product-pricing__toolbar { grid-template-columns: minmax(0, 1fr); }
-  .settings-product-pricing__toolbar > div small { justify-self: start; }
 }
 
 @media (max-width: 420px) {
@@ -290,3 +314,53 @@
   word-break: break-all;
   font-size: var(--text-xs);
 }
+
+.print-type-manager { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.print-type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2) 2px var(--space-3);
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+  background: var(--color-paper-2);
+}
+.print-type-chip.is-inactive { color: var(--color-ink-faint); border-style: dashed; }
+.print-type-chip button {
+  display: grid;
+  width: 1.1rem;
+  height: 1.1rem;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--color-ink-faint);
+  font-size: var(--text-sm);
+  line-height: 1;
+  background: transparent;
+  cursor: pointer;
+}
+.print-type-chip button:hover,
+.print-type-chip button:focus-visible { color: var(--color-danger); background: var(--color-danger-soft); }
+.print-type-chip button:disabled { opacity: .5; cursor: default; }
+
+/* Scan pricing tiers — an owner-managed, variable-length list (add/remove a
+   band), unlike the fixed per-material/per-print-type rows above, so each
+   row commits its own change immediately rather than deferring to a page-
+   level Save. */
+.scan-tiers { display: flex; flex-direction: column; }
+.scan-tier-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-hairline);
+  padding: var(--space-3) var(--space-4);
+}
+.scan-tier-row:first-child { border-top: 0; }
+.scan-tier-row .form-field { flex: 0 0 auto; width: 8rem; }
+.scan-tier-row .form-field input { width: 100%; }
+.scan-tier-row__actions { display: flex; gap: var(--space-2); }
+.scan-tier-row__error { flex: 1 1 100%; margin: 0; }
+.scan-tier-row--add { background: var(--color-paper-2); }

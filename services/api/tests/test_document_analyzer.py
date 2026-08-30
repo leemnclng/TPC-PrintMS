@@ -21,7 +21,7 @@ from app.modules.document_analyzer.models.document_analysis import DocumentAnaly
 from app.modules.document_analyzer.models.enums import DocumentFileType, Orientation, PaperSize
 from app.modules.document_analyzer.pricing.calculator import calculate_price
 from app.modules.document_analyzer.services.analysis_service import AnalysisService
-from app.routers import inventory, products, services, variants
+from app.routers import inventory, job_orders, products, services, variants
 
 
 def test_supported_document_formats_produce_normalized_analysis() -> None:
@@ -428,6 +428,202 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
         },
     )
     assert duplicate_override.status_code == 409
+
+
+def test_scan_pricing_tiers_by_page_count_and_product_override(tmp_path) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'scan_pricing.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+
+    def override_db():
+        db = test_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(router)
+    app.include_router(services.router)
+    app.include_router(products.router)
+    app.include_router(job_orders.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    def scan_page() -> bytes:
+        buffer = BytesIO()
+        Image.new("RGB", (794, 1123), "white").save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    service = client.post(
+        "/services",
+        headers=headers,
+        json={"name": "Scan bureau", "category": "photocopy", "description": None, "isActive": True},
+    ).json()
+    product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Document scan",
+            "operationKind": "scan",
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [],
+            "documentRates": [],
+        },
+    ).json()
+    assert product["standalonePricePerPage"] is None
+
+    # No tiers configured yet, and no product override: nothing to resolve.
+    assert client.get("/document-analyzer/scan-pricing-tiers", headers=headers).json() == []
+    unpriced_job = client.post(
+        "/job-orders/from-scan",
+        headers=headers,
+        json={"name": "Unpriced scan job", "serviceId": service["id"], "productId": product["id"]},
+    )
+    assert unpriced_job.status_code == 422
+
+    tier_1_to_5 = client.post(
+        "/document-analyzer/scan-pricing-tiers",
+        headers=headers,
+        json={"minPages": 1, "maxPages": 5, "pricePerPage": 10, "isActive": True},
+    ).json()
+    assert tier_1_to_5["minPages"] == 1
+    assert tier_1_to_5["maxPages"] == 5
+
+    # An overlapping range is rejected.
+    overlap_response = client.post(
+        "/document-analyzer/scan-pricing-tiers",
+        headers=headers,
+        json={"minPages": 4, "maxPages": 8, "pricePerPage": 8, "isActive": True},
+    )
+    assert overlap_response.status_code == 409
+
+    # An open-ended top tier ("6 and up") is fine once it starts after tier 1.
+    tier_6_and_up = client.post(
+        "/document-analyzer/scan-pricing-tiers",
+        headers=headers,
+        json={"minPages": 6, "maxPages": None, "pricePerPage": 8, "isActive": True},
+    ).json()
+    assert tier_6_and_up["maxPages"] is None
+
+    tiers = client.get("/document-analyzer/scan-pricing-tiers", headers=headers).json()
+    assert {tier["id"] for tier in tiers} == {tier_1_to_5["id"], tier_6_and_up["id"]}
+
+    # A job can be created now that pricing exists somewhere, even before the
+    # real page count (and therefore the exact rate) is known.
+    create_response = client.post(
+        "/job-orders/from-scan",
+        headers=headers,
+        json={"name": "Tiered scan job", "serviceId": service["id"], "productId": product["id"]},
+    )
+    assert create_response.status_code == 201
+    job_response = create_response.json()
+
+    # 3 pages falls in the 1-5 tier: ₱10 × 3 = ₱30.
+    small_scan = client.post(
+        f"/job-orders/{job_response['id']}/scan-output",
+        headers=headers,
+        files=[("files", ("page.png", scan_page(), "image/png")) for _ in range(3)],
+    ).json()
+    assert small_scan["items"][0]["pagesPerCopy"] == 3
+    assert small_scan["items"][0]["unitPrice"] == 10
+    assert small_scan["total"] == 30
+
+    # A re-scan landing in the open-ended tier switches rates: 8 pages × ₱8 = ₱64.
+    requeue = client.post(
+        f"/job-orders/{job_response['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "queued"},
+    )
+    assert requeue.status_code == 200
+    big_scan = client.post(
+        f"/job-orders/{job_response['id']}/scan-output",
+        headers=headers,
+        files=[("files", ("page.png", scan_page(), "image/png")) for _ in range(8)],
+    ).json()
+    assert big_scan["items"][0]["pagesPerCopy"] == 8
+    assert big_scan["items"][0]["unitPrice"] == 8
+    assert big_scan["total"] == 64
+
+    # A product's own price always wins over the tier table, regardless of
+    # how many pages it ends up being.
+    overridden_product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Flat-rate scan",
+            "operationKind": "scan",
+            "printType": "black_and_white",
+            "standalonePricePerPage": 20,
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [],
+            "documentRates": [],
+        },
+    ).json()
+    override_create_response = client.post(
+        "/job-orders/from-scan",
+        headers=headers,
+        json={"name": "Flat-rate scan job", "serviceId": service["id"], "productId": overridden_product["id"]},
+    )
+    assert override_create_response.status_code == 201
+    override_job = override_create_response.json()
+    override_scan = client.post(
+        f"/job-orders/{override_job['id']}/scan-output",
+        headers=headers,
+        files=[("files", ("page.png", scan_page(), "image/png")) for _ in range(2)],
+    ).json()
+    assert override_scan["items"][0]["unitPrice"] == 20
+    assert override_scan["total"] == 40
+
+    # A page count that falls in a gap between configured tiers has nothing
+    # to resolve, so the scan is rejected rather than priced at zero.
+    gapped_product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Gapped scan",
+            "operationKind": "scan",
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [],
+            "documentRates": [],
+        },
+    ).json()
+    gapped_create_response = client.post(
+        "/job-orders/from-scan",
+        headers=headers,
+        json={"name": "Gapped scan job", "serviceId": service["id"], "productId": gapped_product["id"]},
+    )
+    assert gapped_create_response.status_code == 201
+    gapped_job = gapped_create_response.json()
+    client.put(
+        f"/document-analyzer/scan-pricing-tiers/{tier_1_to_5['id']}",
+        headers=headers,
+        json={"minPages": 1, "maxPages": 2, "pricePerPage": 10, "isActive": True},
+    )
+    gapped_scan = client.post(
+        f"/job-orders/{gapped_job['id']}/scan-output",
+        headers=headers,
+        files=[("files", ("page.png", scan_page(), "image/png")) for _ in range(4)],
+    )
+    assert gapped_scan.status_code == 422
+
+    # Tiers can be removed entirely.
+    delete_response = client.delete(f"/document-analyzer/scan-pricing-tiers/{tier_6_and_up['id']}", headers=headers)
+    assert delete_response.status_code == 204
+    remaining_tiers = client.get("/document-analyzer/scan-pricing-tiers", headers=headers).json()
+    assert {tier["id"] for tier in remaining_tiers} == {tier_1_to_5["id"]}
 
 
 def _fixtures() -> dict[str, bytes]:

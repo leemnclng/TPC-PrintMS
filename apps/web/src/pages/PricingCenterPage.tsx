@@ -10,7 +10,7 @@ import { useResource } from "../hooks/useResource";
 import { api } from "../lib/apiClient";
 import { formatCurrency } from "../lib/format";
 import { hasCustomPricing, productUsesPaperSize, resolveProductPricePoints } from "../lib/pricingView";
-import type { DocumentPricingRule, InventoryPaperSize, PrintTypeDefinition, Product, Service } from "../types/domain";
+import type { DocumentPricingRule, InventoryPaperSize, PrintTypeDefinition, Product, ScanPricingTier, Service } from "../types/domain";
 import "./PricingCenterPage.css";
 
 type PriceFilter = "all" | "custom" | "global" | "missing";
@@ -42,11 +42,12 @@ function PaperPriceCell({ product, paperSize, rules }: { product: Product; paper
   );
 }
 
-function AdditionalPricing({ product }: { product: Product }) {
+function AdditionalPricing({ product, scanTiers }: { product: Product; scanTiers: ScanPricingTier[] }) {
   if (product.operationKind === "scan") {
-    return product.standalonePricePerPage == null
+    const points = resolveProductPricePoints(product, [], scanTiers);
+    return points.length === 0
       ? <span className="pricing-service-table__missing">Missing scan rate</span>
-      : <span className="pricing-service-table__standalone"><strong>{formatCurrency(product.standalonePricePerPage)}</strong><small>per scanned page · Custom</small></span>;
+      : <span className="pricing-service-table__standalone"><strong>{formatCurrency(points[0].amount)}</strong><small>per scanned page · {points[0].custom ? "Custom" : "Global"}</small></span>;
   }
   if (!product.variants.length) return <span className="pricing-service-table__muted">Base rates only</span>;
   return <div className="pricing-service-table__variants">{product.variants.map((variant) => <span key={variant.id}><b>{variant.label}</b><small>{variant.priceAdjustment >= 0 ? "+" : ""}{formatCurrency(variant.priceAdjustment)} / page</small></span>)}</div>;
@@ -56,25 +57,26 @@ export function PricingCenterPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PriceFilter>("all");
   const { data, state, error, reload } = useResource(async () => {
-    const [products, services, rules, printTypes] = await Promise.all([
+    const [products, services, rules, scanTiers, printTypes] = await Promise.all([
       api.get<Product[]>("/products"),
       api.get<Service[]>("/services"),
       api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
+      api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
       api.get<PrintTypeDefinition[]>("/print-types"),
     ]);
-    return { products, services, rules, printTypes };
+    return { products, services, rules, scanTiers, printTypes };
   });
 
   const rows = useMemo(() => {
     if (!data) return [];
     const normalizedQuery = query.trim().toLowerCase();
     return data.products
-      .map((product) => ({ product, points: resolveProductPricePoints(product, data.rules) }))
+      .map((product) => ({ product, points: resolveProductPricePoints(product, data.rules, data.scanTiers) }))
       .filter(({ product, points }) => {
         const missing = points.length === 0;
         const matchesFilter = filter === "all"
           || (filter === "custom" && hasCustomPricing(product))
-          || (filter === "global" && product.operationKind !== "scan" && product.documentRates.length === 0)
+          || (filter === "global" && (product.operationKind === "scan" ? product.standalonePricePerPage == null : product.documentRates.length === 0))
           || (filter === "missing" && missing);
         const matchesQuery = !normalizedQuery || `${product.name} ${product.serviceName} ${product.printTypeLabel}`.toLowerCase().includes(normalizedQuery);
         return matchesFilter && matchesQuery;
@@ -84,7 +86,7 @@ export function PricingCenterPage() {
   const customProducts = data?.products.filter(hasCustomPricing).length ?? 0;
   const customEntries = data?.products.reduce((total, product) => total + product.documentRates.length + product.variants.length + (product.standalonePricePerPage == null ? 0 : 1), 0) ?? 0;
   const missingProducts = data?.products.filter((product) => {
-    const points = resolveProductPricePoints(product, data.rules);
+    const points = resolveProductPricePoints(product, data.rules, data.scanTiers);
     return points.length === 0;
   }).length ?? 0;
   const serviceGroups = data?.services
@@ -152,7 +154,7 @@ export function PricingCenterPage() {
                             <th className="pricing-service-table__product" scope="row"><strong>{product.name}</strong>{product.description ? <small>{product.description}</small> : null}</th>
                             <td><span className="pricing-service-table__type"><strong>{product.operationKind === "scan" ? "Scan" : product.operationKind === "photocopy" ? "Photocopy" : "Print"}</strong><small>{product.printTypeLabel}</small></span></td>
                             {PAPER_SIZES.map((paperSize) => <PaperPriceCell product={product} paperSize={paperSize} rules={data.rules} key={paperSize} />)}
-                            <td><AdditionalPricing product={product} /></td>
+                            <td><AdditionalPricing product={product} scanTiers={data.scanTiers} /></td>
                             <td><StatusPill label={service.isActive && product.isActive ? "Active" : "Inactive"} tone={service.isActive && product.isActive ? "success" : "neutral"} /></td>
                             <td><Link className="pricing-row-link" to={`/product-catalog/${service.id}/products/${product.id}`} aria-label={`Open ${product.name}`}>Open</Link></td>
                           </tr>

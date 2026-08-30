@@ -3,6 +3,7 @@ import { Button } from "../../components/Button/Button";
 import { Modal } from "../../components/Modal/Modal";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatCurrency } from "../../lib/format";
+import { hasScanPricingConfigured, resolveScanPricePerPage } from "../../lib/productPricing";
 import type {
   Customer,
   DocumentAnalysisResponse,
@@ -10,6 +11,7 @@ import type {
   InventoryItem,
   JobOrder,
   Product,
+  ScanPricingTier,
   Service,
 } from "../../types/domain";
 import "./TransactionCreateModal.css";
@@ -39,6 +41,7 @@ interface Props {
   products: Product[];
   inventoryItems: InventoryItem[];
   pricingRules: DocumentPricingRule[];
+  scanPricingTiers: ScanPricingTier[];
   customers: Customer[];
   sourceSpoolerJobId?: string | null;
   order?: JobOrder;
@@ -70,6 +73,7 @@ export function TransactionCreateModal({
   products,
   inventoryItems,
   pricingRules,
+  scanPricingTiers,
   customers,
   sourceSpoolerJobId,
   order,
@@ -132,10 +136,19 @@ export function TransactionCreateModal({
       .filter((item): item is InventoryItem => Boolean(item?.isActive && item.paperSize)) ?? [];
     const variant = product?.variants.find((candidate) => candidate.variantId === line.variantId);
     let suggested = 0;
+    // The real page count (and therefore the exact rate) is only known once
+    // the job is scanned — `scanConfigured` gates whether the line can be
+    // created at all, while `scanPrice` is a 1-page provisional estimate.
+    const scanConfigured = product?.operationKind === "scan"
+      ? hasScanPricingConfigured(product.standalonePricePerPage, scanPricingTiers)
+      : true;
+    const scanPrice = product?.operationKind === "scan"
+      ? resolveScanPricePerPage(product.standalonePricePerPage, 1, scanPricingTiers)
+      : null;
     if (product?.operationKind === "printing") {
       suggested = (line.analysis?.pricing.suggestedPrice ?? 0) * line.copies;
     } else if (product?.operationKind === "scan") {
-      suggested = product.standalonePricePerPage ?? 0;
+      suggested = scanPrice ?? 0;
     } else if (product?.operationKind === "photocopy") {
       const customRate = product.documentRates.find((candidate) =>
         pricingRules.some((rule) => rule.id === candidate.pricingRuleId && rule.inventoryItemId === line.paperId && rule.pricingScope === product.operationKind),
@@ -150,7 +163,7 @@ export function TransactionCreateModal({
     const total = line.priceMode === "custom" && line.customPrice.trim() && Number.isFinite(parsedCustom)
       ? parsedCustom
       : suggested;
-    return { product, papers, variant, suggested: Math.round(suggested * 100) / 100, total: Math.round(total * 100) / 100 };
+    return { product, papers, variant, scanPrice, scanConfigured, suggested: Math.round(suggested * 100) / 100, total: Math.round(total * 100) / 100 };
   }
 
   async function analyzeLine(line: TransactionLine) {
@@ -187,10 +200,11 @@ export function TransactionCreateModal({
   function validate() {
     if (!name.trim() || lines.length === 0) return false;
     return lines.every((line) => {
-      const { product, papers } = lineContext(line);
+      const { product, papers, scanConfigured } = lineContext(line);
       if (!product) return false;
       if (product.operationKind === "printing" && (!line.file || !line.analysis || !line.paperId)) return false;
       if (product.operationKind === "photocopy" && (!line.paperId || line.pages < 1 || line.copies < 1)) return false;
+      if (product.operationKind === "scan" && line.priceMode !== "custom" && !scanConfigured) return false;
       if (product.operationKind !== "scan" && papers.length === 0) return false;
       if (line.priceMode === "custom" && (!line.customPrice.trim() || Number(line.customPrice) < 0)) return false;
       return true;
@@ -202,7 +216,7 @@ export function TransactionCreateModal({
     setSubmitted(true);
     setError(null);
     if (!validate()) {
-      setError("Complete every product line. Printing products must be analyzed before checkout.");
+      setError("Complete every product line. Printing products must be analyzed before checkout, and a Scan product needs a price — set one on the product or a global page-count tier.");
       return;
     }
     setSaving(true);
@@ -263,7 +277,7 @@ export function TransactionCreateModal({
           <section className="transaction-create__lines" aria-label="Products in this transaction">
             <header><div><span className="numeric">01 / WORK</span><h3>Products and operations</h3><p>Each product moves independently until every line is ready.</p></div><Button type="button" variant="secondary" onClick={() => setLines((current) => [...current, newLine(initialService.id)])}>Add product</Button></header>
             {lines.map((line, index) => {
-              const { product, papers, suggested, total } = lineContext(line);
+              const { product, papers, scanConfigured, suggested, total } = lineContext(line);
               const lineProducts = products.filter((candidate) => candidate.isActive && candidate.serviceId === line.serviceId);
               return (
                 <article className="transaction-line" key={line.key}>
@@ -279,8 +293,9 @@ export function TransactionCreateModal({
                   </div>
                   {product?.operationKind === "printing" ? <div className="transaction-line__analysis"><Button type="button" variant="secondary" disabled={line.analyzing || !line.file || !line.paperId} onClick={() => analyzeLine(line)}>{line.analyzing ? "Analyzing…" : line.analysis ? "Analyze again" : "Analyze document"}</Button><p>{line.analysis ? "Analysis complete. The detected size is guidance; your selected paper controls production." : "Pricing is calculated only after analysis."}</p></div> : null}
                   {product?.operationKind === "scan" ? <p className="transaction-line__notice">Create the job now. Scanning and page detection happen later inside this product line.</p> : null}
+                  {product?.operationKind === "scan" && !scanConfigured ? <p className="workspace-form__error" role="alert">Set a price for {product.name} — either on the product itself or a global page-count tier in Settings.</p> : null}
                   {product?.operationKind === "photocopy" ? <p className="transaction-line__notice">Complete the physical copies on the printer, then record this line as ready.</p> : null}
-                  {product ? <footer><div><span>Suggested</span><strong>{formatCurrency(suggested)}</strong></div><label><span>Pricing</span><select value={line.priceMode} onChange={(event) => updateLine(line.key, { priceMode: event.target.value as PriceMode })}><option value="suggested">Use suggested</option><option value="custom">Owner price</option></select></label>{line.priceMode === "custom" ? <label><span>Final line price</span><input type="number" min={0} step="0.01" value={line.customPrice} onChange={(event) => updateLine(line.key, { customPrice: event.target.value })} /></label> : null}<output>{formatCurrency(total)}</output></footer> : null}
+                  {product ? <footer><div><span>{product.operationKind === "scan" ? "Estimated (1 page)" : "Suggested"}</span><strong>{formatCurrency(suggested)}</strong></div><label><span>Pricing</span><select value={line.priceMode} onChange={(event) => updateLine(line.key, { priceMode: event.target.value as PriceMode })}><option value="suggested">Use suggested</option><option value="custom">Owner price</option></select></label>{line.priceMode === "custom" ? <label><span>Final line price</span><input type="number" min={0} step="0.01" value={line.customPrice} onChange={(event) => updateLine(line.key, { customPrice: event.target.value })} /></label> : null}<output>{formatCurrency(total)}</output></footer> : null}
                 </article>
               );
             })}

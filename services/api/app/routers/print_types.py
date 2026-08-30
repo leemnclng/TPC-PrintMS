@@ -5,7 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..core.security import require_token
-from ..db.models import PrintType
+from ..db.models import DocumentPricingRule, PrintType, Product
 from ..db.session import get_db
 from ..schemas.print_types import PrintTypeCreate, PrintTypeRead, PrintTypeUpdate
 from ..services.print_types import ensure_builtin_print_types, print_type_key
@@ -68,3 +68,23 @@ def update_print_type(key: str, payload: PrintTypeUpdate, db: Session = Depends(
     db.commit()
     db.refresh(definition)
     return definition
+
+
+@router.delete("/{key}", status_code=204)
+def delete_print_type(key: str, db: Session = Depends(get_db)) -> None:
+    definition = db.get(PrintType, key)
+    if definition is None:
+        raise HTTPException(status_code=404, detail="Print type not found.")
+    has_history = any((
+        db.query(Product.id).filter(Product.print_type == key).first(),
+        db.query(DocumentPricingRule.id).filter(DocumentPricingRule.print_type == key).first(),
+    ))
+    if has_history:
+        # A print type in use by a product or a global rate must keep its
+        # row for those references, so removal here means deactivating it
+        # instead of a hard delete — mirrors product removal.
+        definition.is_active = False
+        db.commit()
+        return
+    db.delete(definition)
+    db.commit()

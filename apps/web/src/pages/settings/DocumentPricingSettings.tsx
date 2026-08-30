@@ -5,15 +5,27 @@ import { Card, CardHeader } from "../../components/Card/Card";
 import { EmptyState } from "../../components/EmptyState/EmptyState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { LoadingState } from "../../components/LoadingState/LoadingState";
+import { Modal } from "../../components/Modal/Modal";
 import { useResource } from "../../hooks/useResource";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatProductPrintType } from "../../lib/format";
-import type { CSSProperties } from "react";
-import type { DocumentPricingRule, InventoryPaperSize, PrintTypeDefinition, Product } from "../../types/domain";
+import type { DocumentPricingRule, InventoryPaperSize, PrintTypeDefinition, ScanPricingTier } from "../../types/domain";
 import "../SettingsPage.css";
 import { PrintTypeCreateModal } from "./PrintTypeCreateModal";
 
+interface MaterialSummary {
+  id: string;
+  name: string;
+  paperSize: InventoryPaperSize;
+}
+
 const PAPER_ORDER: InventoryPaperSize[] = ["A4", "Letter", "Legal"];
+
+function sortMaterials(materials: MaterialSummary[]): MaterialSummary[] {
+  return materials.sort((left, right) =>
+    PAPER_ORDER.indexOf(left.paperSize) - PAPER_ORDER.indexOf(right.paperSize) || left.name.localeCompare(right.name));
+}
+
 const PRICING_SCOPES = [
   {
     key: "printing" as const,
@@ -25,19 +37,18 @@ const PRICING_SCOPES = [
     key: "photocopy" as const,
     label: "Scan or Photocopy",
     eyebrow: "DEVICE-SIDE OUTPUT",
-    description: "Default paper and print-type rates for Photocopy products. Scan products remain per-product because they consume no print material.",
+    description: "Default paper and print-type rates for Photocopy products. Scan has its own table below, since it consumes no print material.",
   },
 ];
 
 export function DocumentPricingSettings() {
   const { data, state, error, reload } = useResource(
     async () => {
-      const [rules, printTypes, products] = await Promise.all([
+      const [rules, printTypes] = await Promise.all([
         api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
         api.get<PrintTypeDefinition[]>("/print-types"),
-        api.get<Product[]>("/products"),
       ]);
-      return { rules, printTypes, products };
+      return { rules, printTypes };
     },
   );
   const [rules, setRules] = useState<DocumentPricingRule[]>([]);
@@ -45,28 +56,16 @@ export function DocumentPricingSettings() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [createTypeOpen, setCreateTypeOpen] = useState(false);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState("");
-  const [productSaving, setProductSaving] = useState(false);
-  const [productSaved, setProductSaved] = useState(false);
-  const [productSaveError, setProductSaveError] = useState<string | null>(null);
+  const [editingMaterial, setEditingMaterial] = useState<{ scope: (typeof PRICING_SCOPES)[number]; material: MaterialSummary } | null>(null);
+  const [removingTypeKey, setRemovingTypeKey] = useState<string | null>(null);
+  const [printTypeError, setPrintTypeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!data) return;
     setRules(data.rules);
-    setProducts(data.products);
-    setSelectedProductId((current) => {
-      const physicalProducts = data.products.filter((product) => product.operationKind !== "scan");
-      return physicalProducts.some((product) => product.id === current) ? current : physicalProducts[0]?.id ?? "";
-    });
   }, [data]);
 
   const printTypes = data?.printTypes.filter((printType) => printType.isActive) ?? [];
-  const tableColumns = {
-    gridTemplateColumns: `minmax(9rem, 0.7fr) repeat(${Math.max(printTypes.length, 1)}, minmax(9rem, 1fr))`,
-  } satisfies CSSProperties;
-  const physicalProducts = products.filter((product) => product.operationKind !== "scan");
-  const selectedProduct = physicalProducts.find((product) => product.id === selectedProductId) ?? null;
 
   function updateRule(id: string, patch: Partial<DocumentPricingRule>) {
     setSaved(false);
@@ -95,74 +94,17 @@ export function DocumentPricingSettings() {
     }
   }
 
-  function updateProductRate(rule: DocumentPricingRule, useCustomRate: boolean) {
-    if (!selectedProduct) return;
-    setProductSaved(false);
-    setProducts((current) => current.map((product) => {
-      if (product.id !== selectedProduct.id) return product;
-      const remaining = product.documentRates.filter((rate) => rate.pricingRuleId !== rule.id);
-      return {
-        ...product,
-        documentRates: useCustomRate
-          ? [...remaining, {
-              id: `new-${rule.id}`,
-              pricingRuleId: rule.id,
-              paperSize: rule.paperSize,
-              printType: rule.printType,
-              pricingScope: rule.pricingScope,
-              pricePerPage: rule.pricePerPage,
-            }]
-          : remaining,
-      };
-    }));
-  }
-
-  function updateProductRatePrice(pricingRuleId: string, pricePerPage: number) {
-    if (!selectedProduct) return;
-    setProductSaved(false);
-    setProducts((current) => current.map((product) => product.id === selectedProduct.id
-      ? {
-          ...product,
-          documentRates: product.documentRates.map((rate) => rate.pricingRuleId === pricingRuleId
-            ? { ...rate, pricePerPage: Math.max(0, pricePerPage) }
-            : rate),
-        }
-      : product));
-  }
-
-  async function saveProductPricing(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedProduct) return;
-    setProductSaving(true);
-    setProductSaved(false);
-    setProductSaveError(null);
+  async function removePrintType(printType: PrintTypeDefinition) {
+    if (!window.confirm(`Remove "${printType.label}"? If it's still used by a product or a rate, it will be deactivated instead of deleted.`)) return;
+    setRemovingTypeKey(printType.key);
+    setPrintTypeError(null);
     try {
-      const updated = await api.put<Product>(`/products/${selectedProduct.id}`, {
-        serviceId: selectedProduct.serviceId,
-        name: selectedProduct.name,
-        description: selectedProduct.description ?? null,
-        printType: selectedProduct.printType,
-        operationKind: selectedProduct.operationKind,
-        standalonePricePerPage: selectedProduct.standalonePricePerPage ?? null,
-        isActive: selectedProduct.isActive,
-        variants: selectedProduct.variants.map((variant) => ({
-          variantId: variant.variantId,
-          priceAdjustment: variant.priceAdjustment,
-        })),
-        materialAssignments: selectedProduct.materialAssignments.map((assignment) => ({
-          inventoryItemId: assignment.inventoryItemId,
-        })),
-        documentRates: selectedProduct.documentRates.map((rate) => ({
-          pricingRuleId: rate.pricingRuleId,
-          pricePerPage: rate.pricePerPage,
-        })),
-      });
-      setProducts((current) => current.map((product) => product.id === updated.id ? updated : product));
-      setProductSaved(true);
+      await api.del(`/print-types/${printType.key}`);
+      reload();
     } catch (caught) {
-      setProductSaveError(caught instanceof ApiError ? caught.message : "The product pricing couldn’t be saved.");
+      setPrintTypeError(caught instanceof ApiError ? caught.message : `"${printType.label}" couldn't be removed.`);
     } finally {
-      setProductSaving(false);
+      setRemovingTypeKey(null);
     }
   }
 
@@ -179,9 +121,29 @@ export function DocumentPricingSettings() {
           )}
         />
         <p className="settings-placeholder-text">
-          Configure a separate global table for each built-in workflow. Every value remains tied to real paper
-          inventory and may still be overridden by an individual product.
+          Configure a separate global table for each built-in workflow. Printing and Photocopy rates stay tied to
+          real paper inventory; Scan has no paper, so its rate instead depends on how many pages were scanned.
+          Every value may still be overridden by an individual product.
         </p>
+
+        {data?.printTypes.length ? (
+          <div className="print-type-manager" aria-label="Configured print types">
+            {data.printTypes.map((printType) => (
+              <span className={`print-type-chip${printType.isActive ? "" : " is-inactive"}`} key={printType.key}>
+                {printType.label}
+                <button
+                  type="button"
+                  aria-label={`Remove ${printType.label}`}
+                  disabled={removingTypeKey === printType.key}
+                  onClick={() => removePrintType(printType)}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {printTypeError ? <p className="workspace-form__error" role="alert">{printTypeError}</p> : null}
 
         {state === "loading" ? <LoadingState label="Loading pricing rules…" /> : null}
         {state === "error" ? <ErrorState description={error ?? undefined} onRetry={reload} /> : null}
@@ -206,50 +168,40 @@ export function DocumentPricingSettings() {
                       <div><h3 id={`pricing-scope-${scope.key}`}>{scope.label}</h3><p>{scope.description}</p></div>
                       <output>{scopedRules.filter((rule) => rule.isActive).length}<small>active rates</small></output>
                     </header>
-                    <div className="settings-pricing-table" role="table" aria-label={`${scope.label} per-page pricing rules`}>
-                      <div className="settings-pricing-table__header" role="row" style={tableColumns}>
-                        <span role="columnheader">Paper material</span>
-                        {printTypes.map((printType) => (
-                          <span role="columnheader" key={printType.key}>
-                            <strong>{printType.label || formatProductPrintType(printType.key)}</strong>
-                            <small>{printType.appliesInkCoverage ? "Base + ink coverage" : "Paper and ink included"}</small>
-                          </span>
-                        ))}
-                      </div>
-                      {Array.from(new Map(scopedRules.map((rule) => [rule.inventoryItemId, {
+                    <div className="pricing-materials" role="list" aria-label={`${scope.label} per-page pricing rules`}>
+                      {sortMaterials(Array.from(new Map(scopedRules.map((rule) => [rule.inventoryItemId, {
                         id: rule.inventoryItemId,
                         name: rule.inventoryItemName,
                         paperSize: rule.paperSize,
-                      }])).values()).sort((left, right) =>
-                        PAPER_ORDER.indexOf(left.paperSize) - PAPER_ORDER.indexOf(right.paperSize)
-                        || left.name.localeCompare(right.name)).map((material) => {
+                      }])).values())).map((material) => {
+                        const materialRules = scopedRules.filter((rule) => rule.inventoryItemId === material.id);
+                        const activeCount = materialRules.filter((rule) => rule.isActive).length;
                         return (
-                          <div className="settings-pricing-table__row" role="row" key={material.id} style={tableColumns}>
-                            <strong role="rowheader"><span>{material.name}</span><small>{material.paperSize}</small></strong>
-                            {printTypes.map((printType) => {
-                              const rule = scopedRules.find((candidate) => candidate.inventoryItemId === material.id && candidate.printType === printType.key);
-                              return rule ? (
-                                <div className="settings-pricing-table__rate" role="cell" key={printType.key}>
-                                  <label>
-                                    <span>₱</span>
-                                    <input
-                                      className="numeric"
-                                      type="number"
-                                      min="0"
-                                      step="0.01"
-                                      value={rule.pricePerPage}
-                                      aria-label={`${scope.label} ${printType.label} rate for ${material.name}`}
-                                      onChange={(event) => updateRule(rule.id, { pricePerPage: Number(event.target.value) })}
-                                    />
-                                  </label>
-                                  <label className="settings-pricing-table__toggle">
-                                    <input type="checkbox" checked={rule.isActive} onChange={(event) => updateRule(rule.id, { isActive: event.target.checked })} />
-                                    <span>Use</span>
-                                  </label>
-                                </div>
-                              ) : <span role="cell" key={printType.key}>—</span>;
-                            })}
-                          </div>
+                          <button
+                            type="button"
+                            className="pricing-material"
+                            role="listitem"
+                            key={material.id}
+                            onClick={() => setEditingMaterial({ scope, material })}
+                          >
+                            <span className="pricing-material__label"><strong>{material.name}</strong><small>{material.paperSize}</small></span>
+                            <span className="pricing-material__chips">
+                              {printTypes.map((printType) => {
+                                const rule = materialRules.find((candidate) => candidate.printType === printType.key);
+                                if (!rule) return null;
+                                return (
+                                  <span className={`pricing-chip${rule.isActive ? "" : " is-inactive"}`} key={printType.key}>
+                                    {printType.label || formatProductPrintType(printType.key)}
+                                    <b className="numeric">₱{rule.pricePerPage.toFixed(2)}</b>
+                                  </span>
+                                );
+                              })}
+                            </span>
+                            <span className="pricing-material__meta">
+                              <b>{activeCount}</b> of {materialRules.length} active
+                              <em aria-hidden="true">Edit →</em>
+                            </span>
+                          </button>
                         );
                       })}
                     </div>
@@ -266,74 +218,19 @@ export function DocumentPricingSettings() {
         ) : null}
       </Card>
 
-      {state === "ready" && data ? (
-        <Card className="settings-product-pricing-card">
-          <CardHeader title="Product pricing matrix" meta={`${physicalProducts.length} physical products`} />
-          <p className="settings-placeholder-text">
-            Select a product to layer its own rate over the matching global material and print type. Products that
-            use the same paper and output type can therefore keep different prices.
-          </p>
-          {physicalProducts.length ? (
-            <form className="settings-product-pricing" onSubmit={saveProductPricing}>
-              <div className="settings-product-pricing__toolbar">
-                <label>
-                  <span>Product</span>
-                  <select value={selectedProductId} onChange={(event) => { setSelectedProductId(event.target.value); setProductSaved(false); setProductSaveError(null); }}>
-                    {physicalProducts.map((product) => <option value={product.id} key={product.id}>{product.serviceName} · {product.name}</option>)}
-                  </select>
-                </label>
-                {selectedProduct ? <div><span>Configured print type</span><strong>{selectedProduct.printTypeLabel}</strong><small>{selectedProduct.operationKind === "photocopy" ? "Scan or Photocopy table" : "Printing table"}</small></div> : null}
-              </div>
+      <Card>
+        <ScanPricingTiersSection />
+      </Card>
 
-              {selectedProduct ? (() => {
-                const assignedIds = new Set(selectedProduct.materialAssignments.map((assignment) => assignment.inventoryItemId));
-                const productRules = rules.filter((rule) => rule.pricingScope === selectedProduct.operationKind && assignedIds.has(rule.inventoryItemId));
-                const materials = Array.from(new Map(productRules.map((rule) => [rule.inventoryItemId, {
-                  id: rule.inventoryItemId,
-                  name: rule.inventoryItemName,
-                  paperSize: rule.paperSize,
-                }])).values()).sort((left, right) =>
-                  PAPER_ORDER.indexOf(left.paperSize) - PAPER_ORDER.indexOf(right.paperSize)
-                  || left.name.localeCompare(right.name));
-                return materials.length ? (
-                  <div className="settings-pricing-table settings-pricing-table--product" role="table" aria-label={`${selectedProduct.name} product pricing`}>
-                    <div className="settings-pricing-table__header" role="row" style={tableColumns}>
-                      <span role="columnheader">Assigned material</span>
-                      {printTypes.map((printType) => <span role="columnheader" className={printType.key === selectedProduct.printType ? "is-selected" : ""} key={printType.key}><strong>{printType.label}</strong><small>{printType.key === selectedProduct.printType ? "Product output" : "Not configured"}</small></span>)}
-                    </div>
-                    {materials.map((material) => (
-                      <div className="settings-pricing-table__row" role="row" style={tableColumns} key={material.id}>
-                        <strong role="rowheader"><span>{material.name}</span><small>{material.paperSize}</small></strong>
-                        {printTypes.map((printType) => {
-                          const rule = productRules.find((candidate) => candidate.inventoryItemId === material.id && candidate.printType === printType.key);
-                          if (!rule || printType.key !== selectedProduct.printType) return <span className="settings-pricing-table__not-used" role="cell" key={printType.key}>—<small>Not used</small></span>;
-                          const override = selectedProduct.documentRates.find((rate) => rate.pricingRuleId === rule.id);
-                          return (
-                            <div className="settings-pricing-table__product-rate" role="cell" key={printType.key}>
-                              <label className="settings-pricing-table__source">
-                                <input type="checkbox" checked={Boolean(override)} disabled={!rule.isActive || productSaving} onChange={(event) => updateProductRate(rule, event.target.checked)} />
-                                <span>{override ? "Product price" : "Use global"}</span>
-                              </label>
-                              {override ? <label className="settings-pricing-table__money"><span>₱</span><input className="numeric" type="number" min="0" step="0.01" value={override.pricePerPage} disabled={!rule.isActive || productSaving} aria-label={`${selectedProduct.name} ${printType.label} price for ${material.name}`} onChange={(event) => updateProductRatePrice(rule.id, Number(event.target.value))} /></label> : <strong className="numeric">₱{rule.pricePerPage.toFixed(2)}<small>{rule.isActive ? "Global rate" : "Inactive"}</small></strong>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ) : <EmptyState title="No assigned paper pricing" description="Assign an active paper material to this product before configuring its product-specific rate." />;
-              })() : null}
-
-              <div className="settings-form__actions">
-                <Button type="submit" variant="primary" loading={productSaving} disabled={!selectedProduct}>Save product pricing</Button>
-                {productSaved ? <span className="settings-form__saved">Saved.</span> : null}
-                {productSaveError ? <span className="settings-form__error" role="alert">{productSaveError}</span> : null}
-              </div>
-            </form>
-          ) : <EmptyState title="No physical products" description="Create a Printing or Photocopy product to configure material-based product pricing." />}
-          {products.some((product) => product.operationKind === "scan") ? <p className="settings-product-pricing__scan-note">Scan-only products remain priced per scanned page in their product workspace because they do not consume paper or ink.</p> : null}
-        </Card>
-      ) : null}
+      <MaterialRatesModal
+        open={editingMaterial !== null}
+        scopeLabel={editingMaterial?.scope.label ?? ""}
+        material={editingMaterial?.material ?? null}
+        materialRules={editingMaterial ? rules.filter((rule) => rule.pricingScope === editingMaterial.scope.key && rule.inventoryItemId === editingMaterial.material.id) : []}
+        printTypes={printTypes}
+        onChangeRule={updateRule}
+        onClose={() => setEditingMaterial(null)}
+      />
       <PrintTypeCreateModal
         open={createTypeOpen}
         onClose={() => setCreateTypeOpen(false)}
@@ -343,5 +240,221 @@ export function DocumentPricingSettings() {
         }}
       />
     </section>
+  );
+}
+
+function MaterialRatesModal({
+  open,
+  scopeLabel,
+  material,
+  materialRules,
+  printTypes,
+  onChangeRule,
+  onClose,
+}: {
+  open: boolean;
+  scopeLabel: string;
+  material: MaterialSummary | null;
+  materialRules: DocumentPricingRule[];
+  printTypes: PrintTypeDefinition[];
+  onChangeRule: (id: string, patch: Partial<DocumentPricingRule>) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      title={material ? `${material.name} · ${scopeLabel}` : "Material rates"}
+      description={material ? `${material.paperSize} paper · edits apply once you save pricing rules below.` : undefined}
+      onClose={onClose}
+      className="material-rates-modal"
+    >
+      <div className="settings-modal-body">
+        <div className="material-rates-list">
+          {printTypes.map((printType) => {
+            const rule = materialRules.find((candidate) => candidate.printType === printType.key);
+            return (
+              <div className="material-rates-row" key={printType.key}>
+                <div className="material-rates-row__label">
+                  <strong>{printType.label || formatProductPrintType(printType.key)}</strong>
+                  <small>{printType.appliesInkCoverage ? "Base + ink coverage" : "Paper and ink included"}</small>
+                </div>
+                {rule ? (
+                  <div className="material-rates-row__controls">
+                    <label className="settings-pricing-table__toggle">
+                      <input type="checkbox" checked={rule.isActive} onChange={(event) => onChangeRule(rule.id, { isActive: event.target.checked })} />
+                      <span>Use</span>
+                    </label>
+                    <label className="material-rates-row__money">
+                      <span>₱</span>
+                      <input
+                        className="numeric"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={rule.pricePerPage}
+                        aria-label={`${printType.label} rate for ${material?.name ?? "this material"}`}
+                        onChange={(event) => onChangeRule(rule.id, { pricePerPage: Number(event.target.value) })}
+                      />
+                    </label>
+                  </div>
+                ) : <span className="material-rates-row__unset">Not configured for this paper</span>}
+              </div>
+            );
+          })}
+        </div>
+        <footer className="settings-modal-actions">
+          <Button type="button" variant="primary" onClick={onClose}>Done</Button>
+        </footer>
+      </div>
+    </Modal>
+  );
+}
+
+interface NewTierDraft {
+  minPages: string;
+  maxPages: string;
+  pricePerPage: string;
+}
+
+const BLANK_TIER_DRAFT: NewTierDraft = { minPages: "", maxPages: "", pricePerPage: "" };
+
+function ScanPricingTiersSection() {
+  const { data, state, error, reload } = useResource(
+    async () => api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
+  );
+  const [tiers, setTiers] = useState<ScanPricingTier[]>([]);
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
+  const [draft, setDraft] = useState<NewTierDraft>(BLANK_TIER_DRAFT);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    if (data) setTiers(data);
+  }, [data]);
+
+  function updateLocalTier(id: string, patch: Partial<ScanPricingTier>) {
+    setTiers((current) => current.map((tier) => tier.id === id ? { ...tier, ...patch } : tier));
+  }
+
+  async function saveTier(tier: ScanPricingTier) {
+    setSavingIds((current) => new Set(current).add(tier.id));
+    setRowErrors((current) => ({ ...current, [tier.id]: "" }));
+    try {
+      const updated = await api.put<ScanPricingTier>(`/document-analyzer/scan-pricing-tiers/${tier.id}`, {
+        minPages: tier.minPages,
+        maxPages: tier.maxPages,
+        pricePerPage: tier.pricePerPage,
+        isActive: tier.isActive,
+      });
+      setTiers((current) => current.map((candidate) => candidate.id === tier.id ? updated : candidate));
+    } catch (caught) {
+      setRowErrors((current) => ({ ...current, [tier.id]: caught instanceof ApiError ? caught.message : "This tier couldn’t be saved." }));
+    } finally {
+      setSavingIds((current) => {
+        const next = new Set(current);
+        next.delete(tier.id);
+        return next;
+      });
+    }
+  }
+
+  async function removeTier(id: string) {
+    if (!window.confirm("Remove this scan pricing tier? This can't be undone.")) return;
+    setRemovingIds((current) => new Set(current).add(id));
+    setRowErrors((current) => ({ ...current, [id]: "" }));
+    try {
+      await api.del(`/document-analyzer/scan-pricing-tiers/${id}`);
+      setTiers((current) => current.filter((tier) => tier.id !== id));
+    } catch (caught) {
+      setRowErrors((current) => ({ ...current, [id]: caught instanceof ApiError ? caught.message : "This tier couldn’t be removed." }));
+      setRemovingIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
+
+  async function addTier(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAddError(null);
+    const minPages = Number(draft.minPages);
+    const maxPages = draft.maxPages.trim() ? Number(draft.maxPages) : null;
+    const pricePerPage = Number(draft.pricePerPage);
+    if (!draft.minPages.trim() || !Number.isFinite(minPages) || minPages < 1) {
+      setAddError("Enter a starting page count of at least 1.");
+      return;
+    }
+    if (maxPages !== null && (!Number.isFinite(maxPages) || maxPages < minPages)) {
+      setAddError("The upper page count must be at or above the lower one — leave it blank for \"and up\".");
+      return;
+    }
+    if (!draft.pricePerPage.trim() || !Number.isFinite(pricePerPage) || pricePerPage < 0) {
+      setAddError("Enter a price of ₱0 or more.");
+      return;
+    }
+    setAdding(true);
+    try {
+      const created = await api.post<ScanPricingTier>("/document-analyzer/scan-pricing-tiers", {
+        minPages,
+        maxPages,
+        pricePerPage,
+        isActive: true,
+      });
+      setTiers((current) => [...current, created]);
+      setDraft(BLANK_TIER_DRAFT);
+    } catch (caught) {
+      setAddError(caught instanceof ApiError ? caught.message : "This tier couldn’t be added.");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  const sortedTiers = [...tiers].sort((left, right) => left.minPages - right.minPages);
+
+  return (
+    <>
+      <CardHeader
+        title="Scan to softcopy"
+        meta={`${tiers.filter((tier) => tier.isActive).length} active tiers`}
+      />
+      <p className="settings-placeholder-text">
+        A scan's rate depends on how many pages it turns out to be, not on paper size or color. Configure page-count
+        bands here — for example, "1–5 pages" at one rate and "6 and up" at another. A Scan product can still set
+        its own flat price to skip these tiers entirely.
+      </p>
+      {state === "loading" ? <LoadingState label="Loading scan pricing tiers…" /> : null}
+      {state === "error" ? <ErrorState description={error ?? undefined} onRetry={reload} /> : null}
+      {state === "ready" ? (
+        <div className="scan-tiers">
+          {sortedTiers.length === 0 ? <p className="settings-placeholder-text">No page-count tiers yet — add one below.</p> : null}
+          {sortedTiers.map((tier) => (
+            <div className="scan-tier-row" key={tier.id}>
+              <label className="form-field"><span>From page</span><input type="number" min={1} value={tier.minPages} disabled={savingIds.has(tier.id) || removingIds.has(tier.id)} onChange={(event) => updateLocalTier(tier.id, { minPages: Number(event.target.value) })} /></label>
+              <label className="form-field"><span>To page</span><input type="number" min={1} placeholder="No limit" value={tier.maxPages ?? ""} disabled={savingIds.has(tier.id) || removingIds.has(tier.id)} onChange={(event) => updateLocalTier(tier.id, { maxPages: event.target.value === "" ? null : Number(event.target.value) })} /></label>
+              <label className="form-field"><span>₱ / page</span><input className="numeric" type="number" min={0} step="0.01" value={tier.pricePerPage} disabled={savingIds.has(tier.id) || removingIds.has(tier.id)} onChange={(event) => updateLocalTier(tier.id, { pricePerPage: Number(event.target.value) })} /></label>
+              <label className="settings-pricing-table__toggle">
+                <input type="checkbox" checked={tier.isActive} disabled={savingIds.has(tier.id) || removingIds.has(tier.id)} onChange={(event) => updateLocalTier(tier.id, { isActive: event.target.checked })} />
+                <span>Use</span>
+              </label>
+              <div className="scan-tier-row__actions">
+                <Button type="button" variant="secondary" size="sm" loading={savingIds.has(tier.id)} disabled={removingIds.has(tier.id)} onClick={() => saveTier(tier)}>Save</Button>
+                <Button type="button" variant="ghost" size="sm" loading={removingIds.has(tier.id)} disabled={savingIds.has(tier.id)} onClick={() => removeTier(tier.id)}>Remove</Button>
+              </div>
+              {rowErrors[tier.id] ? <p className="workspace-form__error scan-tier-row__error" role="alert">{rowErrors[tier.id]}</p> : null}
+            </div>
+          ))}
+          <form className="scan-tier-row scan-tier-row--add" onSubmit={addTier}>
+            <label className="form-field"><span>From page</span><input type="number" min={1} value={draft.minPages} onChange={(event) => setDraft((current) => ({ ...current, minPages: event.target.value }))} /></label>
+            <label className="form-field"><span>To page</span><input type="number" min={1} placeholder="No limit" value={draft.maxPages} onChange={(event) => setDraft((current) => ({ ...current, maxPages: event.target.value }))} /></label>
+            <label className="form-field"><span>₱ / page</span><input className="numeric" type="number" min={0} step="0.01" value={draft.pricePerPage} onChange={(event) => setDraft((current) => ({ ...current, pricePerPage: event.target.value }))} /></label>
+            <Button type="submit" variant="primary" size="sm" loading={adding}>Add tier</Button>
+            {addError ? <p className="workspace-form__error scan-tier-row__error" role="alert">{addError}</p> : null}
+          </form>
+        </div>
+      ) : null}
+    </>
   );
 }

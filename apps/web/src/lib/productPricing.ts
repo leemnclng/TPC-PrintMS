@@ -1,4 +1,4 @@
-import type { DocumentPricingRule, ProductOperationKind, ProductPrintType } from "../types/domain";
+import type { DocumentPricingRule, ProductOperationKind, ProductPrintType, ScanPricingTier } from "../types/domain";
 
 /** Mirrors the backend's product-pricing resolver. The catalog reference is
  * the lowest active rate among the product's assigned paper materials. */
@@ -36,4 +36,30 @@ export function computeSelectedMaterialPrice(
   const customRate = documentRates.find((rate) => rate.pricingRuleId === rule.id);
   if (requireCustomRate && !customRate) return null;
   return customRate?.pricePerPage ?? rule.pricePerPage;
+}
+
+/** Mirrors the backend's resolve_scan_price_per_page: a Scan product's own
+ * standalone price when set, otherwise the active global tier whose
+ * page-count range covers `pages`. `null` when neither exists. */
+export function resolveScanPricePerPage(
+  standalonePricePerPage: number | null | undefined,
+  pages: number,
+  scanPricingTiers: ScanPricingTier[],
+): number | null {
+  if (standalonePricePerPage !== null && standalonePricePerPage !== undefined) return standalonePricePerPage;
+  const tier = scanPricingTiers.find(
+    (candidate) => candidate.isActive && candidate.minPages <= pages && (candidate.maxPages === null || pages <= candidate.maxPages),
+  );
+  return tier ? tier.pricePerPage : null;
+}
+
+/** Mirrors the backend's has_scan_pricing_configured: whether a Scan product
+ * could ever be priced, before the real page count (and therefore the exact
+ * rate) is known. */
+export function hasScanPricingConfigured(
+  standalonePricePerPage: number | null | undefined,
+  scanPricingTiers: ScanPricingTier[],
+): boolean {
+  if (standalonePricePerPage !== null && standalonePricePerPage !== undefined) return true;
+  return scanPricingTiers.some((tier) => tier.isActive);
 }

@@ -20,7 +20,7 @@ import {
 import { useResource } from "../../hooks/useResource";
 import { api, ApiError } from "../../lib/apiClient";
 import { formatCurrency, formatProductPrintType } from "../../lib/format";
-import { computeReferencePrice } from "../../lib/productPricing";
+import { computeReferencePrice, resolveScanPricePerPage } from "../../lib/productPricing";
 import type {
   DocumentPricingRule,
   InventoryItem,
@@ -28,6 +28,7 @@ import type {
   Product,
   ProductOperationKind,
   ProductPrintType,
+  ScanPricingTier,
   Service,
   Variant,
 } from "../../types/domain";
@@ -65,15 +66,16 @@ export function ProductWorkspace() {
   const { data, state, error } = useResource(
     async () => {
       if (!serviceId) throw new Error("Service is required.");
-      const [service, product, inventoryItems, variants, pricingRules, printTypes] = await Promise.all([
+      const [service, product, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes] = await Promise.all([
         api.get<Service>(`/services/${serviceId}`),
         isNew ? Promise.resolve(null) : api.get<Product>(`/products/${productId}`),
         api.get<InventoryItem[]>("/inventory-items"),
         api.get<Variant[]>("/variants"),
         api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
+        api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
         api.get<PrintTypeDefinition[]>("/print-types"),
       ]);
-      return { service, product, inventoryItems, variants, pricingRules, printTypes };
+      return { service, product, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes };
     },
     [serviceId, productId],
   );
@@ -134,8 +136,8 @@ export function ProductWorkspace() {
           return;
         }
       }
-      if (isScan && (form.standalonePricePerPage === null || form.standalonePricePerPage < 0)) {
-        setSaveError("Set a valid scan price per page.");
+      if (isScan && form.standalonePricePerPage !== null && form.standalonePricePerPage < 0) {
+        setSaveError("The scan price can't be negative.");
         return;
       }
       const variantIds = form.variants.map((variant) => variant.variantId);
@@ -143,7 +145,7 @@ export function ProductWorkspace() {
         setSaveError("Each global variant can be selected only once.");
         return;
       }
-      const referencePrice = isScan ? form.standalonePricePerPage ?? 0 : computeReferencePrice(
+      const referencePrice = isScan ? resolveScanPricePerPage(form.standalonePricePerPage, 1, data?.scanPricingTiers ?? []) ?? 0 : computeReferencePrice(
         form.printType,
         form.operationKind,
         form.documentRates,
@@ -212,7 +214,9 @@ export function ProductWorkspace() {
   ) ?? [];
   const selectedPrintType = data?.printTypes.find((printType) => printType.key === form.printType);
   const isScan = form.operationKind === "scan";
-  const referencePrice = isScan ? form.standalonePricePerPage ?? 0 : computeReferencePrice(
+  const scanPricingTiers = [...(data?.scanPricingTiers ?? [])].sort((left, right) => left.minPages - right.minPages);
+  const activeScanTiers = scanPricingTiers.filter((tier) => tier.isActive);
+  const referencePrice = isScan ? resolveScanPricePerPage(form.standalonePricePerPage, 1, scanPricingTiers) ?? 0 : computeReferencePrice(
     form.printType,
     form.operationKind,
     form.documentRates,
@@ -304,7 +308,9 @@ export function ProductWorkspace() {
             <strong className="numeric">{formatCurrency(referencePrice)}</strong>
             <small>
               {isScan
-                ? "Standalone scanning rate with no paper, ink, or inventory usage."
+                ? form.standalonePricePerPage !== null
+                  ? "This product's own flat price, regardless of page count. No paper, ink, or inventory usage."
+                  : "Following the global page-count tiers below (shown here for a 1-page scan). No paper, ink, or inventory usage."
                 : `Computed from the ${form.operationKind === "photocopy" ? "Scan or Photocopy" : "Printing"} global table for the assigned paper's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate.`}
             </small>
           </div>
@@ -312,10 +318,31 @@ export function ProductWorkspace() {
           {isScan ? (
             <section className="product-setup-section product-scan-pricing">
               <div className="product-setup-section__heading"><h3>Softcopy pricing</h3><p>Charge for each page produced by the scanner. The retained output becomes the customer deliverable.</p></div>
-              <label className="form-field">
-                <span>Price per scanned page</span>
-                <input className="numeric" type="number" min="0" step="0.01" value={form.standalonePricePerPage ?? ""} onChange={(event) => setForm((current) => ({ ...current, standalonePricePerPage: event.target.value === "" ? null : Number(event.target.value) }))} />
+              <div className="product-scan-pricing__global">
+                <span>Global page-count tiers</span>
+                {activeScanTiers.length ? (
+                  <ul className="product-scan-pricing__tiers">
+                    {activeScanTiers.map((tier) => (
+                      <li key={tier.id}><b>{tier.maxPages === null ? `${tier.minPages}+` : `${tier.minPages}–${tier.maxPages}`} pages</b><span>{formatCurrency(tier.pricePerPage)} / page</span></li>
+                    ))}
+                  </ul>
+                ) : <strong className="numeric">Not configured</strong>}
+                <small>Set in Settings → Document analyzer pricing. Every Scan product uses these unless overridden below.</small>
+              </div>
+              <label className="product-scan-pricing__toggle">
+                <input
+                  type="checkbox"
+                  checked={form.standalonePricePerPage !== null}
+                  onChange={(event) => setForm((current) => ({ ...current, standalonePricePerPage: event.target.checked ? activeScanTiers[0]?.pricePerPage ?? 0 : null }))}
+                />
+                <span><strong>Use a custom flat price for this product</strong><small>One rate regardless of page count, instead of following the tiers above.</small></span>
               </label>
+              {form.standalonePricePerPage !== null ? (
+                <label className="form-field">
+                  <span>Price per scanned page</span>
+                  <input className="numeric" type="number" min="0" step="0.01" value={form.standalonePricePerPage} onChange={(event) => setForm((current) => ({ ...current, standalonePricePerPage: event.target.value === "" ? 0 : Number(event.target.value) }))} />
+                </label>
+              ) : null}
             </section>
           ) : <div className="product-setup-grid">
             <div className="product-setup-grid__configuration">

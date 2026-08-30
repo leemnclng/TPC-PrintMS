@@ -473,6 +473,18 @@ export interface DocumentPricingRule {
   isActive: boolean;
 }
 
+/** Global per-page-count rate band for Scan products — a scan's price never
+ *  depends on paper size or color, only how many pages were scanned.
+ *  `maxPages` of `null` means "and up" (an open-ended top tier). A Scan
+ *  product's own `standalonePricePerPage` still overrides this when set. */
+export interface ScanPricingTier {
+  id: string;
+  minPages: number;
+  maxPages: number | null;
+  pricePerPage: number;
+  isActive: boolean;
+}
+
 export interface OverviewSnapshot {
   jobOrdersByStatus: Record<JobOrderStatus, number>;
   paymentsAwaitingVerification: number;

@@ -88,6 +88,88 @@ def test_removing_used_product_archives_history_while_unused_product_is_deleted(
     assert client.get(f"/products/{unused_product['id']}", headers=headers).status_code == 404
 
 
+def test_removing_used_print_type_deactivates_while_unused_print_type_is_deleted(tmp_path) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'print-type-removal.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+
+    def override_db():
+        db = test_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(services.router)
+    app.include_router(products.router)
+    app.include_router(inventory.router)
+    app.include_router(print_types.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    def create_print_type(label: str) -> dict:
+        response = client.post(
+            "/print-types",
+            headers=headers,
+            json={"label": label, "description": None, "colorMode": "color", "appliesInkCoverage": True},
+        )
+        assert response.status_code == 201
+        return response.json()
+
+    used_type = create_print_type("Spot color")
+    unused_type = create_print_type("Sepia")
+
+    service = client.post(
+        "/services",
+        headers=headers,
+        json={"name": "Print type removal service", "category": "printing", "isActive": True},
+    ).json()
+    material = client.post(
+        "/inventory-items",
+        headers=headers,
+        json={
+            "name": "Removal paper",
+            "category": "Paper",
+            "unit": "sheet",
+            "openingQuantity": 20,
+            "reorderLevel": 2,
+            "isActive": True,
+        },
+    ).json()
+    product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Spot color cards",
+            "printType": used_type["key"],
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": material["id"]}],
+        },
+    )
+    assert product.status_code == 201
+
+    # In use by a product: deactivated, not removed — the row must stay for
+    # that product's print-type reference to keep resolving.
+    assert client.delete(f"/print-types/{used_type['key']}", headers=headers).status_code == 204
+    remaining = client.get("/print-types", headers=headers).json()
+    archived = next(item for item in remaining if item["key"] == used_type["key"])
+    assert archived["isActive"] is False
+
+    # Never referenced: removed outright.
+    assert client.delete(f"/print-types/{unused_type['key']}", headers=headers).status_code == 204
+    remaining_keys = {item["key"] for item in client.get("/print-types", headers=headers).json()}
+    assert unused_type["key"] not in remaining_keys
+
+    assert client.delete("/print-types/does-not-exist", headers=headers).status_code == 404
+
+
 def test_service_owns_products_and_cannot_be_removed_while_in_use(tmp_path) -> None:
     engine = create_engine(
         f"sqlite:///{tmp_path / 'catalog.db'}",

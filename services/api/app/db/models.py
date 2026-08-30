@@ -260,6 +260,29 @@ class DocumentPricingRule(TimestampMixin, Base):
         return self.inventory_item.paper_size
 
 
+class ScanPricingTier(TimestampMixin, Base):
+    """Global per-page-count rate band for Scan products.
+
+    A scan's price never depends on paper size or color — only on how many
+    pages were scanned — so tiers carry no print-type or paper dimension,
+    just an owner-managed page-count range. `max_pages` of None means "and
+    up" (an open-ended top tier). A Scan product's own
+    `standalone_price_per_page` still takes precedence when set, mirroring
+    how a Printing/Photocopy product can override its own paper rate."""
+
+    __tablename__ = "scan_pricing_tiers"
+    __table_args__ = (
+        CheckConstraint("min_pages >= 1", name="ck_scan_pricing_tiers_min_pages"),
+        CheckConstraint("max_pages IS NULL OR max_pages >= min_pages", name="ck_scan_pricing_tiers_max_pages"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    min_pages: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    price_per_page: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
 class Product(TimestampMixin, Base):
     __tablename__ = "products"
     __table_args__ = (

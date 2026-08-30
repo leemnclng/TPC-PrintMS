@@ -14,7 +14,7 @@ import { useResource } from "../../hooks/useResource";
 import { api } from "../../lib/apiClient";
 import { formatCurrency, formatDate, formatDateTime } from "../../lib/format";
 import { jobOrderStatusMeta } from "../../types/statusMeta";
-import type { DocumentPricingRule, InventoryItem, InventoryMovement, JobFile, JobOrder, JobOrderItem, Product, Service } from "../../types/domain";
+import type { DocumentPricingRule, InventoryItem, InventoryMovement, JobFile, JobOrder, JobOrderItem, Product, ScanPricingTier, Service } from "../../types/domain";
 import { JobMaterialUsageModal } from "../jobOrders/JobMaterialUsageModal";
 import { JobPaymentModal } from "../jobOrders/JobPaymentModal";
 import { JobPrintSetupModal } from "../jobOrders/JobPrintSetupModal";
@@ -57,22 +57,23 @@ export function JobOrderWorkspace() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const { data, state, error, reload } = useResource(async () => {
-    const [order, materialMovements, services, products, inventoryItems, pricingRules] = await Promise.all([
+    const [order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers] = await Promise.all([
       api.get<JobOrder>(`/job-orders/${jobOrderId}`),
       api.get<InventoryMovement[]>(`/inventory-movements?job_order_id=${encodeURIComponent(jobOrderId ?? "")}`),
       api.get<Service[]>("/services"),
       api.get<Product[]>("/products"),
       api.get<InventoryItem[]>("/inventory-items"),
       api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
+      api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
     ]);
-    return { order, materialMovements, services, products, inventoryItems, pricingRules };
+    return { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers };
   }, [jobOrderId]);
 
   if (state === "loading") return <LoadingState label="Loading job order…" />;
   if (state === "error") return <ErrorState description={error ?? undefined} onRetry={reload} />;
   if (!data) return <EmptyState title="Job order not found" description="It may have been removed." />;
 
-  const { order, materialMovements, services, products, inventoryItems, pricingRules } = data;
+  const { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers } = data;
   const firstProduct = products.find((product) => product.id === order.items[0]?.productId);
   const initialService = services.find((service) => service.id === firstProduct?.serviceId)
     ?? services.find((service) => service.isActive && service.productCount > 0);
@@ -277,7 +278,7 @@ export function JobOrderWorkspace() {
       {scanItem ? <JobScanSetupModal open order={order} item={scanItem} onClose={() => { setScanItem(null); reload(); }} onScanned={handleUpdated} /> : null}
       <JobMaterialUsageModal open={usageOpen} order={order} onClose={() => setUsageOpen(false)} onRecorded={() => { setUsageOpen(false); reload(); }} />
       {previewFile ? <ScanOutputPreviewModal open orderId={order.id} jobFile={previewFile} onClose={() => setPreviewFile(null)} /> : null}
-      {initialService ? <TransactionCreateModal open={addProductsOpen} order={order} initialService={initialService} services={services} products={products} inventoryItems={inventoryItems} pricingRules={pricingRules} customers={[]} onClose={() => setAddProductsOpen(false)} onCreated={() => { setAddProductsOpen(false); reload(); }} /> : null}
+      {initialService ? <TransactionCreateModal open={addProductsOpen} order={order} initialService={initialService} services={services} products={products} inventoryItems={inventoryItems} pricingRules={pricingRules} scanPricingTiers={scanPricingTiers} customers={[]} onClose={() => setAddProductsOpen(false)} onCreated={() => { setAddProductsOpen(false); reload(); }} /> : null}
       {qualityFailureItem ? <JobQualityFailureModal open order={order} item={qualityFailureItem} onClose={() => setQualityFailureItem(null)} onReprocessed={handleUpdated} /> : null}
       <JobCancelModal open={cancelOpen} order={order} onClose={() => setCancelOpen(false)} onCancelled={handleUpdated} />
     </>

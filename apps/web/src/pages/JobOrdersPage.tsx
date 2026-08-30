@@ -11,7 +11,7 @@ import { useResource } from "../hooks/useResource";
 import { api } from "../lib/apiClient";
 import { formatCurrency, formatDate } from "../lib/format";
 import { jobOrderStatusMeta } from "../types/statusMeta";
-import type { Customer, DocumentPricingRule, InventoryItem, JobOrder, Product, Service, SpoolerMonitorInfo } from "../types/domain";
+import type { Customer, DocumentPricingRule, InventoryItem, JobOrder, Product, ScanPricingTier, Service, SpoolerMonitorInfo } from "../types/domain";
 import { JobServiceChooserModal } from "./jobOrders/JobServiceChooserModal";
 import { TransactionCreateModal } from "./jobOrders/TransactionCreateModal";
 import "./JobOrdersPage.css";
@@ -23,16 +23,17 @@ export function JobOrdersPage() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const sourceSpoolerJobId = searchParams.get("spoolerJobId");
   const { data, state, error, reload } = useResource(async () => {
-    const [orders, customers, products, inventoryItems, services, pricingRules, spoolerMonitor] = await Promise.all([
+    const [orders, customers, products, inventoryItems, services, pricingRules, scanPricingTiers, spoolerMonitor] = await Promise.all([
       api.get<JobOrder[]>("/job-orders"),
       api.get<Customer[]>("/customers"),
       api.get<Product[]>("/products"),
       api.get<InventoryItem[]>("/inventory-items"),
       api.get<Service[]>("/services"),
       api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
+      api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
       api.get<SpoolerMonitorInfo>("/printers/spooler-jobs").catch(() => null),
     ]);
-    return { orders, customers, products, inventoryItems, services, pricingRules, spoolerMonitor };
+    return { orders, customers, products, inventoryItems, services, pricingRules, scanPricingTiers, spoolerMonitor };
   }, [sourceSpoolerJobId]);
 
   useEffect(() => {
@@ -127,6 +128,7 @@ export function JobOrdersPage() {
               products={data.products}
               inventoryItems={data.inventoryItems}
               pricingRules={data.pricingRules}
+              scanPricingTiers={data.scanPricingTiers}
               sourceSpoolerJobId={sourceSpoolerJobId}
               onClose={closeCreate}
               onCreated={(order) => {

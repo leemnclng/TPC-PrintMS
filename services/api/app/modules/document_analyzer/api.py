@@ -7,12 +7,20 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.core.security import require_token
-from app.db.models import DocumentPricingRule, Product, ProductMaterialAssignment, ProductVariant
+from app.db.models import DocumentPricingRule, Product, ProductMaterialAssignment, ProductVariant, ScanPricingTier
 from app.db.session import get_db
+from app.services.product_pricing import scan_tier_ranges_overlap
 
 from .analyzers.base import InvalidDocumentError
 from .models.document_analysis import AnalysisResponse
-from .models.pricing_result import PricingContext, PricingRuleRead, PricingRulesUpdate
+from .models.pricing_result import (
+    PricingContext,
+    PricingRuleRead,
+    PricingRulesUpdate,
+    ScanPricingTierCreate,
+    ScanPricingTierRead,
+    ScanPricingTierUpdate,
+)
 from .services.analysis_service import AnalysisService
 from .services.pricing_service import PricingService
 from .utils.file_detection import (
@@ -166,3 +174,66 @@ def update_pricing_rules(
         )
     )
     return [pricing_service.to_read(rule) for rule in all_rules]
+
+
+def _to_scan_tier_read(tier: ScanPricingTier) -> ScanPricingTierRead:
+    return ScanPricingTierRead(
+        id=tier.id,
+        min_pages=tier.min_pages,
+        max_pages=tier.max_pages,
+        price_per_page=tier.price_per_page,
+        is_active=tier.is_active,
+    )
+
+
+@router.get("/scan-pricing-tiers", response_model=list[ScanPricingTierRead])
+def list_scan_pricing_tiers(db: Session = Depends(get_db)) -> list[ScanPricingTierRead]:
+    tiers = db.query(ScanPricingTier).order_by(ScanPricingTier.min_pages).all()
+    return [_to_scan_tier_read(tier) for tier in tiers]
+
+
+@router.post("/scan-pricing-tiers", response_model=ScanPricingTierRead, status_code=201)
+def create_scan_pricing_tier(payload: ScanPricingTierCreate, db: Session = Depends(get_db)) -> ScanPricingTierRead:
+    if payload.max_pages is not None and payload.max_pages < payload.min_pages:
+        raise HTTPException(status_code=422, detail="The page range's upper bound must be at or above its lower bound.")
+    if scan_tier_ranges_overlap(payload.min_pages, payload.max_pages, db):
+        raise HTTPException(status_code=409, detail="This page range overlaps an existing scan pricing tier.")
+    tier = ScanPricingTier(
+        min_pages=payload.min_pages,
+        max_pages=payload.max_pages,
+        price_per_page=payload.price_per_page,
+        is_active=payload.is_active,
+    )
+    db.add(tier)
+    db.commit()
+    db.refresh(tier)
+    return _to_scan_tier_read(tier)
+
+
+@router.put("/scan-pricing-tiers/{tier_id}", response_model=ScanPricingTierRead)
+def update_scan_pricing_tier(
+    tier_id: str, payload: ScanPricingTierUpdate, db: Session = Depends(get_db)
+) -> ScanPricingTierRead:
+    tier = db.get(ScanPricingTier, tier_id)
+    if not tier:
+        raise HTTPException(status_code=404, detail="Scan pricing tier not found.")
+    if payload.max_pages is not None and payload.max_pages < payload.min_pages:
+        raise HTTPException(status_code=422, detail="The page range's upper bound must be at or above its lower bound.")
+    if scan_tier_ranges_overlap(payload.min_pages, payload.max_pages, db, exclude_id=tier_id):
+        raise HTTPException(status_code=409, detail="This page range overlaps another scan pricing tier.")
+    tier.min_pages = payload.min_pages
+    tier.max_pages = payload.max_pages
+    tier.price_per_page = payload.price_per_page
+    tier.is_active = payload.is_active
+    db.commit()
+    db.refresh(tier)
+    return _to_scan_tier_read(tier)
+
+
+@router.delete("/scan-pricing-tiers/{tier_id}", status_code=204)
+def delete_scan_pricing_tier(tier_id: str, db: Session = Depends(get_db)) -> None:
+    tier = db.get(ScanPricingTier, tier_id)
+    if not tier:
+        raise HTTPException(status_code=404, detail="Scan pricing tier not found.")
+    db.delete(tier)
+    db.commit()

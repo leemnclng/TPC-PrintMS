@@ -69,3 +69,22 @@ class PricingRuleUpdate(CamelModel):
 
 class PricingRulesUpdate(CamelModel):
     rules: list[PricingRuleUpdate] = Field(min_length=1)
+
+
+class ScanPricingTierRead(CamelModel):
+    id: str
+    min_pages: int = Field(ge=1)
+    max_pages: int | None = Field(default=None, ge=1)
+    price_per_page: float = Field(ge=0)
+    is_active: bool
+
+
+class ScanPricingTierCreate(CamelModel):
+    min_pages: int = Field(ge=1)
+    max_pages: int | None = Field(default=None, ge=1)
+    price_per_page: float = Field(ge=0)
+    is_active: bool = True
+
+
+class ScanPricingTierUpdate(ScanPricingTierCreate):
+    pass

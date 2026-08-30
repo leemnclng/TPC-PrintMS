@@ -65,7 +65,12 @@ from ..schemas.job_orders import (
     TransactionCreate,
 )
 from ..services.printing.adapter import PrintSubmissionError, get_printer_adapter
-from ..services.product_pricing import price_per_page_for_material, reference_price_per_page
+from ..services.product_pricing import (
+    has_scan_pricing_configured,
+    price_per_page_for_material,
+    reference_price_per_page,
+    resolve_scan_price_per_page,
+)
 
 router = APIRouter(prefix="/job-orders", tags=["job-orders"], dependencies=[Depends(require_token)])
 analysis_service = AnalysisService()
@@ -417,8 +422,11 @@ def create_scan_job_order(
         raise HTTPException(status_code=422, detail="Select an active Scan product from this service.")
     if not product.is_active:
         raise HTTPException(status_code=409, detail=f"Product is inactive: {product.name}.")
-    if product.standalone_price_per_page is None:
-        raise HTTPException(status_code=422, detail="Set this product's scan price per page before creating a job.")
+    if not has_scan_pricing_configured(product.standalone_price_per_page, db):
+        raise HTTPException(
+            status_code=422,
+            detail="Set this product's scan price per page, or add a global page-count tier, before creating a job.",
+        )
 
     created = _create_job_order(
         JobOrderCreate(
@@ -482,8 +490,11 @@ async def _submit_scan_output(
     if item.status != "queued":
         raise HTTPException(status_code=409, detail="This product line is not waiting on a scan.")
     product = db.get(Product, item.product_id)
-    if not product or product.standalone_price_per_page is None:
-        raise HTTPException(status_code=422, detail="Set this product's scan price per page before completing this scan.")
+    if not product or not has_scan_pricing_configured(product.standalone_price_per_page, db):
+        raise HTTPException(
+            status_code=422,
+            detail="Set this product's scan price per page, or add a global page-count tier, before completing this scan.",
+        )
 
     uploaded_files = [*(files or []), *([file] if file else [])]
     filename, data, content_type = await _read_scan_outputs(uploaded_files)
@@ -493,6 +504,13 @@ async def _submit_scan_output(
         raise HTTPException(status_code=415, detail="The acquired scanner output must be a PDF or image.") from error
     except (InvalidDocumentError, UnsafeArchiveError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    # The exact rate depends on the real page count, only known now.
+    scan_price = resolve_scan_price_per_page(product.standalone_price_per_page, analysis.page_count, db)
+    if scan_price is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No configured rate covers a {analysis.page_count}-page scan. Add a matching page-count tier, or set this product's own price.",
+        )
 
     storage_directory = settings.resolved_scan_output_dir / job_order.id
     stored_filename = f"{uuid4().hex}-{filename}"
@@ -524,9 +542,12 @@ async def _submit_scan_output(
                 analysis_confidence=analysis.confidence,
             )
         )
-        previous_suggested = round(product.standalone_price_per_page * item.pages_per_copy, 2)
+        # Undo using the item's own stored rate (not the product's current
+        # one) in case the override or the global rate changed since this
+        # item was created or last scanned.
+        previous_suggested = round(item.unit_price * item.pages_per_copy, 2)
         item.pages_per_copy = analysis.page_count
-        item.unit_price = product.standalone_price_per_page
+        item.unit_price = scan_price
         item.line_total = round(item.unit_price * analysis.page_count, 2)
         job_order.total = round(sum(value.line_total for value in job_order.items), 2)
         job_order.suggested_total = round(job_order.suggested_total - previous_suggested + item.line_total, 2)
@@ -747,10 +768,12 @@ async def _save_transaction_lines(
         if product.operation_kind == "scan":
             if line.paper_inventory_item_id or line.variant_id or line.other_materials:
                 raise HTTPException(status_code=422, detail=f"{product.name} cannot use paper, print variants, or materials.")
-            if product.standalone_price_per_page is None:
-                raise HTTPException(status_code=422, detail=f"Set the scan price for {product.name}.")
+            if not has_scan_pricing_configured(product.standalone_price_per_page, db):
+                raise HTTPException(status_code=422, detail=f"Set the scan price for {product.name}, or add a global page-count tier.")
             pages, copies = 1, 1
-            suggested = round(product.standalone_price_per_page, 2)
+            # A provisional estimate at the placeholder page count — the real
+            # rate is resolved from the actual page count once scanned.
+            suggested = round(resolve_scan_price_per_page(product.standalone_price_per_page, pages, db) or 0.0, 2)
         else:
             assignment = next(
                 (
@@ -1174,7 +1197,7 @@ def _create_job_order(
                 if assignment.inventory_item_id == material_id
             ) is not None
         ]
-        reference_price = product.standalone_price_per_page if product.operation_kind == "scan" else (
+        reference_price = resolve_scan_price_per_page(product.standalone_price_per_page, item_payload.pages_per_copy, db) if product.operation_kind == "scan" else (
             price_per_page_for_material(
                 product.print_type,
                 product.operation_kind,

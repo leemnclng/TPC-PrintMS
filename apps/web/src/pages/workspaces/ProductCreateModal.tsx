@@ -14,7 +14,7 @@ import {
 } from "../../components/ProductVariantSelector/ProductVariantSelector";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatCurrency, formatProductPrintType } from "../../lib/format";
-import { computeReferencePrice } from "../../lib/productPricing";
+import { computeReferencePrice, resolveScanPricePerPage } from "../../lib/productPricing";
 import type {
   DocumentPricingRule,
   InventoryItem,
@@ -22,6 +22,7 @@ import type {
   Product,
   ProductOperationKind,
   ProductPrintType,
+  ScanPricingTier,
   Service,
   Variant,
 } from "../../types/domain";
@@ -60,6 +61,7 @@ interface ProductCreateModalProps {
   inventoryItems: InventoryItem[];
   variants: Variant[];
   pricingRules: DocumentPricingRule[];
+  scanPricingTiers: ScanPricingTier[];
   printTypes: PrintTypeDefinition[];
   onClose: () => void;
   onCreated: (product: Product) => void;
@@ -71,6 +73,7 @@ export function ProductCreateModal({
   inventoryItems,
   variants,
   pricingRules,
+  scanPricingTiers,
   printTypes,
   onClose,
   onCreated,
@@ -92,7 +95,9 @@ export function ProductCreateModal({
   const nameRef = useRef<HTMLInputElement>(null);
   const materialsRef = useRef<HTMLDivElement>(null);
   const isScan = form.operationKind === "scan";
-  const referencePrice = isScan ? form.standalonePricePerPage ?? 0 : computeReferencePrice(
+  const sortedScanTiers = [...scanPricingTiers].sort((left, right) => left.minPages - right.minPages);
+  const activeScanTiers = sortedScanTiers.filter((tier) => tier.isActive);
+  const referencePrice = isScan ? resolveScanPricePerPage(form.standalonePricePerPage, 1, sortedScanTiers) ?? 0 : computeReferencePrice(
     form.printType,
     form.operationKind,
     form.documentRates,
@@ -133,9 +138,9 @@ export function ProductCreateModal({
       form.materialAssignments.length === 0 ||
       form.materialAssignments.some((assignment) => !assignment.inventoryItemId) ||
       new Set(materialIds).size !== materialIds.length);
-    const invalidScanPrice = isScan && (form.standalonePricePerPage === null || form.standalonePricePerPage < 0);
+    const invalidScanPrice = isScan && form.standalonePricePerPage !== null && form.standalonePricePerPage < 0;
     if (!form.name.trim() || hasInvalidVariant || hasInvalidMaterial || (form.operationKind === "photocopy" && !hasPaperAssignment) || invalidScanPrice) {
-      if (invalidScanPrice) setSaveError("Set a valid scan price per page.");
+      if (invalidScanPrice) setSaveError("The scan price can't be negative.");
       window.requestAnimationFrame(() => {
         const firstInvalid = formElement.querySelector<HTMLElement>("[aria-invalid='true']");
         (firstInvalid ?? materialsRef.current)?.focus();
@@ -260,7 +265,9 @@ export function ProductCreateModal({
             <strong className="numeric">{formatCurrency(referencePrice)}</strong>
             <small>
               {isScan
-                ? "A standalone service rate with no paper, ink, or printing cost."
+                ? form.standalonePricePerPage !== null
+                  ? "This product's own flat price, regardless of page count. No paper, ink, or printing cost."
+                  : "Following the global page-count tiers below (shown here for a 1-page scan). No paper, ink, or printing cost."
                 : `Computed from the ${form.operationKind === "photocopy" ? "Scan or Photocopy" : "Printing"} global table for the assigned paper's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate.`}
             </small>
           </div>
@@ -271,19 +278,40 @@ export function ProductCreateModal({
                 <h3>Softcopy pricing</h3>
                 <p>Charge for each page produced by the scanner. This product never plans or deducts inventory.</p>
               </div>
-              <label className="form-field">
-                <span>Price per scanned page</span>
+              <div className="product-scan-pricing__global">
+                <span>Global page-count tiers</span>
+                {activeScanTiers.length ? (
+                  <ul className="product-scan-pricing__tiers">
+                    {activeScanTiers.map((tier) => (
+                      <li key={tier.id}><b>{tier.maxPages === null ? `${tier.minPages}+` : `${tier.minPages}–${tier.maxPages}`} pages</b><span>{formatCurrency(tier.pricePerPage)} / page</span></li>
+                    ))}
+                  </ul>
+                ) : <strong className="numeric">Not configured</strong>}
+                <small>Set in Settings → Document analyzer pricing. Every Scan product uses these unless overridden below.</small>
+              </div>
+              <label className="product-scan-pricing__toggle">
                 <input
-                  className="numeric"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.standalonePricePerPage ?? ""}
-                  onChange={(event) => setForm((current) => ({ ...current, standalonePricePerPage: event.target.value === "" ? null : Number(event.target.value) }))}
-                  aria-invalid={submitted && (form.standalonePricePerPage === null || form.standalonePricePerPage < 0)}
+                  type="checkbox"
+                  checked={form.standalonePricePerPage !== null}
+                  onChange={(event) => setForm((current) => ({ ...current, standalonePricePerPage: event.target.checked ? activeScanTiers[0]?.pricePerPage ?? 0 : null }))}
                 />
-                <span className="form-field__message">The saved scanner output becomes the job's digital deliverable.</span>
+                <span><strong>Use a custom flat price for this product</strong><small>One rate regardless of page count, instead of following the tiers above.</small></span>
               </label>
+              {form.standalonePricePerPage !== null ? (
+                <label className="form-field">
+                  <span>Price per scanned page</span>
+                  <input
+                    className="numeric"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.standalonePricePerPage}
+                    onChange={(event) => setForm((current) => ({ ...current, standalonePricePerPage: event.target.value === "" ? 0 : Number(event.target.value) }))}
+                    aria-invalid={submitted && form.standalonePricePerPage < 0}
+                  />
+                  <span className="form-field__message">The saved scanner output becomes the job's digital deliverable.</span>
+                </label>
+              ) : null}
             </section>
           ) : <div
             ref={materialsRef}

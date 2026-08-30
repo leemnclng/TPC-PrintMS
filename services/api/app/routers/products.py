@@ -20,7 +20,7 @@ from ..db.models import (
 )
 from ..db.session import get_db
 from ..schemas.products import ProductCreate, ProductRead, ProductUpdate
-from ..services.product_pricing import reference_price_per_page
+from ..services.product_pricing import reference_price_per_page, resolve_scan_price_per_page
 from ..services.print_types import ensure_builtin_print_types
 
 router = APIRouter(prefix="/products", tags=["products"], dependencies=[Depends(require_token)])
@@ -43,7 +43,9 @@ def _to_read(product: Product, db: Session) -> ProductRead:
         operation_kind=product.operation_kind,
         standalone_price_per_page=product.standalone_price_per_page,
         price_per_page=(
-            product.standalone_price_per_page or 0.0
+            # A scan's rate is page-count tiered, not a single number — this
+            # shows the rate for a 1-page scan as a representative reference.
+            resolve_scan_price_per_page(product.standalone_price_per_page, 1, db) or 0.0
             if product.operation_kind == "scan"
             else reference_price_per_page(
                 product.print_type,
@@ -95,7 +97,9 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
     )
     _validate_material_assignments(material_assignments, db, require_active=True)
     _validate_photocopy_materials(data["operation_kind"], material_assignments, db)
-    reference_price = data["standalone_price_per_page"] if data["operation_kind"] == "scan" else reference_price_per_page(
+    reference_price = resolve_scan_price_per_page(
+        data["standalone_price_per_page"], 1, db
+    ) if data["operation_kind"] == "scan" else reference_price_per_page(
         data["print_type"],
         data["operation_kind"],
         {rate["pricing_rule_id"]: rate["price_per_page"] for rate in document_rates},
@@ -144,7 +148,9 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
     )
     _validate_material_assignments(material_assignments, db)
     _validate_photocopy_materials(data["operation_kind"], material_assignments, db)
-    reference_price = data["standalone_price_per_page"] if data["operation_kind"] == "scan" else reference_price_per_page(
+    reference_price = resolve_scan_price_per_page(
+        data["standalone_price_per_page"], 1, db
+    ) if data["operation_kind"] == "scan" else reference_price_per_page(
         data["print_type"],
         data["operation_kind"],
         {rate["pricing_rule_id"]: rate["price_per_page"] for rate in document_rates},
@@ -301,8 +307,10 @@ def _validate_operation(
     if operation_kind in {"photocopy", "scan"} and service.category != "photocopy":
         raise HTTPException(status_code=422, detail="Scan and photocopy products require the Scan or Photocopy service category.")
     if operation_kind == "scan":
-        if standalone_price_per_page is None:
-            raise HTTPException(status_code=422, detail="Set the scan price per page.")
+        # A product-level price is now optional: unset, it falls back to the
+        # global scan rate for this product's print type (see
+        # resolve_scan_price_per_page), mirroring how a Printing/Photocopy
+        # product may leave its own paper rate unset and use the global one.
         if variants or material_assignments or document_rates:
             raise HTTPException(status_code=422, detail="Scan products cannot use print variants, paper, ink, or document pricing rules.")
     elif standalone_price_per_page is not None:
