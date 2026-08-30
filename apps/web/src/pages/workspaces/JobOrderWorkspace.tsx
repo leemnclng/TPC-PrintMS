@@ -12,17 +12,17 @@ import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../lib/apiClient";
-import { formatCurrency, formatDate, formatDateTime, formatFileSize } from "../../lib/format";
+import { formatCurrency, formatDate, formatDateTime } from "../../lib/format";
 import { jobOrderStatusMeta } from "../../types/statusMeta";
-import type { InventoryMovement, JobFile, JobOrder, JobOrderStatus } from "../../types/domain";
+import type { DocumentPricingRule, InventoryItem, InventoryMovement, JobFile, JobOrder, JobOrderItem, Product, Service } from "../../types/domain";
 import { JobMaterialUsageModal } from "../jobOrders/JobMaterialUsageModal";
 import { JobPaymentModal } from "../jobOrders/JobPaymentModal";
 import { JobPrintSetupModal } from "../jobOrders/JobPrintSetupModal";
 import { JobScanSetupModal } from "../jobOrders/JobScanSetupModal";
 import { JobTransitionModal } from "../jobOrders/JobTransitionModal";
+import { TransactionCreateModal } from "../jobOrders/TransactionCreateModal";
 import "./Workspace.css";
 
-const PRODUCTION_STEPS = ["queued", "printing", "ready", "paid", "completed"] as const;
 type TransitionTarget = "queued" | "ready" | "paid" | "completed";
 const PAYMENT_METHOD_LABELS = {
   cash: "Cash",
@@ -31,12 +31,10 @@ const PAYMENT_METHOD_LABELS = {
   other: "Other",
 };
 
-// "queued" is overridden per operation kind at the call site below — a scan
-// job never touches a printer, so it must not carry this print-queue copy.
 const NEXT_STEP_COPY: Record<string, string> = {
-  queued: "Check for ongoing printing, then proceed to print.",
-  printing: "Confirm physical printing before quality review.",
-  ready: "Inspect the output. Re-print if it isn't right, or mark it ready to collect payment.",
+  queued: "Work through each product below. Every line keeps its own operation and progress.",
+  printing: "One or more products are in production. Other lines can continue independently.",
+  ready: "Every product is ready. Review the breakdown and collect one combined payment.",
   paid: "Complete the job after customer handoff.",
   completed: "Workflow complete. Audit details remain available below.",
 };
@@ -45,60 +43,41 @@ export function JobOrderWorkspace() {
   const { jobOrderId } = useParams();
   const [usageOpen, setUsageOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [printOpen, setPrintOpen] = useState(false);
-  const [scanOpen, setScanOpen] = useState(false);
+  const [printItem, setPrintItem] = useState<JobOrderItem | null>(null);
+  const [scanItem, setScanItem] = useState<JobOrderItem | null>(null);
   const [transitionTarget, setTransitionTarget] = useState<TransitionTarget | null>(null);
-  const [scanPreviewOpen, setScanPreviewOpen] = useState(false);
+  const [previewFile, setPreviewFile] = useState<JobFile | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [itemActionError, setItemActionError] = useState<string | null>(null);
+  const [busyItemId, setBusyItemId] = useState<string | null>(null);
+  const [addProductsOpen, setAddProductsOpen] = useState(false);
   const { data, state, error, reload } = useResource(async () => {
-    const [order, materialMovements] = await Promise.all([
+    const [order, materialMovements, services, products, inventoryItems, pricingRules] = await Promise.all([
       api.get<JobOrder>(`/job-orders/${jobOrderId}`),
       api.get<InventoryMovement[]>(`/inventory-movements?job_order_id=${encodeURIComponent(jobOrderId ?? "")}`),
+      api.get<Service[]>("/services"),
+      api.get<Product[]>("/products"),
+      api.get<InventoryItem[]>("/inventory-items"),
+      api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
     ]);
-    return { order, materialMovements };
+    return { order, materialMovements, services, products, inventoryItems, pricingRules };
   }, [jobOrderId]);
 
   if (state === "loading") return <LoadingState label="Loading job order…" />;
   if (state === "error") return <ErrorState description={error ?? undefined} onRetry={reload} />;
   if (!data) return <EmptyState title="Job order not found" description="It may have been removed." />;
 
-  const { order, materialMovements } = data;
-  const operationKind = order.items[0]?.operationKind ?? "printing";
-  const isScan = operationKind === "scan";
-  const isPhotocopy = operationKind === "photocopy";
-  // Photocopy is produced entirely on the device, so it has no queue step.
-  // Scan does: the acquisition happens inside this job after creation, so it
-  // waits in Queued just like a print job does before Ready.
-  const productionSteps: readonly JobOrderStatus[] = isPhotocopy
-    ? ["ready", "paid", "completed"]
-    : isScan
-      ? ["queued", "ready", "paid", "completed"]
-      : PRODUCTION_STEPS;
-  const activeStepIndex = productionSteps.indexOf(order.status);
+  const { order, materialMovements, services, products, inventoryItems, pricingRules } = data;
+  const firstProduct = products.find((product) => product.id === order.items[0]?.productId);
+  const initialService = services.find((service) => service.id === firstProduct?.serviceId)
+    ?? services.find((service) => service.isActive && service.productCount > 0);
   const outstanding = Math.max(order.total - order.amountPaid, 0);
-  const printFile = order.files.find((file) => file.kind === "print_ready");
-  const scanOutput = order.files.find((file) => file.kind === "scan_output");
-  const paperPlan = order.items.flatMap((item) => item.materials).find((material) => material.paperSize);
   const plannedMaterials = order.items.flatMap((item) => item.materials);
-  const usedMaterials = plannedMaterials.filter((material) => material.consumedQuantity + 1e-9 >= material.plannedQuantity).length;
   const hasRemainingMaterials = plannedMaterials.some((material) => material.consumedQuantity + 1e-9 < material.plannedQuantity);
   const canRecordFallbackUsage = hasRemainingMaterials && ["printing", "ready", "paid", "completed"].includes(order.status);
   function workflowAction() {
-    if (order.status === "queued") {
-      if (isScan) return <Button variant="primary" onClick={() => setScanOpen(true)}>Proceed to scan</Button>;
-      return <Button variant="primary" onClick={() => setPrintOpen(true)}>Proceed to print</Button>;
-    }
-    if (order.status === "printing") return <Button variant="primary" onClick={() => setTransitionTarget("ready")}>Printing finished</Button>;
     if (order.status === "ready") {
-      if (isPhotocopy) {
-        return <Button variant="primary" onClick={() => (outstanding > 0 ? setPaymentOpen(true) : setTransitionTarget("paid"))}>Record payment</Button>;
-      }
-      return (
-        <div className="job-command__quality-actions">
-          <Button variant="secondary" onClick={() => setTransitionTarget("queued")}>{isScan ? "Needs re-scan" : "Needs re-print"}</Button>
-          <Button variant="primary" onClick={() => (outstanding > 0 ? setPaymentOpen(true) : setTransitionTarget("paid"))}>Mark ready</Button>
-        </div>
-      );
+      return <Button variant="primary" onClick={() => (outstanding > 0 ? setPaymentOpen(true) : setTransitionTarget("paid"))}>Record combined payment</Button>;
     }
     if (order.status === "paid") return <Button variant="primary" onClick={() => setTransitionTarget("completed")}>Complete job order</Button>;
     return null;
@@ -106,25 +85,37 @@ export function JobOrderWorkspace() {
 
   function handleUpdated() {
     setPaymentOpen(false);
-    setPrintOpen(false);
-    setScanOpen(false);
+    setPrintItem(null);
+    setScanItem(null);
     setTransitionTarget(null);
     reload();
   }
 
-  async function downloadScanOutput() {
-    if (!scanOutput) return;
+  async function downloadJobFile(jobFile: JobFile) {
     setDownloadError(null);
     try {
-      const blob = await api.download(`/job-orders/${order.id}/files/${scanOutput.id}`);
+      const blob = await api.download(`/job-orders/${order.id}/files/${jobFile.id}`);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = scanOutput.originalFilename;
+      anchor.download = jobFile.originalFilename;
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (caught) {
       setDownloadError(caught instanceof Error ? caught.message : "The scan output could not be downloaded.");
+    }
+  }
+
+  async function transitionItem(item: JobOrderItem, toStatus: "queued" | "ready") {
+    setBusyItemId(item.id);
+    setItemActionError(null);
+    try {
+      await api.post<JobOrder>(`/job-orders/${order.id}/items/${item.id}/transitions`, { toStatus });
+      reload();
+    } catch (caught) {
+      setItemActionError(caught instanceof Error ? caught.message : "The product progress could not be updated.");
+    } finally {
+      setBusyItemId(null);
     }
   }
 
@@ -139,16 +130,14 @@ export function JobOrderWorkspace() {
 
       <section className="job-command" aria-labelledby="job-command-title">
         <div className="job-command__heading">
-          <div><span className="numeric">CURRENT STEP</span><h2 id="job-command-title">{(isScan || isPhotocopy) && order.status === "ready" ? (isScan ? "Softcopy ready" : "Photocopy recorded") : jobOrderStatusMeta[order.status].label}</h2><p>{isPhotocopy && order.status === "ready" ? "Device-side work is recorded and materials are deducted. Collect payment to continue." : isScan && order.status === "ready" ? "The scanner output is retained. Inspect it, then collect payment or send it back for a re-scan." : isScan && order.status === "queued" ? "Proceed to scan when you're ready; the job stays queued until a softcopy is submitted." : NEXT_STEP_COPY[order.status] ?? "This job has no active production action."}</p></div>
+          <div><span className="numeric">TRANSACTION STATUS</span><h2 id="job-command-title">{jobOrderStatusMeta[order.status].label}</h2><p>{NEXT_STEP_COPY[order.status] ?? "This transaction has no active production action."}</p></div>
           {workflowAction()}
         </div>
         <ol className="job-workflow-steps">
-          {productionSteps.map((status, index) => (
-            <li className={index < activeStepIndex ? "is-complete" : index === activeStepIndex ? "is-active" : ""} key={status} aria-current={index === activeStepIndex ? "step" : undefined}>
-              <span className="numeric">{String(index + 1).padStart(2, "0")}</span>
-              <strong>{(isScan || isPhotocopy) && status === "ready" ? (isScan ? "Softcopy ready" : "Photocopy recorded") : jobOrderStatusMeta[status].label}</strong>
-            </li>
-          ))}
+          <li className={order.status === "queued" || order.status === "printing" ? "is-active" : "is-complete"}><span className="numeric">01</span><strong>Production</strong></li>
+          <li className={order.status === "ready" ? "is-active" : ["paid", "completed"].includes(order.status) ? "is-complete" : ""}><span className="numeric">02</span><strong>Ready together</strong></li>
+          <li className={order.status === "paid" ? "is-active" : order.status === "completed" ? "is-complete" : ""}><span className="numeric">03</span><strong>Paid</strong></li>
+          <li className={order.status === "completed" ? "is-active" : ""}><span className="numeric">04</span><strong>Completed</strong></li>
         </ol>
       </section>
 
@@ -166,21 +155,47 @@ export function JobOrderWorkspace() {
         </Card>
 
         <Card>
-          <CardHeader title="Production brief" meta={isScan ? "Digital deliverable" : `${usedMaterials}/${plannedMaterials.length} materials used`} action={isScan && scanOutput ? <div className="job-softcopy-actions"><Button size="sm" variant="secondary" onClick={() => setScanPreviewOpen(true)}>View softcopy</Button><Button size="sm" variant="ghost" onClick={downloadScanOutput}>Download</Button></div> : undefined} />
-          <div className="job-production-brief">
-            {order.items.map((item) => (
-              <div key={item.id}><strong>{item.productName}</strong><span>{item.variantLabel ? `${item.variantLabel} · ` : ""}{item.pagesPerCopy} pages × {item.copies} copies</span></div>
-            ))}
-            <dl>
-              <div><dt>{isScan ? "Softcopy" : operationKind === "photocopy" ? "Production" : "Print file"}</dt><dd>{isScan ? scanOutput?.originalFilename ?? "No scan output" : operationKind === "photocopy" ? "Completed on photocopier · no file required" : printFile?.originalFilename ?? "No print-ready file"}</dd></div>
-              <div><dt>{isScan ? "Inventory" : "Paper"}</dt><dd>{isScan ? "No paper or ink used" : paperPlan ? `${paperPlan.paperSize} · ${paperPlan.inventoryItemName}` : "Not configured"}</dd></div>
-              <div><dt>{isScan ? "Scanned pages" : operationKind === "photocopy" ? "Sides" : "Detected fit"}</dt><dd>{isScan ? scanOutput?.detectedPageCount ?? order.items[0]?.pagesPerCopy : operationKind === "photocopy" ? (order.items[0]?.printSides === "double_sided" ? "Back-to-back" : "Single-sided") : printFile?.detectedPaperSize ?? "—"}</dd></div>
-              <div><dt>{isScan ? "File size" : operationKind === "photocopy" ? "Paper used" : "File size"}</dt><dd>{isScan ? scanOutput ? formatFileSize(scanOutput.sizeBytes) : "—" : operationKind === "photocopy" ? `${paperPlan?.plannedQuantity ?? 0} ${paperPlan?.inventoryItemUnit ?? "sheets"}` : printFile ? formatFileSize(printFile.sizeBytes) : "—"}</dd></div>
-            </dl>
-            {downloadError ? <p className="workspace-form__error" role="alert">{downloadError}</p> : null}
+          <CardHeader title="Payment breakdown" meta={`${order.items.length} product ${order.items.length === 1 ? "line" : "lines"}`} />
+          <div className="job-line-breakdown">
+            {order.items.map((item) => <div key={item.id}><span><strong>{item.productName}</strong><small>{item.serviceName} · {item.pagesPerCopy} pages × {item.copies}</small></span><b>{formatCurrency(item.lineTotal)}</b></div>)}
           </div>
         </Card>
       </div>
+
+      <section className="job-operation-board" aria-labelledby="job-operation-title">
+        <header><div><span className="numeric">PRODUCTION LINES</span><h2 id="job-operation-title">Independent work progress</h2><p>Device interaction and quality review stay with each product. Payment unlocks only when all lines are ready.</p></div><div className="job-operation-board__actions"><b>{order.items.filter((item) => item.status === "ready").length}/{order.items.length} ready</b>{initialService && ["queued", "printing", "ready"].includes(order.status) ? <Button variant="secondary" onClick={() => setAddProductsOpen(true)}>Add products</Button> : null}</div></header>
+        <div className="job-operation-grid">
+          {order.items.map((item, index) => {
+            const itemFiles = order.files.filter((file) => file.jobOrderItemId === item.id || (!file.jobOrderItemId && order.items.length === 1));
+            const sourceFile = itemFiles.find((file) => file.kind === "print_ready");
+            const scanOutput = itemFiles.find((file) => file.kind === "scan_output");
+            const paper = item.materials.find((material) => material.paperSize);
+            const statusLabel = item.status === "printing" ? "Printing" : item.status === "ready" ? "Ready" : "Queued";
+            const tone = item.status === "ready" ? "success" : item.status === "printing" ? "info" : "warning";
+            return (
+              <article className="job-operation-card" key={item.id}>
+                <header><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><StatusPill label={statusLabel} tone={tone} /></header>
+                <div className="job-operation-card__title"><div><h3>{item.productName}</h3><p>{item.serviceName} · {item.operationKind} workflow</p></div><strong>{formatCurrency(item.lineTotal)}</strong></div>
+                <dl>
+                  <div><dt>Quantity</dt><dd>{item.operationKind === "scan" && !scanOutput ? "Detected after scan" : `${item.pagesPerCopy} pages × ${item.copies}`}</dd></div>
+                  <div><dt>{item.operationKind === "scan" ? "Softcopy" : item.operationKind === "photocopy" ? "Paper" : "Source"}</dt><dd>{item.operationKind === "scan" ? scanOutput?.originalFilename ?? "Not acquired" : item.operationKind === "photocopy" ? paper ? `${paper.paperSize} · ${paper.inventoryItemName}` : "Not configured" : sourceFile?.originalFilename ?? "Unavailable"}</dd></div>
+                  <div><dt>Output</dt><dd>{item.operationKind === "scan" ? "Digital file" : item.printSides === "double_sided" ? "Back-to-back" : "Single-sided"}</dd></div>
+                  <div><dt>Progress records</dt><dd>{item.statusEvents.length} status · {order.printAttempts.filter((attempt) => attempt.jobOrderItemId === item.id).length} attempts</dd></div>
+                </dl>
+                <footer>
+                  {item.status === "queued" && item.operationKind === "printing" ? <Button variant="primary" onClick={() => setPrintItem(item)}>Open print setup</Button> : null}
+                  {item.status === "queued" && item.operationKind === "scan" ? <Button variant="primary" onClick={() => setScanItem(item)}>Start scanning</Button> : null}
+                  {item.status === "queued" && item.operationKind === "photocopy" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Record photocopy complete</Button> : null}
+                  {item.status === "printing" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Printing finished</Button> : null}
+                  {item.status === "ready" && order.status !== "paid" && order.status !== "completed" ? <Button variant="secondary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "queued")}>{item.operationKind === "scan" ? "Needs re-scan" : "Needs rework"}</Button> : null}
+                  {scanOutput ? <><Button variant="secondary" onClick={() => setPreviewFile(scanOutput)}>View softcopy</Button><Button variant="ghost" onClick={() => downloadJobFile(scanOutput)}>Download</Button></> : null}
+                </footer>
+              </article>
+            );
+          })}
+        </div>
+        {itemActionError || downloadError ? <p className="workspace-form__error" role="alert">{itemActionError || downloadError}</p> : null}
+      </section>
 
       <details className="job-audit-panel">
         <summary><span><strong>History and audit</strong><small>Payments, printing, materials, and status events</small></span><b className="numeric">{order.payments.length + order.printAttempts.length + materialMovements.length + order.statusEvents.length} records</b></summary>
@@ -195,7 +210,7 @@ export function JobOrderWorkspace() {
           </section>
           <section>
             <header><h3>Materials</h3>{canRecordFallbackUsage && <Button size="sm" variant="secondary" onClick={() => setUsageOpen(true)}>Record remaining</Button>}</header>
-            {materialMovements.length ? materialMovements.map((movement) => <div className="job-audit-row" key={movement.id}><span><strong>{movement.inventoryItemName}</strong><small>{formatDateTime(movement.occurredAt)} · balance {movement.balanceAfter}</small></span><b>{Math.abs(movement.quantityDelta)} {movement.inventoryItemUnit}</b></div>) : <p>{isScan ? "Scanning uses no tracked inventory materials." : "Materials deduct automatically after printer acceptance."}</p>}
+            {materialMovements.length ? materialMovements.map((movement) => <div className="job-audit-row" key={movement.id}><span><strong>{movement.inventoryItemName}</strong><small>{formatDateTime(movement.occurredAt)} · balance {movement.balanceAfter}</small></span><b>{Math.abs(movement.quantityDelta)} {movement.inventoryItemUnit}</b></div>) : <p>No inventory usage has been recorded yet.</p>}
           </section>
           <section>
             <header><h3>Status timeline</h3></header>
@@ -206,10 +221,11 @@ export function JobOrderWorkspace() {
 
       <JobPaymentModal open={paymentOpen} order={order} onClose={() => setPaymentOpen(false)} onRecorded={handleUpdated} />
       <JobTransitionModal open={transitionTarget !== null} order={order} targetStatus={transitionTarget ?? "queued"} onClose={() => setTransitionTarget(null)} onTransitioned={handleUpdated} />
-      <JobPrintSetupModal open={printOpen} order={order} onClose={() => { setPrintOpen(false); reload(); }} onPrinted={handleUpdated} />
-      <JobScanSetupModal open={scanOpen} order={order} onClose={() => { setScanOpen(false); reload(); }} onScanned={handleUpdated} />
+      {printItem ? <JobPrintSetupModal open order={order} item={printItem} onClose={() => { setPrintItem(null); reload(); }} onPrinted={handleUpdated} /> : null}
+      {scanItem ? <JobScanSetupModal open order={order} item={scanItem} onClose={() => { setScanItem(null); reload(); }} onScanned={handleUpdated} /> : null}
       <JobMaterialUsageModal open={usageOpen} order={order} onClose={() => setUsageOpen(false)} onRecorded={() => { setUsageOpen(false); reload(); }} />
-      {scanOutput ? <ScanOutputPreviewModal open={scanPreviewOpen} orderId={order.id} jobFile={scanOutput} onClose={() => setScanPreviewOpen(false)} /> : null}
+      {previewFile ? <ScanOutputPreviewModal open orderId={order.id} jobFile={previewFile} onClose={() => setPreviewFile(null)} /> : null}
+      {initialService ? <TransactionCreateModal open={addProductsOpen} order={order} initialService={initialService} services={services} products={products} inventoryItems={inventoryItems} pricingRules={pricingRules} customers={[]} onClose={() => setAddProductsOpen(false)} onCreated={() => { setAddProductsOpen(false); reload(); }} /> : null}
     </>
   );
 }

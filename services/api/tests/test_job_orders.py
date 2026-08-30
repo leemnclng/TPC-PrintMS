@@ -357,6 +357,94 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     assert scan_product["operationKind"] == "scan"
     assert scan_product["pricePerPage"] == 4
     assert scan_product["materialAssignments"] == []
+
+    scan_buffer = BytesIO()
+    Image.new("RGB", (794, 1123), "white").save(scan_buffer, format="PNG")
+    scan_output = scan_buffer.getvalue()
+
+    append_response = client.post(
+        f"/job-orders/{photocopy_order['id']}/items",
+        headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": photocopy_order["name"],
+                "initialServiceId": photocopy_service["id"],
+                "items": [{"clientKey": "added-scan", "productId": scan_product["id"]}],
+            }),
+        },
+    )
+    assert append_response.status_code == 201, append_response.text
+    appended_order = append_response.json()
+    assert appended_order["status"] == "queued"
+    assert appended_order["total"] == 44
+    assert [item["status"] for item in appended_order["items"]] == ["ready", "queued"]
+    assert appended_order["statusEvents"][0]["note"] == "1 product line(s) added; transaction returned to production."
+
+    appended_scan = appended_order["items"][1]
+    append_scan_response = client.post(
+        f"/job-orders/{appended_order['id']}/items/{appended_scan['id']}/scan-output",
+        headers=headers,
+        files=[("files", ("added-scan.png", scan_output, "image/png"))],
+    )
+    assert append_scan_response.status_code == 201
+    assert append_scan_response.json()["status"] == "ready"
+
+    mixed_response = client.post(
+        "/job-orders/transactions",
+        headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": "Reyes mixed counter order",
+                "initialServiceId": service["id"],
+                "items": [
+                    {
+                        "clientKey": "print-line",
+                        "productId": product["id"],
+                        "paperInventoryItemId": paper["id"],
+                        "pagesPerCopy": 1,
+                        "copies": 1,
+                    },
+                    {
+                        "clientKey": "scan-line",
+                        "productId": scan_product["id"],
+                    },
+                    {
+                        "clientKey": "copy-line",
+                        "productId": photocopy_product["id"],
+                        "paperInventoryItemId": paper["id"],
+                        "pagesPerCopy": 2,
+                        "copies": 1,
+                    },
+                ],
+            }),
+            "file_keys": "print-line",
+        },
+        files=[("files", ("mixed-source.png", scan_output, "image/png"))],
+    )
+    assert mixed_response.status_code == 201, mixed_response.text
+    mixed_order = mixed_response.json()
+    assert mixed_order["workflowCategory"] == "custom"
+    assert [item["operationKind"] for item in mixed_order["items"]] == ["printing", "scan", "photocopy"]
+    assert all(item["status"] == "queued" for item in mixed_order["items"])
+    assert mixed_order["files"][0]["jobOrderItemId"] == mixed_order["items"][0]["id"]
+    assert mixed_order["total"] == sum(item["lineTotal"] for item in mixed_order["items"])
+    mixed_scan_item = next(item for item in mixed_order["items"] if item["operationKind"] == "scan")
+    mixed_scan_response = client.post(
+        f"/job-orders/{mixed_order['id']}/items/{mixed_scan_item['id']}/scan-output",
+        headers=headers,
+        files=[("files", ("mixed-scan.png", scan_output, "image/png"))],
+    )
+    assert mixed_scan_response.status_code == 201, mixed_scan_response.text
+    mixed_after_scan = mixed_scan_response.json()
+    assert mixed_after_scan["status"] == "queued"
+    assert next(item for item in mixed_after_scan["items"] if item["id"] == mixed_scan_item["id"])["status"] == "ready"
+    assert next(file for file in mixed_after_scan["files"] if file["kind"] == "scan_output")["jobOrderItemId"] == mixed_scan_item["id"]
+    assert client.post(
+        f"/job-orders/{mixed_order['id']}/payments",
+        headers=headers,
+        json={"amount": mixed_order["total"], "method": "cash"},
+    ).status_code == 409
+
     bypass_scan = client.post(
         "/job-orders",
         headers=headers,
@@ -366,10 +454,6 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     )
     assert bypass_scan.status_code == 422
     assert bypass_scan.json()["detail"] == "Create Scan or Photocopy jobs through their operation-specific workflow."
-
-    scan_buffer = BytesIO()
-    Image.new("RGB", (794, 1123), "white").save(scan_buffer, format="PNG")
-    scan_output = scan_buffer.getvalue()
 
     # The scan job is created immediately, before any page is acquired: it
     # waits in the queue, just like a print job, until the scan is submitted.

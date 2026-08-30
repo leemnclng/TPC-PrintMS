@@ -2,6 +2,20 @@
 
 Track notable app changes by date.
 
+## 2026-08-30 (multi-service transactions)
+
+- Changed: New Job Order starts from an initial service but now accepts additional products from any active service in the same transaction.
+- Added: Every product line follows its own Printing, Scan, or Photocopy requirements and tracks Queued, Printing, Ready, files, device attempts, materials, and rework independently.
+- Added: The job workspace shows product-level operation cards and a combined payment breakdown.
+- Changed: Payment is recorded once for the full transaction and is blocked until every product is Ready; final completion remains transaction-wide.
+
+## 2026-08-30 (centralized pricing)
+
+- Added: a top-level Pricing view for all global paper rates, product overrides, standalone scan rates, and per-product variant adjustments.
+- Added: custom/global source labels, search and source filters, missing-rate warnings, summary counts, and direct edit links.
+- Added: Pricing now mirrors all services from Printing Services in a service-grouped product table comparing A4, Letter, Legal, standalone scan, print-type, material-source, and variant pricing.
+- Changed: Configuration now links to the centralized pricing view while remaining the source of truth for global pricing edits.
+
 ## 2026-06-06
 
 - Added context documentation for tracking progress, changes, issues, functionality, and decisions.

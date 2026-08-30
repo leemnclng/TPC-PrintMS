@@ -12,9 +12,8 @@ import { api } from "../lib/apiClient";
 import { formatCurrency, formatDate } from "../lib/format";
 import { jobOrderStatusMeta } from "../types/statusMeta";
 import type { Customer, DocumentPricingRule, InventoryItem, JobOrder, Product, Service, SpoolerMonitorInfo } from "../types/domain";
-import { JobOrderCreateModal } from "./jobOrders/JobOrderCreateModal";
 import { JobServiceChooserModal } from "./jobOrders/JobServiceChooserModal";
-import { PhotocopyJobCreateModal } from "./jobOrders/PhotocopyJobCreateModal";
+import { TransactionCreateModal } from "./jobOrders/TransactionCreateModal";
 import "./JobOrdersPage.css";
 
 export function JobOrdersPage() {
@@ -111,31 +110,16 @@ export function JobOrdersPage() {
             onClose={closeCreate}
             onSelect={(service) => { setChooserOpen(false); setSelectedService(service); }}
           />
-          {selectedService?.category === "printing" ? (
-            <JobOrderCreateModal
+          {selectedService ? (
+            <TransactionCreateModal
               open
-              service={selectedService}
-              customers={data.customers}
-              products={data.products}
-              inventoryItems={data.inventoryItems}
-              sourceSpoolerJobId={sourceSpoolerJobId}
-              sourceSpoolerJob={data.spoolerMonitor?.jobs.find((job) => job.id === sourceSpoolerJobId) ?? null}
-              onClose={closeCreate}
-              onCreated={(order) => {
-                closeCreate();
-                reload();
-                navigate(`/job-orders/${encodeURIComponent(order.id)}`);
-              }}
-            />
-          ) : null}
-          {selectedService?.category === "photocopy" ? (
-            <PhotocopyJobCreateModal
-              open
-              service={selectedService}
+              initialService={selectedService}
+              services={data.services}
               customers={data.customers}
               products={data.products}
               inventoryItems={data.inventoryItems}
               pricingRules={data.pricingRules}
+              sourceSpoolerJobId={sourceSpoolerJobId}
               onClose={closeCreate}
               onCreated={(order) => {
                 closeCreate();

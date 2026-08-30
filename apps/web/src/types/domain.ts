@@ -191,6 +191,7 @@ export interface JobOrder {
 
 export interface JobFile {
   id: string;
+  jobOrderItemId?: string | null;
   originalFilename: string;
   kind: "source" | "print_ready" | "scan_output";
   sizeBytes: number;
@@ -225,6 +226,7 @@ export interface JobOrderItem {
   productName: string;
   serviceName: string;
   operationKind: ProductOperationKind;
+  status: "queued" | "printing" | "ready";
   printType: ProductPrintType;
   printTypeLabel: string;
   printColorMode: "color" | "grayscale";
@@ -236,6 +238,7 @@ export interface JobOrderItem {
   printSides: PrintSides;
   requiresManualDuplex: boolean;
   materials: JobOrderMaterialPlan[];
+  statusEvents: StatusEvent[];
 }
 
 export interface Printer {
@@ -285,6 +288,7 @@ export interface SpoolerMonitorInfo {
 export interface PrintJob {
   id: string;
   jobOrderId: string;
+  jobOrderItemId?: string | null;
   printerId: string;
   printerName: string;
   jobFileId?: string | null;

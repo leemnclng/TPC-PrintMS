@@ -43,7 +43,10 @@ export const navGroups: NavGroup[] = [
   },
   {
     label: "Insights",
-    items: [{ label: "Reports", path: "/reports", matchPrefix: "/reports", icon: "reports" }],
+    items: [
+      { label: "Reports", path: "/reports", matchPrefix: "/reports", icon: "reports" },
+      { label: "Pricing", path: "/pricing", matchPrefix: "/pricing", icon: "configuration" },
+    ],
   },
   {
     items: [

@@ -13,7 +13,7 @@ interface Props {
 const CATEGORY_COPY = {
   printing: { code: "DOC", label: "Printing", detail: "Upload, analyze, price, and send a document to the printer." },
   photocopy: { code: "SCAN", label: "Scan or Photocopy", detail: "Record device-side copies or acquire a softcopy from the Windows scanner." },
-  custom: { code: "NEW", label: "Custom", detail: "Catalog category ready for a future workflow." },
+  custom: { code: "MIX", label: "Custom", detail: "Start with a custom service, then add any configured product." },
 } as const;
 
 export function JobServiceChooserModal({ open, services, onClose, onSelect }: Props) {
@@ -31,7 +31,7 @@ export function JobServiceChooserModal({ open, services, onClose, onSelect }: Pr
           <div className="job-service-chooser__grid">
             {activeServices.map((service) => {
               const category = CATEGORY_COPY[service.category];
-              const available = service.category !== "custom" && service.productCount > 0;
+              const available = service.productCount > 0;
               return (
                 <button
                   type="button"
@@ -46,7 +46,7 @@ export function JobServiceChooserModal({ open, services, onClose, onSelect }: Pr
                     <strong>{service.name}</strong>
                     <span>{service.description || category.detail}</span>
                   </span>
-                  <b>{available ? "Continue" : service.category === "custom" ? "Workflow coming later" : "Add a product first"}</b>
+                  <b>{available ? "Continue" : "Add a product first"}</b>
                 </button>
               );
             })}

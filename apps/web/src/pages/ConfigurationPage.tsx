@@ -21,6 +21,7 @@ export function ConfigurationPage() {
         eyebrow="CONFIGURATION"
         title="Configuration"
         description="Reusable catalog options and document-analyzer pricing shared across services, products, and job orders."
+        actions={<LinkButton to="/pricing" variant="secondary">View all pricing</LinkButton>}
       />
 
       <Card>

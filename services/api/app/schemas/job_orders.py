@@ -68,6 +68,29 @@ class ScanJobOrderCreate(CamelModel):
     notes: str | None = None
 
 
+class TransactionItemCreate(CamelModel):
+    client_key: str = Field(min_length=1, max_length=64)
+    product_id: str
+    paper_inventory_item_id: str | None = None
+    variant_id: str | None = None
+    pages_per_copy: int = Field(default=1, ge=1, le=100000)
+    copies: int = Field(default=1, ge=1, le=10000)
+    back_to_back: bool = False
+    price_mode: Literal["suggested", "custom"] = "suggested"
+    custom_price: float | None = Field(default=None, ge=0)
+    other_materials: list[JobOrderMaterialPlanCreate] = Field(default_factory=list)
+
+
+class TransactionCreate(CamelModel):
+    name: str = Field(min_length=1, max_length=100)
+    initial_service_id: str
+    customer_id: str | None = None
+    due_date: datetime | None = None
+    notes: str | None = None
+    observed_print_job_id: str | None = None
+    items: list[TransactionItemCreate] = Field(min_length=1, max_length=50)
+
+
 class JobOrderMaterialPlanRead(CamelModel):
     id: str
     inventory_item_id: str
@@ -79,12 +102,21 @@ class JobOrderMaterialPlanRead(CamelModel):
     paper_size: InventoryPaperSize | None
 
 
+class JobOrderItemStatusEventRead(CamelModel):
+    id: str
+    from_status: str | None
+    to_status: str
+    note: str | None
+    occurred_at: datetime
+
+
 class JobOrderItemRead(CamelModel):
     id: str
     product_id: str
     product_name: str
     service_name: str
     operation_kind: Literal["printing", "photocopy", "scan"]
+    status: Literal["queued", "printing", "ready"]
     print_type: str
     print_type_label: str
     print_color_mode: str
@@ -96,10 +128,12 @@ class JobOrderItemRead(CamelModel):
     print_sides: PrintSides
     requires_manual_duplex: bool
     materials: list[JobOrderMaterialPlanRead] = Field(default_factory=list)
+    status_events: list[JobOrderItemStatusEventRead] = Field(default_factory=list)
 
 
 class JobFileRead(CamelModel):
     id: str
+    job_order_item_id: str | None
     original_filename: str
     kind: str
     size_bytes: int
@@ -133,9 +167,15 @@ class JobOrderTransitionCreate(CamelModel):
     note: str | None = None
 
 
+class JobOrderItemTransitionCreate(CamelModel):
+    to_status: Literal["queued", "ready"]
+    note: str | None = None
+
+
 class PrintSubmissionCreate(CamelModel):
     printer_id: str
     job_file_id: str
+    job_order_item_id: str | None = None
     # Compatibility hints from older clients. Copies/media are resolved from
     # the transaction and color is resolved from the analyzed source file.
     copies: int | None = Field(default=None, ge=1, le=99)
@@ -151,6 +191,7 @@ class PrintSubmissionCreate(CamelModel):
 
 class PrintAttemptRead(CamelModel):
     id: str
+    job_order_item_id: str | None
     printer_id: str
     printer_name: str
     job_file_id: str | None

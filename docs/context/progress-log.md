@@ -2,6 +2,18 @@
 
 Chronological notes about app progress.
 
+## 2026-08-30 (multi-service transactions)
+
+- Summary: Reworked job creation and production tracking around one customer transaction with independently processed product lines.
+- Completed: Added mixed-service intake, per-line status/history, item-owned print/scan files and attempts, operation-specific workspace cards, a combined price breakdown, all-lines-ready payment gating, and one transaction completion.
+- Verified: All 28 API tests pass, the renderer production build passes, and the SQLite migration upgrades cleanly to the single head.
+
+## 2026-08-30 (centralized pricing view)
+
+- Summary: Added a Pricing Center that consolidates every active product-facing price without creating a second place to edit pricing.
+- Completed: Added global paper-rate coverage, product paper overrides, custom standalone scan rates, variant adjustments, missing-price detection, source/search filters, responsive presentation, and direct links to each owning configuration workspace. Pricing mirrors the services defined in Printing Services and groups their products into A4, Letter, Legal, scan-rate, print-type, option, and status columns; the service catalog remains its focused directory.
+- Verified: renderer typecheck, lint, and production build pass. Live browser QA was unavailable because no browser surface was connected in this session.
+
 ## 2026-06-06
 
 - Created the initial context documentation structure under `docs/context`.

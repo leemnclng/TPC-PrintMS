@@ -5,7 +5,7 @@ import { Modal } from "../../components/Modal/Modal";
 import { PdfViewer } from "../../components/PdfViewer/PdfViewer";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatCurrency, formatFileSize } from "../../lib/format";
-import type { JobOrder } from "../../types/domain";
+import type { JobOrder, JobOrderItem } from "../../types/domain";
 import "../workspaceForm.css";
 import "./PhotocopyJobCreateModal.css";
 import "./JobScanSetupModal.css";
@@ -13,6 +13,7 @@ import "./JobScanSetupModal.css";
 interface Props {
   open: boolean;
   order: JobOrder;
+  item: JobOrderItem;
   onClose: () => void;
   onScanned: (order: JobOrder) => void;
 }
@@ -90,7 +91,7 @@ function scanSourceLabel(source: ScanSettings["source"]): string {
   return source === "feeder" ? "document feeder" : source === "flatbed" ? "flatbed" : "automatic source";
 }
 
-export function JobScanSetupModal({ open, order, onClose, onScanned }: Props) {
+export function JobScanSetupModal({ open, order, item, onClose, onScanned }: Props) {
   const scanFileInputId = useId();
   const [scanCaptures, setScanCaptures] = useState<ScanCapture[]>([]);
   const scanCapturesRef = useRef<ScanCapture[]>([]);
@@ -105,7 +106,7 @@ export function JobScanSetupModal({ open, order, onClose, onScanned }: Props) {
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const unitPrice = order.items[0]?.unitPrice ?? 0;
+  const unitPrice = item.unitPrice;
   const scannedPages = scanCaptures.reduce((sum, capture) => sum + capture.pageCount, 0);
   const total = Math.round(unitPrice * scannedPages * 100) / 100;
   const valid = scanCaptures.length > 0 && scannedPages >= 1;
@@ -270,7 +271,7 @@ export function JobScanSetupModal({ open, order, onClose, onScanned }: Props) {
     try {
       const body = new FormData();
       scanCaptures.forEach((capture) => body.append("files", capture.file));
-      onScanned(await api.upload<JobOrder>(`/job-orders/${order.id}/scan-output`, body));
+      onScanned(await api.upload<JobOrder>(`/job-orders/${order.id}/items/${item.id}/scan-output`, body));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "The scanned document could not be saved.");
     } finally {

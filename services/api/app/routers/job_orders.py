@@ -27,12 +27,14 @@ from ..db.models import (
     JobOrderNumberSequence,
     JobOrderStatus,
     JobOrderItem,
+    JobOrderItemStatusEvent,
     JobOrderMaterialPlan,
     ObservedPrintJob,
     Payment,
     Printer,
     PrintJob,
     PrintResult,
+    PrintSides,
     Product,
     ProductVariant,
     Service,
@@ -53,11 +55,13 @@ from ..schemas.job_orders import (
     JobOrderCreate,
     JobOrderMaterialUsageCreate,
     JobOrderRead,
+    JobOrderItemTransitionCreate,
     JobOrderTransitionCreate,
     PaymentCreate,
     PhotocopyJobOrderCreate,
     PrintSubmissionCreate,
     ScanJobOrderCreate,
+    TransactionCreate,
 )
 from ..services.printing.adapter import PrintSubmissionError, get_printer_adapter
 from ..services.product_pricing import price_per_page_for_material, reference_price_per_page
@@ -91,6 +95,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "product_name": item.product.name,
                 "service_name": item.product.service.name,
                 "operation_kind": item.operation_kind,
+                "status": item.status,
                 "print_type": item.product.print_type,
                 "print_type_label": item.product.print_type_definition.label,
                 "print_color_mode": item.product.print_type_definition.color_mode,
@@ -114,12 +119,23 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                     }
                     for plan in item.material_plans
                 ],
+                "status_events": [
+                    {
+                        "id": event.id,
+                        "from_status": event.from_status,
+                        "to_status": event.to_status,
+                        "note": event.note,
+                        "occurred_at": event.occurred_at,
+                    }
+                    for event in sorted(item.status_events, key=lambda value: value.occurred_at, reverse=True)
+                ],
             }
             for item in job_order.items
         ],
         files=[
             {
                 "id": file.id,
+                "job_order_item_id": file.job_order_item_id,
                 "original_filename": file.original_filename,
                 "kind": file.kind,
                 "size_bytes": file.size_bytes,
@@ -149,6 +165,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
         print_attempts=[
             {
                 "id": attempt.id,
+                "job_order_item_id": attempt.job_order_item_id,
                 "printer_id": attempt.printer_id,
                 "printer_name": attempt.printer.display_name,
                 "job_file_id": attempt.job_file_id,
@@ -309,11 +326,12 @@ def create_photocopy_job_order(
         db,
         note=f"Automatically deducted after device-side photocopy work for {job_order.number}",
     )
-    _record_status(
-        job_order,
-        JobOrderStatus.ready,
+    _record_item_status(
+        job_order.items[0],
+        "ready",
         "Photocopy transaction recorded after device-side production; ready for payment.",
     )
+    _sync_transaction_status(job_order, "All production is ready for payment.")
     db.commit()
     db.refresh(job_order)
     return _to_read(job_order)
@@ -426,14 +444,39 @@ async def submit_scan_output(
     file: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
 ) -> JobOrderRead:
+    return await _submit_scan_output(job_order_id, None, files, file, db)
+
+
+@router.post("/{job_order_id}/items/{item_id}/scan-output", response_model=JobOrderRead, status_code=201)
+async def submit_item_scan_output(
+    job_order_id: str,
+    item_id: str,
+    files: list[UploadFile] | None = File(default=None),
+    file: UploadFile | None = File(default=None),
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    return await _submit_scan_output(job_order_id, item_id, files, file, db)
+
+
+async def _submit_scan_output(
+    job_order_id: str,
+    item_id: str | None,
+    files: list[UploadFile] | None,
+    file: UploadFile | None,
+    db: Session,
+) -> JobOrderRead:
     job_order = db.get(JobOrder, job_order_id)
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
-    if job_order.status != JobOrderStatus.queued:
-        raise HTTPException(status_code=409, detail="This job order is not waiting on a scan.")
-    if len(job_order.items) != 1 or job_order.items[0].operation_kind != "scan":
-        raise HTTPException(status_code=422, detail="This job order is not a scan job.")
-    item = job_order.items[0]
+    item = db.get(JobOrderItem, item_id) if item_id else None
+    if item is None:
+        scan_items = [value for value in job_order.items if value.operation_kind == "scan"]
+        if len(scan_items) == 1:
+            item = scan_items[0]
+    if item is None or item.job_order_id != job_order.id or item.operation_kind != "scan":
+        raise HTTPException(status_code=422, detail="Select the scan product line to acquire.")
+    if item.status != "queued":
+        raise HTTPException(status_code=409, detail="This product line is not waiting on a scan.")
     product = db.get(Product, item.product_id)
     if not product or product.standalone_price_per_page is None:
         raise HTTPException(status_code=422, detail="Set this product's scan price per page before completing this scan.")
@@ -452,7 +495,7 @@ async def submit_scan_output(
     stored_path = storage_directory / stored_filename
     # A re-scan (after a failed quality check sent the job back to the queue)
     # replaces the prior softcopy rather than accumulating stale deliverables.
-    stale_files = [existing for existing in job_order.files if existing.kind == "scan_output"]
+    stale_files = [existing for existing in item.files if existing.kind == "scan_output"]
     try:
         storage_directory.mkdir(parents=True, exist_ok=True)
         stored_path.write_bytes(data)
@@ -462,6 +505,7 @@ async def submit_scan_output(
             db.delete(stale)
         job_order.files.append(
             JobFile(
+                job_order_item=item,
                 original_filename=filename,
                 stored_path=str(relative_path),
                 kind="scan_output",
@@ -476,17 +520,23 @@ async def submit_scan_output(
                 analysis_confidence=analysis.confidence,
             )
         )
+        previous_suggested = round(product.standalone_price_per_page * item.pages_per_copy, 2)
         item.pages_per_copy = analysis.page_count
         item.unit_price = product.standalone_price_per_page
         item.line_total = round(item.unit_price * analysis.page_count, 2)
-        job_order.total = item.line_total
-        job_order.suggested_total = job_order.total
-        _record_status(job_order, JobOrderStatus.ready, "Scanner softcopy attached; ready for payment and delivery.")
+        job_order.total = round(sum(value.line_total for value in job_order.items), 2)
+        job_order.suggested_total = round(job_order.suggested_total - previous_suggested + item.line_total, 2)
+        _record_item_status(item, "ready", "Scanner softcopy attached; this product is ready for delivery.")
+        _sync_transaction_status(job_order, f"Scan completed for {item.product.name}.")
         db.commit()
         db.refresh(job_order)
     except Exception as error:
         db.rollback()
-        shutil.rmtree(storage_directory, ignore_errors=True)
+        stored_path.unlink(missing_ok=True)
+        try:
+            storage_directory.rmdir()
+        except OSError:
+            pass
         raise HTTPException(status_code=500, detail="The scan output could not be saved.") from error
     for stale in stale_files:
         (settings.resolved_scan_output_dir / stale.stored_path).unlink(missing_ok=True)
@@ -507,6 +557,30 @@ def _record_status(job_order: JobOrder, to_status: JobOrderStatus, note: str) ->
     )
 
 
+def _record_item_status(item: JobOrderItem, to_status: str, note: str) -> None:
+    from_status = item.status
+    if from_status == to_status:
+        return
+    item.status = to_status
+    item.status_events.append(
+        JobOrderItemStatusEvent(from_status=from_status, to_status=to_status, note=note)
+    )
+
+
+def _sync_transaction_status(job_order: JobOrder, note: str) -> None:
+    """Mirror production progress onto the transaction without replacing line-item truth."""
+    if job_order.status in {JobOrderStatus.paid, JobOrderStatus.completed}:
+        return
+    statuses = {item.status for item in job_order.items}
+    if statuses and statuses == {"ready"}:
+        target = JobOrderStatus.ready
+    elif "printing" in statuses:
+        target = JobOrderStatus.printing
+    else:
+        target = JobOrderStatus.queued
+    _record_status(job_order, target, note)
+
+
 @router.get("/{job_order_id}/files/{file_id}")
 def download_job_file(job_order_id: str, file_id: str, db: Session = Depends(get_db)) -> FileResponse:
     job_file = db.get(JobFile, file_id)
@@ -521,6 +595,280 @@ def download_job_file(job_order_id: str, file_id: str, db: Session = Depends(get
     if files_root not in stored_path.parents or not stored_path.is_file():
         raise HTTPException(status_code=404, detail="The stored job file is unavailable.")
     return FileResponse(stored_path, filename=job_file.original_filename)
+
+
+@router.post("/transactions", response_model=JobOrderRead, status_code=201)
+async def create_transaction(
+    transaction: str = Form(...),
+    files: list[UploadFile] | None = File(default=None),
+    file_keys: list[str] | None = Form(default=None),
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    return await _save_transaction_lines(transaction, files, file_keys, db)
+
+
+@router.post("/{job_order_id}/items", response_model=JobOrderRead, status_code=201)
+async def append_transaction_items(
+    job_order_id: str,
+    transaction: str = Form(...),
+    files: list[UploadFile] | None = File(default=None),
+    file_keys: list[str] | None = Form(default=None),
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    return await _save_transaction_lines(transaction, files, file_keys, db, job_order_id)
+
+
+async def _save_transaction_lines(
+    transaction: str,
+    files: list[UploadFile] | None,
+    file_keys: list[str] | None,
+    db: Session,
+    existing_job_order_id: str | None = None,
+) -> JobOrderRead:
+    """Create a transaction or append independently-produced lines before payment."""
+    try:
+        payload = TransactionCreate.model_validate_json(transaction)
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail="The transaction details are incomplete or invalid.") from error
+    job_name = payload.name.strip()
+    if not job_name:
+        raise HTTPException(status_code=422, detail="Enter a name for this transaction.")
+    if payload.customer_id and not db.get(Customer, payload.customer_id):
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    existing_job_order = db.get(JobOrder, existing_job_order_id) if existing_job_order_id else None
+    if existing_job_order_id and not existing_job_order:
+        raise HTTPException(status_code=404, detail="Transaction not found.")
+    if existing_job_order and existing_job_order.status not in {
+        JobOrderStatus.queued,
+        JobOrderStatus.printing,
+        JobOrderStatus.ready,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="Products can only be added before the transaction is paid or completed.",
+        )
+    observed_print_job: ObservedPrintJob | None = None
+    if payload.observed_print_job_id:
+        observed_print_job = db.get(ObservedPrintJob, payload.observed_print_job_id)
+        if not observed_print_job:
+            raise HTTPException(status_code=404, detail="Observed Windows print job not found.")
+        if observed_print_job.linked_job_order_id:
+            raise HTTPException(status_code=409, detail="This Windows print job already has a transaction.")
+    initial_service = db.get(Service, payload.initial_service_id)
+    if not initial_service or not initial_service.is_active:
+        raise HTTPException(status_code=422, detail="Select an active initial service.")
+    client_keys = [item.client_key for item in payload.items]
+    if len(client_keys) != len(set(client_keys)):
+        raise HTTPException(status_code=422, detail="Every transaction line must have a unique key.")
+
+    uploaded_files = files or []
+    uploaded_keys = file_keys or []
+    if len(uploaded_files) != len(uploaded_keys):
+        raise HTTPException(status_code=422, detail="Every uploaded document must identify its product line.")
+    if len(uploaded_keys) != len(set(uploaded_keys)):
+        raise HTTPException(status_code=422, detail="Attach only one source document to each printing line.")
+    if any(key not in client_keys for key in uploaded_keys):
+        raise HTTPException(status_code=422, detail="An uploaded document does not match a transaction line.")
+    file_by_key = dict(zip(uploaded_keys, uploaded_files, strict=True))
+
+    product_ids = {item.product_id for item in payload.items}
+    products = db.query(Product).filter(Product.id.in_(product_ids)).all()
+    product_by_id = {product.id: product for product in products}
+    if missing := product_ids - set(product_by_id):
+        raise HTTPException(status_code=404, detail=f"Product not found: {next(iter(missing))}.")
+    if product_by_id[payload.items[0].product_id].service_id != initial_service.id:
+        raise HTTPException(status_code=422, detail="The first product must belong to the initially selected service.")
+
+    prepared_files: dict[str, tuple[str, bytes, object]] = {}
+    for line in payload.items:
+        product = product_by_id[line.product_id]
+        if not product.is_active or not product.service.is_active:
+            raise HTTPException(status_code=409, detail=f"Product or service is inactive: {product.name}.")
+        upload = file_by_key.get(line.client_key)
+        if product.operation_kind != "printing":
+            if upload:
+                raise HTTPException(status_code=422, detail=f"{product.name} does not accept an uploaded source document.")
+            continue
+        if upload is None:
+            raise HTTPException(status_code=422, detail=f"Attach a document for {product.name}.")
+        filename = Path(upload.filename or "document").name
+        content_type = upload.content_type or ""
+        data = await upload.read(MAX_FILE_SIZE_BYTES + 1)
+        await upload.close()
+        if not data:
+            raise HTTPException(status_code=422, detail=f"The document for {product.name} is empty.")
+        if len(data) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(status_code=413, detail="Each document must be 25 MB or smaller.")
+        try:
+            analysis = await run_in_threadpool(analysis_service.analyze, filename, data, content_type)
+        except UnsupportedFileTypeError as error:
+            raise HTTPException(status_code=415, detail=str(error)) from error
+        except (InvalidDocumentError, UnsafeArchiveError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        prepared_files[line.client_key] = (filename, data, analysis)
+
+    if existing_job_order:
+        job_order = existing_job_order
+    else:
+        workflow_categories = {product_by_id[line.product_id].service.category for line in payload.items}
+        job_order = JobOrder(
+            number=_next_job_order_number(db),
+            name=job_name,
+            workflow_category=next(iter(workflow_categories)) if len(workflow_categories) == 1 else "custom",
+            customer_id=payload.customer_id,
+            due_date=payload.due_date,
+            total=0,
+            suggested_total=0,
+            status=JobOrderStatus.queued,
+            notes=payload.notes.strip() if payload.notes else None,
+        )
+    file_specs: list[tuple[JobOrderItem, str, bytes, object]] = []
+    any_override = False
+    for line in payload.items:
+        product = product_by_id[line.product_id]
+        if line.price_mode == "custom" and line.custom_price is None:
+            raise HTTPException(status_code=422, detail=f"Enter the final price for {product.name}.")
+        variant = None
+        material_specs: list[tuple[str, float]] = []
+        if product.operation_kind == "scan":
+            if line.paper_inventory_item_id or line.variant_id or line.other_materials:
+                raise HTTPException(status_code=422, detail=f"{product.name} cannot use paper, print variants, or materials.")
+            if product.standalone_price_per_page is None:
+                raise HTTPException(status_code=422, detail=f"Set the scan price for {product.name}.")
+            pages, copies = 1, 1
+            suggested = round(product.standalone_price_per_page, 2)
+        else:
+            assignment = next(
+                (
+                    value for value in product.material_assignments
+                    if value.inventory_item_id == line.paper_inventory_item_id
+                    and value.inventory_item.is_active
+                    and value.inventory_item.paper_size is not None
+                ),
+                None,
+            )
+            if assignment is None:
+                raise HTTPException(status_code=422, detail=f"Select an active configured paper for {product.name}.")
+            if line.variant_id:
+                variant = next((value for value in product.variants if value.variant_id == line.variant_id), None)
+                if variant is None:
+                    raise HTTPException(status_code=422, detail=f"The selected variant is not available for {product.name}.")
+            if line.back_to_back and not variant:
+                variant = next((value for value in product.variants if value.requires_manual_duplex), None)
+            if line.back_to_back and not variant:
+                raise HTTPException(status_code=422, detail=f"Configure a back-to-back variant for {product.name}.")
+            overrides = {rate.pricing_rule_id: rate.price_per_page for rate in product.document_rates}
+            if product.operation_kind == "printing":
+                analysis = prepared_files[line.client_key][2]
+                pricing = pricing_service.calculate(analysis, db, product, variant, assignment.inventory_item_id)
+                if not pricing.breakdown:
+                    raise HTTPException(status_code=422, detail=f"No active price is configured for {product.name}.")
+                pages = analysis.page_count
+                suggested = round(pricing.suggested_price * line.copies, 2)
+            else:
+                pages = line.pages_per_copy
+                base_rate = price_per_page_for_material(
+                    product.print_type,
+                    overrides,
+                    assignment.inventory_item_id,
+                    db,
+                    require_override=product.print_type == "black_and_white",
+                )
+                if base_rate is None:
+                    raise HTTPException(status_code=422, detail=f"Set a custom price for {product.name}.")
+                suggested = round((base_rate + (variant.price_adjustment if variant else 0)) * pages * line.copies, 2)
+            copies = line.copies
+            physical_sheets = (((pages + 1) // 2) if line.back_to_back else pages) * copies
+            if "sheet" not in assignment.inventory_item.unit.lower():
+                physical_sheets = 1
+            material_specs = [(assignment.inventory_item_id, physical_sheets)]
+            material_specs.extend((material.inventory_item_id, material.planned_quantity) for material in line.other_materials)
+            if len({material_id for material_id, _ in material_specs}) != len(material_specs):
+                raise HTTPException(status_code=422, detail=f"A material can appear only once for {product.name}.")
+            assigned_ids = {value.inventory_item_id for value in product.material_assignments}
+            if any(material_id not in assigned_ids for material_id, _ in material_specs):
+                raise HTTPException(status_code=422, detail=f"A selected material is not assigned to {product.name}.")
+
+        line_total = suggested if line.price_mode == "suggested" else round(line.custom_price or 0, 2)
+        any_override = any_override or line.price_mode == "custom"
+        item = JobOrderItem(
+            product_id=product.id,
+            operation_kind=product.operation_kind,
+            status="queued",
+            variant_label=variant.label if variant else None,
+            pages_per_copy=pages,
+            copies=copies,
+            unit_price=round(line_total / max(pages * copies, 1), 2),
+            line_total=line_total,
+            print_sides=PrintSides.double_sided if line.back_to_back else PrintSides.single_sided,
+            requires_manual_duplex=bool(line.back_to_back and pages > 1),
+        )
+        item.status_events.append(JobOrderItemStatusEvent(from_status=None, to_status="queued", note="Product added to transaction."))
+        item.material_plans = [
+            JobOrderMaterialPlan(inventory_item_id=material_id, planned_quantity=quantity)
+            for material_id, quantity in material_specs
+        ]
+        job_order.items.append(item)
+        job_order.suggested_total = round(job_order.suggested_total + suggested, 2)
+        job_order.total = round(job_order.total + line_total, 2)
+        if product.operation_kind == "printing":
+            filename, data, analysis = prepared_files[line.client_key]
+            file_specs.append((item, filename, data, analysis))
+
+    job_order.price_overridden = job_order.price_overridden or any_override
+    all_categories = {
+        (product_by_id.get(item.product_id) or item.product).service.category
+        for item in job_order.items
+    }
+    job_order.workflow_category = next(iter(all_categories)) if len(all_categories) == 1 else "custom"
+    if existing_job_order:
+        _sync_transaction_status(job_order, f"{len(payload.items)} product line(s) added; transaction returned to production.")
+    else:
+        job_order.status_events.append(StatusEvent(from_status=None, to_status="queued", note="Transaction created."))
+        db.add(job_order)
+    db.flush()
+    storage_directory = settings.resolved_data_dir / "files" / job_order.id
+    written_paths: list[Path] = []
+    try:
+        if file_specs:
+            storage_directory.mkdir(parents=True, exist_ok=True)
+        for item, filename, data, analysis in file_specs:
+            stored_path = storage_directory / f"{uuid4().hex}-{filename}"
+            stored_path.write_bytes(data)
+            written_paths.append(stored_path)
+            job_order.files.append(
+                JobFile(
+                    job_order_item=item,
+                    original_filename=filename,
+                    stored_path=str(stored_path.relative_to(settings.resolved_data_dir)),
+                    kind="print_ready",
+                    size_bytes=len(data),
+                    detected_page_count=analysis.page_count,
+                    detected_paper_size=analysis.paper_size.value,
+                    detected_orientation=analysis.orientation.value,
+                    detected_color_pages=analysis.color_pages,
+                    detected_bw_pages=analysis.bw_pages,
+                    estimated_color_coverage_percent=analysis.estimated_color_coverage_percent,
+                    estimated_ink_coverage_percent=analysis.estimated_ink_coverage_percent,
+                    estimated_print_time_seconds=analysis.estimated_print_time_seconds,
+                    analysis_confidence=analysis.confidence,
+                )
+            )
+        if observed_print_job:
+            observed_print_job.review_status = "linked"
+            observed_print_job.reviewed_at = datetime.utcnow()
+            observed_print_job.linked_job_order_id = job_order.id
+        db.commit()
+        db.refresh(job_order)
+    except Exception as error:
+        db.rollback()
+        if existing_job_order:
+            for stored_path in written_paths:
+                stored_path.unlink(missing_ok=True)
+        else:
+            shutil.rmtree(storage_directory, ignore_errors=True)
+        raise HTTPException(status_code=500, detail="The transaction could not be saved.") from error
+    return _to_read(job_order)
 
 
 @router.post("/from-analysis", response_model=JobOrderRead, status_code=201)
@@ -936,7 +1284,52 @@ def transition_job_order(
         JobOrderStatus.paid: "No payment due; job marked paid without a payment record.",
         JobOrderStatus.completed: "Owner completed the job order.",
     }
-    _record_status(job_order, target, payload.note.strip() if payload.note else default_notes[target])
+    note = payload.note.strip() if payload.note else default_notes[target]
+    if len(job_order.items) == 1 and target in {JobOrderStatus.ready, JobOrderStatus.queued}:
+        _record_item_status(job_order.items[0], target.value, note)
+    _record_status(job_order, target, note)
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.post("/{job_order_id}/items/{item_id}/transitions", response_model=JobOrderRead)
+def transition_job_order_item(
+    job_order_id: str,
+    item_id: str,
+    payload: JobOrderItemTransitionCreate,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    item = db.get(JobOrderItem, item_id)
+    if not job_order or not item or item.job_order_id != job_order.id:
+        raise HTTPException(status_code=404, detail="Transaction product line not found.")
+    if job_order.status in {JobOrderStatus.paid, JobOrderStatus.completed}:
+        raise HTTPException(status_code=409, detail="A paid or completed transaction cannot return to production.")
+    target = payload.to_status
+    allowed = {"queued": {"ready"}, "printing": {"ready"}, "ready": {"queued"}}
+    if target not in allowed.get(item.status, set()):
+        raise HTTPException(status_code=409, detail=f"{item.status.title()} cannot move directly to {target.title()}.")
+    if target == "ready" and item.operation_kind == "scan" and not any(file.kind == "scan_output" for file in item.files):
+        raise HTTPException(status_code=409, detail="Acquire and save the scanned document before marking this product ready.")
+    if target == "ready" and item.operation_kind == "printing" and item.status != "printing":
+        raise HTTPException(status_code=409, detail="Submit this product to the printer before marking it ready.")
+    if target == "ready" and item.operation_kind == "photocopy":
+        pending = _remaining_planned_materials(job_order, item)
+        _validate_material_stock(pending)
+        _deduct_planned_materials(
+            job_order,
+            pending,
+            db,
+            note=f"Automatically deducted after device-side photocopy work for {job_order.number}",
+        )
+    default_note = (
+        f"{item.product.name} finished production and passed owner review."
+        if target == "ready"
+        else f"{item.product.name} returned to its operation queue for rework."
+    )
+    _record_item_status(item, target, payload.note.strip() if payload.note else default_note)
+    _sync_transaction_status(job_order, f"Transaction progress recalculated after {item.product.name} changed status.")
     db.commit()
     db.refresh(job_order)
     return _to_read(job_order)
@@ -951,20 +1344,29 @@ async def submit_print_attempt(
     job_order = db.get(JobOrder, job_order_id)
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
-    if job_order.workflow_category != "printing":
-        raise HTTPException(status_code=409, detail="This workflow does not submit a document from the computer.")
-    if job_order.status != JobOrderStatus.queued:
-        raise HTTPException(status_code=409, detail="This job order is not in the print queue.")
+    item = db.get(JobOrderItem, payload.job_order_item_id) if payload.job_order_item_id else None
+    if item is None:
+        printing_items = [value for value in job_order.items if value.operation_kind == "printing"]
+        if len(printing_items) == 1:
+            item = printing_items[0]
+    if item is None or item.job_order_id != job_order.id or item.operation_kind != "printing":
+        raise HTTPException(status_code=422, detail="Select the printing product line to submit.")
+    if item.status != "queued":
+        raise HTTPException(status_code=409, detail="This product line is not waiting in the print queue.")
     printer = db.get(Printer, payload.printer_id)
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found.")
     if printer.last_seen_state in {"offline", "error"}:
         raise HTTPException(status_code=409, detail=f"{printer.display_name} is currently {printer.last_seen_state}.")
     job_file = db.get(JobFile, payload.job_file_id)
-    if not job_file or job_file.job_order_id != job_order.id or job_file.kind != "print_ready":
+    if (
+        not job_file
+        or job_file.job_order_id != job_order.id
+        or job_file.kind != "print_ready"
+        or (job_file.job_order_item_id is not None and job_file.job_order_item_id != item.id)
+    ):
         raise HTTPException(status_code=404, detail="Print-ready job file not found.")
-    copies, color_mode, media_size = _automatic_print_settings(job_order, job_file)
-    item = job_order.items[0]
+    copies, color_mode, media_size = _automatic_print_settings(item, job_file)
     manual_duplex = item.requires_manual_duplex and (job_file.detected_page_count or item.pages_per_copy) > 1
     if manual_duplex and settings.resolved_printer_platform != "windows":
         raise HTTPException(
@@ -975,7 +1377,9 @@ async def submit_print_attempt(
         (
             attempt
             for attempt in sorted(job_order.print_jobs, key=lambda value: value.submitted_at, reverse=True)
-            if attempt.result == PrintResult.succeeded and attempt.duplex_pass == "front"
+            if attempt.job_order_item_id in {None, item.id}
+            and attempt.result == PrintResult.succeeded
+            and attempt.duplex_pass == "front"
         ),
         None,
     )
@@ -1007,11 +1411,12 @@ async def submit_print_attempt(
     stored_path = (settings.resolved_data_dir / job_file.stored_path).resolve()
     if files_root not in stored_path.parents or not stored_path.is_file():
         raise HTTPException(status_code=404, detail="The staged print file is unavailable.")
-    pending_materials = _remaining_planned_materials(job_order)
+    pending_materials = _remaining_planned_materials(job_order, item)
     _validate_material_stock(pending_materials)
     owner = db.query(BusinessProfile).first()
     attempt = PrintJob(
         job_order_id=job_order.id,
+        job_order_item_id=item.id,
         printer_id=printer.id,
         job_file_id=job_file.id,
         copies=copies,
@@ -1076,14 +1481,15 @@ async def submit_print_attempt(
         if movements
         else " Planned material usage was already fully recorded."
     )
-    _record_status(
-        job_order,
-        JobOrderStatus.printing,
+    _record_item_status(
+        item,
+        "printing",
         f"Submitted {job_file.original_filename} to {printer.display_name}. "
         f"Document analysis selected {color_mode} output."
         f"{' Supervised front and back passes were submitted.' if duplex_pass == 'back' else ''}"
         f"{material_note}",
     )
+    _sync_transaction_status(job_order, f"Production progress updated after submitting {item.product.name}.")
     db.commit()
     db.refresh(job_order)
     return _to_read(job_order)
@@ -1154,9 +1560,12 @@ def record_material_usage(
     return [_movement_to_read(movement) for movement in movements]
 
 
-def _remaining_planned_materials(job_order: JobOrder) -> list[tuple[JobOrderMaterialPlan, float]]:
+def _remaining_planned_materials(
+    job_order: JobOrder,
+    job_order_item: JobOrderItem | None = None,
+) -> list[tuple[JobOrderMaterialPlan, float]]:
     remaining: list[tuple[JobOrderMaterialPlan, float]] = []
-    for item in job_order.items:
+    for item in ([job_order_item] if job_order_item else job_order.items):
         for plan in item.material_plans:
             quantity = max(plan.planned_quantity - plan.consumed_quantity, 0.0)
             if quantity > 1e-9:
@@ -1164,13 +1573,13 @@ def _remaining_planned_materials(job_order: JobOrder) -> list[tuple[JobOrderMate
     return remaining
 
 
-def _automatic_print_settings(job_order: JobOrder, job_file: JobFile) -> tuple[int, str, str]:
-    if len(job_order.items) != 1:
-        raise HTTPException(
-            status_code=422,
-            detail="Automatic print setup requires one analyzed product line for the selected file.",
-        )
-    item = job_order.items[0]
+def _automatic_print_settings(item: JobOrderItem | JobOrder, job_file: JobFile) -> tuple[int, str, str]:
+    # Keep the legacy helper contract for older callers/tests while new
+    # transaction printing passes the exact product line.
+    if isinstance(item, JobOrder) or not hasattr(item, "copies"):
+        if len(item.items) != 1:
+            raise HTTPException(status_code=422, detail="Select one printing product line for automatic setup.")
+        item = item.items[0]
     copies = item.copies
     if copies > 99:
         raise HTTPException(

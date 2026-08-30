@@ -3,12 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import and_, exists
 from sqlalchemy.orm import Session
 
 from ..core.security import require_token
 from ..core.config import settings
-from ..db.models import JobOrder, JobOrderItem, JobOrderStatus, ObservedPrintJob, Printer, PrintResult
+from ..db.models import JobOrder, JobOrderStatus, ObservedPrintJob, Printer, PrintResult
 from ..db.session import get_db
 from ..schemas.printers import PrintActivityJobRead, PrintActivityRead, PrinterPlatformRead, PrinterRead, SpoolerMonitorRead
 from ..services.printing.adapter import get_printer_adapter
@@ -31,21 +30,18 @@ def list_print_activity(db: Session = Depends(get_db)) -> PrintActivityRead:
     orders = (
         db.query(JobOrder)
         .filter(JobOrder.status.in_([JobOrderStatus.queued, JobOrderStatus.printing]))
-        .filter(
-            ~exists().where(
-                and_(
-                    JobOrderItem.job_order_id == JobOrder.id,
-                    JobOrderItem.operation_kind == "photocopy",
-                )
-            )
-        )
         .order_by(JobOrder.updated_at.desc())
         .all()
     )
     activity: list[PrintActivityJobRead] = []
     for order in orders:
-        operation_kind = order.items[0].operation_kind if order.items else "printing"
-        if operation_kind == "scan":
+        pending_items = [item for item in order.items if item.status != "ready"]
+        printing_items = [item for item in pending_items if item.operation_kind == "printing"]
+        scan_items = [item for item in pending_items if item.operation_kind == "scan"]
+        legacy_printing = not order.items
+        if not printing_items and not scan_items and not legacy_printing:
+            continue
+        if scan_items and not printing_items and not legacy_printing:
             activity.append(
                 PrintActivityJobRead(
                     job_order_id=order.id,
@@ -64,7 +60,12 @@ def list_print_activity(db: Session = Depends(get_db)) -> PrintActivityRead:
                 )
             )
             continue
-        attempt = max(order.print_jobs, key=lambda item: item.submitted_at, default=None)
+        printing_item_ids = {item.id for item in printing_items}
+        attempt = max(
+            (value for value in order.print_jobs if value.job_order_item_id in printing_item_ids or value.job_order_item_id is None),
+            key=lambda item: item.submitted_at,
+            default=None,
+        )
         state = "ready"
         attention_required = False
         if attempt:

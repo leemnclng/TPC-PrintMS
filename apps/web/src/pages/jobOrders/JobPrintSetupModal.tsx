@@ -8,18 +8,19 @@ import { useResource } from "../../hooks/useResource";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatDate } from "../../lib/format";
 import { printerStateMeta } from "../../types/statusMeta";
-import type { JobOrder, Printer } from "../../types/domain";
+import type { JobOrder, JobOrderItem, Printer } from "../../types/domain";
 import "../workspaceForm.css";
 import "./JobOrderModals.css";
 
 interface Props {
   open: boolean;
   order: JobOrder;
+  item: JobOrderItem;
   onClose: () => void;
   onPrinted: (order: JobOrder) => void;
 }
 
-export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
+export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Props) {
   const { data: printers, state, error: printerError, reload } = useResource(
     () => open ? api.get<Printer[]>("/printers") : Promise.resolve([]),
     [open],
@@ -38,14 +39,14 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const printItem = workingOrder.items[0];
+  const printItem = workingOrder.items.find((candidate) => candidate.id === item.id) ?? item;
   const selectedFile = workingOrder.files.find((file) => file.id === selectedFileId);
   const paperPlan = printItem?.materials.find((material) => material.paperSize);
   const mediaSize = paperPlan?.paperSize ?? selectedFile?.detectedPaperSize ?? "A4";
   const copies = printItem?.copies ?? 1;
   const pages = selectedFile?.detectedPageCount ?? printItem?.pagesPerCopy ?? 1;
   const completedFrontPass = workingOrder.printAttempts.find(
-    (attempt) => attempt.result === "succeeded" && attempt.duplexPass === "front",
+    (attempt) => attempt.jobOrderItemId === item.id && attempt.result === "succeeded" && attempt.duplexPass === "front",
   );
   const manualDuplex = Boolean(printItem?.requiresManualDuplex && pages > 1);
   const duplexPass: "simplex" | "front" | "back" = manualDuplex
@@ -68,7 +69,7 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
     if (!open) return;
     setWorkingOrder(order);
     setSelectedPrinterId("");
-    setSelectedFileId(order.files.find((file) => file.kind === "print_ready")?.id ?? "");
+    setSelectedFileId(order.files.find((file) => file.kind === "print_ready" && (!file.jobOrderItemId || file.jobOrderItemId === item.id))?.id ?? "");
     setOrientation("auto");
     setScaling("auto");
     setQuality("auto");
@@ -77,18 +78,18 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
     setPaperReinserted(false);
     setActionError(null);
     const priorFront = order.printAttempts.find(
-      (attempt) => attempt.result === "succeeded" && attempt.duplexPass === "front",
+      (attempt) => attempt.jobOrderItemId === item.id && attempt.result === "succeeded" && attempt.duplexPass === "front",
     );
     if (priorFront) {
       setSelectedPrinterId(priorFront.printerId);
-      setSelectedFileId(priorFront.jobFileId ?? order.files.find((file) => file.kind === "print_ready")?.id ?? "");
+      setSelectedFileId(priorFront.jobFileId ?? order.files.find((file) => file.kind === "print_ready" && (!file.jobOrderItemId || file.jobOrderItemId === item.id))?.id ?? "");
       setOrientation(priorFront.orientation);
       setScaling(priorFront.scaling);
       setQuality(priorFront.quality);
       setBorderless(priorFront.borderless);
       setCollate(priorFront.collate);
     }
-  }, [open, order]);
+  }, [open, order, item.id]);
 
   useEffect(() => {
     if (!open || !printers?.length || selectedPrinterId) return;
@@ -132,6 +133,7 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
       const updated = await api.post<JobOrder>(`/job-orders/${order.id}/print-attempts`, {
         printerId: selectedPrinterId,
         jobFileId: selectedFileId,
+        jobOrderItemId: item.id,
         orientation,
         scaling,
         quality,
@@ -205,7 +207,7 @@ export function JobPrintSetupModal({ open, order, onClose, onPrinted }: Props) {
             <section className="job-print-section">
               <header><div><span className="numeric">02 / OUTPUT</span><h3>Confirm file and settings</h3></div>{window.paperClub?.platform === "win32" && selectedPrinter && <Button type="button" size="sm" variant="secondary" onClick={handleOpenPreferences} loading={openingPreferences}>{/canon/i.test(selectedPrinter.displayName) ? "Canon print settings" : "Printer settings"}</Button>}</header>
               <div className="job-print-proof">
-                <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{workingOrder.files.filter((file) => file.kind === "print_ready").map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
+                <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{workingOrder.files.filter((file) => file.kind === "print_ready" && (!file.jobOrderItemId || file.jobOrderItemId === item.id)).map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
                 <dl><div><dt>Pages</dt><dd>{pages}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Paper</dt><dd>{mediaSize}</dd></div><div><dt>Output</dt><dd>Auto · {automaticColorMode}</dd></div></dl>
               </div>
               <div className="job-print-settings">

@@ -295,6 +295,40 @@
 .workspace-timeline time { color: var(--color-ink-faint); font-size: var(--text-xs); }
 .workspace-timeline time { text-align: right; }
 
+.job-line-breakdown { display: flex; flex-direction: column; }
+.job-line-breakdown > div { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); }
+.job-line-breakdown > div:first-child { border-top: 0; }
+.job-line-breakdown span { display: flex; min-width: 0; flex-direction: column; }
+.job-line-breakdown small { color: var(--color-ink-faint); }
+.job-line-breakdown b { flex-shrink: 0; font-family: var(--font-mono); }
+.job-operation-board { display: flex; flex-direction: column; gap: var(--space-4); border-top: 1px solid var(--color-hairline-strong); padding-top: var(--space-5); }
+.job-operation-board > header { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); }
+.job-operation-board > header span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .05em; }
+.job-operation-board > header h2 { margin-top: var(--space-1); font-family: var(--font-display); font-size: var(--text-xl); }
+.job-operation-board > header p { margin: var(--space-1) 0 0; color: var(--color-ink-soft); font-size: var(--text-sm); }
+.job-operation-board > header > b { color: var(--color-accent); font-family: var(--font-mono); white-space: nowrap; }
+.job-operation-board__actions { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-3); }
+.job-operation-board__actions > b { color: var(--color-accent); font-family: var(--font-mono); white-space: nowrap; }
+.job-operation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.job-operation-card { display: flex; min-width: 0; flex-direction: column; border: 1px solid var(--color-hairline-strong); background: var(--color-paper); }
+.job-operation-card > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); background: var(--color-paper-2); }
+.job-operation-card > header > span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .05em; }
+.job-operation-card__title { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--space-4); }
+.job-operation-card__title h3 { font-family: var(--font-display); font-size: var(--text-lg); }
+.job-operation-card__title p { margin: var(--space-1) 0 0; color: var(--color-ink-faint); font-size: var(--text-xs); text-transform: capitalize; }
+.job-operation-card__title > strong { color: var(--color-accent); font-family: var(--font-mono); }
+.job-operation-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--color-hairline); }
+.job-operation-card dl > div { min-width: 0; border-right: 1px solid var(--color-hairline); border-bottom: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); }
+.job-operation-card dl > div:nth-child(2n) { border-right: 0; }
+.job-operation-card dt { color: var(--color-ink-faint); font-size: var(--text-xs); text-transform: uppercase; }
+.job-operation-card dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
+.job-operation-card > footer { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-top: auto; padding: var(--space-4); }
+
+@media (max-width: 52rem) {
+  .job-operation-grid { grid-template-columns: 1fr; }
+  .job-operation-board > header { align-items: flex-start; flex-direction: column; }
+}
+
 @media (max-width: 30rem) {
   .job-command__heading { align-items: stretch; flex-direction: column; padding: var(--space-5); }
   .job-command__heading > button,

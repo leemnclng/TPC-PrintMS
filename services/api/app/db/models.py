@@ -468,10 +468,16 @@ class JobOrderItem(Base):
         Enum(PrintSides), default=PrintSides.single_sided, nullable=False
     )
     requires_manual_duplex: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="queued", nullable=False)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship(back_populates="job_order_items")
     material_plans: Mapped[list["JobOrderMaterialPlan"]] = relationship(
+        back_populates="job_order_item", cascade="all, delete-orphan"
+    )
+    files: Mapped[list["JobFile"]] = relationship(back_populates="job_order_item")
+    print_jobs: Mapped[list["PrintJob"]] = relationship(back_populates="job_order_item")
+    status_events: Mapped[list["JobOrderItemStatusEvent"]] = relationship(
         back_populates="job_order_item", cascade="all, delete-orphan"
     )
 
@@ -531,6 +537,7 @@ class JobFile(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     job_order_id: Mapped[str] = mapped_column(ForeignKey("job_orders.id"), nullable=False)
+    job_order_item_id: Mapped[str | None] = mapped_column(ForeignKey("job_order_items.id"), nullable=True)
     original_filename: Mapped[str] = mapped_column(String, nullable=False)
     stored_path: Mapped[str] = mapped_column(String, nullable=False)
     kind: Mapped[str] = mapped_column(String, default="source", nullable=False)  # source | print_ready
@@ -547,6 +554,7 @@ class JobFile(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="files")
+    job_order_item: Mapped["JobOrderItem | None"] = relationship(back_populates="files")
     print_jobs: Mapped[list["PrintJob"]] = relationship(back_populates="job_file")
 
 
@@ -601,6 +609,7 @@ class PrintJob(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     job_order_id: Mapped[str] = mapped_column(ForeignKey("job_orders.id"), nullable=False)
+    job_order_item_id: Mapped[str | None] = mapped_column(ForeignKey("job_order_items.id"), nullable=True)
     printer_id: Mapped[str] = mapped_column(ForeignKey("printers.id"), nullable=False)
     job_file_id: Mapped[str | None] = mapped_column(ForeignKey("job_files.id"), nullable=True)
     copies: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -625,6 +634,7 @@ class PrintJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="print_jobs")
+    job_order_item: Mapped["JobOrderItem | None"] = relationship(back_populates="print_jobs")
     printer: Mapped["Printer"] = relationship(back_populates="print_jobs")
     job_file: Mapped["JobFile | None"] = relationship(back_populates="print_jobs")
 
@@ -642,6 +652,21 @@ class StatusEvent(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="status_events")
+
+
+class JobOrderItemStatusEvent(Base):
+    """Per-product production history inside a shared customer transaction."""
+
+    __tablename__ = "job_order_item_status_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    job_order_item_id: Mapped[str] = mapped_column(ForeignKey("job_order_items.id"), nullable=False)
+    from_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    to_status: Mapped[str] = mapped_column(String, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    job_order_item: Mapped["JobOrderItem"] = relationship(back_populates="status_events")
 
 
 class AuditEntry(Base):

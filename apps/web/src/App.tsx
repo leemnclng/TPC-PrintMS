@@ -11,6 +11,7 @@ import { CustomersPage } from "./pages/CustomersPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ConfigurationPage } from "./pages/ConfigurationPage";
+import { PricingCenterPage } from "./pages/PricingCenterPage";
 
 import { JobOrderWorkspace } from "./pages/workspaces/JobOrderWorkspace";
 import { ProductWorkspace } from "./pages/workspaces/ProductWorkspace";
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="customers/:customerId" element={<CustomerWorkspace />} />
 
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="pricing" element={<PricingCenterPage />} />
         <Route path="configuration" element={<ConfigurationPage />} />
         <Route path="configuration/variants" element={<VariantsWorkspace />} />
         <Route path="settings" element={<SettingsPage />} />

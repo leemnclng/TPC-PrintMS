@@ -526,3 +526,15 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Do not open WIA's `ShowSelectItems`/settings window for normal acquisition. Expose source, content type, 150/300/600 DPI, and standard document/photo capture areas in the Scan job modal, apply them through WIA item properties, and use `CommonDialog.ShowTransfer` only for hardware transfer/progress. If a driver rejects B&W text intent, retry acquisition in grayscale and disclose the applied mode.
 - Rationale: The external dialog duplicated context already owned by the job workflow and interrupted the single-page transaction experience. WIA exposes the required standard controls programmatically, while the retained in-app result provides a better review/retry loop than a separate preview window.
 - Impact: Automatic/Feeder/Flatbed source, Color/Grayscale/B&W text, 150/300/600 DPI, Automatic, A4, Letter, Legal, 4×6, 5×7, and 8×10 are configured inside Printing-MS. The settings selector stays closed, while standard transfer progress and durable in-app outcomes remain visible. Vendor-private controls remain outside the standard flow, and physical Canon validation is required before release.
+
+### Keep Centralized Pricing Read-Only and Source-Linked
+
+- Decision: Aggregate global document rates, product paper overrides, standalone scan rates, and variant adjustments in one Pricing Center, but edit each value only in its owning Configuration or Product workspace.
+- Rationale: A second editable pricing surface would duplicate validation and make it unclear which value is authoritative. A read-only ledger provides complete commercial visibility while retaining one source of truth.
+- Impact: Owners can search and filter all current pricing, identify custom or missing values, and navigate directly to the correct editor. Services remain workflow containers and do not gain a separate price field.
+
+### Separate Transaction Checkout from Product Production
+
+- Decision: A job order is one customer transaction containing product lines from any active service. The initially selected service scopes only the first line. Each line snapshots its operation and owns Queued/Printing/Ready status, files, printer attempts, materials, and rework; the parent owns the combined total, payment, and completion.
+- Rationale: Customers commonly purchase printing, scanning, and photocopying together, but combining their device processes would erase required validation and progress. Conversely, separate orders would fragment a single counter payment.
+- Impact: All product lines must be Ready before payment is accepted. Printing, Scan, and Photocopy retain their existing specialized modals/actions, while the workspace presents one payment breakdown and one final completion action.
