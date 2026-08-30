@@ -1,5 +1,5 @@
 import { formatCurrency } from "../../lib/format";
-import type { DocumentPricingRule, InventoryPaperSize, ProductPrintType } from "../../types/domain";
+import type { DocumentPricingRule, InventoryPaperSize, ProductOperationKind, ProductPrintType } from "../../types/domain";
 import type { MaterialSelection } from "../MaterialMultiSelect/MaterialMultiSelect";
 import "./ProductDocumentRateSelector.css";
 
@@ -15,27 +15,27 @@ interface ProductDocumentRateSelectorProps {
   /** The product's own required Print Type — only rates for this type are
    *  shown; there is no separate Colored/B&W choice at the product level. */
   printType: ProductPrintType;
+  operationKind: ProductOperationKind;
   pricingRules: DocumentPricingRule[];
   value: ProductDocumentRateSelection[];
   materialAssignments: MaterialSelection[];
   onChange: (value: ProductDocumentRateSelection[], materialAssignments: MaterialSelection[]) => void;
   disabled?: boolean;
-  requireCustomPricing?: boolean;
 }
 
 export function ProductDocumentRateSelector({
   idPrefix,
   printType,
+  operationKind,
   pricingRules,
   value,
   materialAssignments,
   onChange,
   disabled = false,
-  requireCustomPricing = false,
 }: ProductDocumentRateSelectorProps) {
   const relevantRules = pricingRules
     .filter((rule) =>
-      rule.printType === printType && (
+      rule.printType === printType && rule.pricingScope === operationKind && (
         rule.isActive || materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId)
       ))
     .sort((left, right) =>
@@ -48,9 +48,7 @@ export function ProductDocumentRateSelector({
         ? materialAssignments
         : [...materialAssignments, { inventoryItemId: rule.inventoryItemId }]
       : materialAssignments.filter((entry) => entry.inventoryItemId !== rule.inventoryItemId);
-    const nextRates = selected && requireCustomPricing && !value.some((entry) => entry.pricingRuleId === rule.id)
-      ? [...value, { pricingRuleId: rule.id, pricePerPage: rule.pricePerPage }]
-      : selected ? value : value.filter((entry) => entry.pricingRuleId !== rule.id);
+    const nextRates = selected ? value : value.filter((entry) => entry.pricingRuleId !== rule.id);
     onChange(nextRates, nextMaterials);
   }
 
@@ -100,24 +98,17 @@ export function ProductDocumentRateSelector({
             </label>
             {usesMaterial ? (
               <div className="product-document-rate-selector__pricing">
-                {requireCustomPricing ? (
-                  <div className="product-document-rate-selector__required-rate">
-                    <span>Photocopy product rate</span>
-                    <small>Independent from the global B&amp;W price</small>
-                  </div>
-                ) : (
-                  <label>
-                    <span>Pricing</span>
-                    <select
-                      value={selection ? "custom" : "global"}
-                      disabled={disabled || !rule.isActive}
-                      onChange={(event) => updateRateSource(rule, event.target.value as "global" | "custom")}
-                    >
-                      <option value="global">Global · {formatCurrency(rule.pricePerPage)}</option>
-                      <option value="custom">Custom price</option>
-                    </select>
-                  </label>
-                )}
+                <label>
+                  <span>Pricing</span>
+                  <select
+                    value={selection ? "custom" : "global"}
+                    disabled={disabled || !rule.isActive}
+                    onChange={(event) => updateRateSource(rule, event.target.value as "global" | "custom")}
+                  >
+                    <option value="global">{operationKind === "photocopy" ? "Scan or Photocopy" : "Printing"} global · {formatCurrency(rule.pricePerPage)}</option>
+                    <option value="custom">Custom price</option>
+                  </select>
+                </label>
                 {selection ? (
                   <label>
                     <span>Price per page</span>

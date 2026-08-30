@@ -2,6 +2,12 @@
 
 Chronological notes about app progress.
 
+## 2026-08-30 (interactive production panes)
+
+- Summary: Turned each production-line card into a compact launcher for its current operational step.
+- Completed: Added whole-card pointer interaction, an explicit keyboard-accessible step toggle, state-specific guidance, guarded print/scan/photocopy/quality actions, locked-record messaging, responsive action layout, and reduced-motion behavior.
+- Verified: Renderer production build and lint pass. Live browser QA was unavailable because no browser surface was connected in this session.
+
 ## 2026-08-30 (multi-service transactions)
 
 - Summary: Reworked job creation and production tracking around one customer transaction with independently processed product lines.
@@ -496,3 +502,9 @@ Chronological notes about app progress.
 - Summary: Completed the unpaid transaction correction workflow without splitting product work into new orders.
 - Completed: Ready and in-production transactions can append products from any service. Failed-quality product lines start an audited reprint/re-scan/reprocess cycle, receive a fresh material plan, and visibly retain their reprocess count. Unpaid active transactions can be cancelled with a required reason; cancellation preserves consumed inventory and blocks scanning, printing, line transitions, append operations, and manual material usage.
 - Verified: Fresh SQLite migration reaches `c2419a783f30`; all 28 API tests, renderer lint, and renderer production build pass.
+
+## 2026-08-30 (workflow-scoped global pricing)
+
+- Summary: Segregated material-linked global rates by fixed production workflow.
+- Completed: Added independent Printing and Scan or Photocopy matrices across persistence, API resolution, Configuration, Pricing Center, product overrides, product creation, analyzer pricing, and transaction pricing. Photocopy no longer requires a custom B&W rate; it inherits its workflow table unless the product overrides it. Scan retains its independent per-product softcopy rate.
+- Verified: Fresh and populated SQLite migrations reach `d352af906b41` while preserving and remapping existing photocopy overrides. All 28 API tests, renderer lint, and renderer production build pass.

@@ -55,6 +55,7 @@ export function JobOrderWorkspace() {
   const [addProductsOpen, setAddProductsOpen] = useState(false);
   const [qualityFailureItem, setQualityFailureItem] = useState<JobOrderItem | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const { data, state, error, reload } = useResource(async () => {
     const [order, materialMovements, services, products, inventoryItems, pricingRules] = await Promise.all([
       api.get<JobOrder>(`/job-orders/${jobOrderId}`),
@@ -125,6 +126,10 @@ export function JobOrderWorkspace() {
     }
   }
 
+  function toggleItemProcess(itemId: string) {
+    setExpandedItemId((current) => current === itemId ? null : itemId);
+  }
+
   return (
     <>
       <PageHeader
@@ -178,8 +183,34 @@ export function JobOrderWorkspace() {
             const paper = item.materials.find((material) => material.paperSize);
             const statusLabel = item.status === "printing" ? "Printing" : item.status === "ready" ? "Ready" : "Queued";
             const tone = item.status === "ready" ? "success" : item.status === "printing" ? "info" : "warning";
+            const isExpanded = expandedItemId === item.id;
+            const processRegionId = `job-line-process-${item.id}`;
+            const productionLocked = ["paid", "completed", "cancelled"].includes(order.status);
+            const processMeta = order.status === "cancelled"
+              ? { label: "Cancelled record", title: "Production stopped", description: "This line is locked with its existing attempts, files, and material history retained." }
+              : order.status === "completed"
+                ? { label: "Completed record", title: "Production complete", description: "This line is complete. Its output and production history remain available for reference." }
+                : order.status === "paid"
+                  ? { label: "Handoff record", title: "Ready for handoff", description: "Production is locked after payment. Complete the transaction from the status panel after customer handoff." }
+                  : item.status === "ready"
+                    ? { label: "Quality review", title: "Review the finished output", description: "If the output is accepted, no line action is needed. If it failed inspection, start a reprocess for this product only." }
+                    : item.status === "printing"
+                      ? { label: "Output confirmation", title: "Confirm the printed output", description: "Check the printer and physical pages, then record that this product finished printing." }
+                      : item.operationKind === "scan"
+                        ? { label: "Scanner step", title: "Acquire the document", description: "Open the scanner controls, capture every page, and review the retained softcopy." }
+                        : item.operationKind === "photocopy"
+                          ? { label: "Device step", title: "Record the photocopy", description: "Complete the copies at the printer, inspect them, then record completion and material use." }
+                          : { label: "Print step", title: "Prepare and print", description: "Open print setup to select the device, verify output settings, and submit this product." };
             return (
-              <article className="job-operation-card" key={item.id}>
+              <article
+                className={`job-operation-card${isExpanded ? " is-expanded" : ""}`}
+                key={item.id}
+                onClick={(event) => {
+                  const target = event.target;
+                  if (target instanceof Element && target.closest("button, a, input, select, textarea, .job-operation-card__process")) return;
+                  toggleItemProcess(item.id);
+                }}
+              >
                 <header><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><span className="job-operation-card__status">{item.reprocessCount > 0 ? <b>Reprocess × {item.reprocessCount}</b> : null}<StatusPill label={statusLabel} tone={tone} /></span></header>
                 <div className="job-operation-card__title"><div><h3>{item.productName}</h3><p>{item.serviceName} · {item.operationKind} workflow</p></div><strong>{formatCurrency(item.lineTotal)}</strong></div>
                 <dl>
@@ -188,14 +219,29 @@ export function JobOrderWorkspace() {
                   <div><dt>Output</dt><dd>{item.operationKind === "scan" ? "Digital file" : item.printSides === "double_sided" ? "Back-to-back" : "Single-sided"}</dd></div>
                   <div><dt>Progress records</dt><dd>{item.statusEvents.length} status · {order.printAttempts.filter((attempt) => attempt.jobOrderItemId === item.id).length} attempts</dd></div>
                 </dl>
-                <footer>
-                  {order.status !== "cancelled" && item.status === "queued" && item.operationKind === "printing" ? <Button variant="primary" onClick={() => setPrintItem(item)}>Open print setup</Button> : null}
-                  {order.status !== "cancelled" && item.status === "queued" && item.operationKind === "scan" ? <Button variant="primary" onClick={() => setScanItem(item)}>Start scanning</Button> : null}
-                  {order.status !== "cancelled" && item.status === "queued" && item.operationKind === "photocopy" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Record photocopy complete</Button> : null}
-                  {order.status !== "cancelled" && item.status === "printing" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Printing finished</Button> : null}
-                  {item.status === "ready" && ["queued", "printing", "ready"].includes(order.status) ? <Button variant="danger" onClick={() => setQualityFailureItem(item)}>Failed quality</Button> : null}
-                  {scanOutput ? <><Button variant="secondary" onClick={() => setPreviewFile(scanOutput)}>View softcopy</Button><Button variant="ghost" onClick={() => downloadJobFile(scanOutput)}>Download</Button></> : null}
-                </footer>
+                <button
+                  type="button"
+                  className="job-operation-card__step-toggle"
+                  aria-expanded={isExpanded}
+                  aria-controls={processRegionId}
+                  onClick={() => toggleItemProcess(item.id)}
+                >
+                  <span><small>LINE PROCESS</small><strong>{processMeta.label}</strong></span>
+                  <b>{isExpanded ? "Close step" : "Open step"}<i aria-hidden="true">{isExpanded ? "−" : "+"}</i></b>
+                </button>
+                {isExpanded ? (
+                  <section className="job-operation-card__process" id={processRegionId} aria-label={`${item.productName} process actions`}>
+                    <div><span className="numeric">ACTIVE STEP</span><h4>{processMeta.title}</h4><p>{processMeta.description}</p></div>
+                    <footer>
+                      {!productionLocked && item.status === "queued" && item.operationKind === "printing" ? <Button variant="primary" onClick={() => setPrintItem(item)}>Open print setup</Button> : null}
+                      {!productionLocked && item.status === "queued" && item.operationKind === "scan" ? <Button variant="primary" onClick={() => setScanItem(item)}>Start scanning</Button> : null}
+                      {!productionLocked && item.status === "queued" && item.operationKind === "photocopy" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Record photocopy complete</Button> : null}
+                      {!productionLocked && item.status === "printing" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Printing finished</Button> : null}
+                      {!productionLocked && item.status === "ready" ? <Button variant="danger" onClick={() => setQualityFailureItem(item)}>Failed quality</Button> : null}
+                      {scanOutput ? <><Button variant="secondary" onClick={() => setPreviewFile(scanOutput)}>View softcopy</Button><Button variant="ghost" onClick={() => downloadJobFile(scanOutput)}>Download</Button></> : null}
+                    </footer>
+                  </section>
+                ) : null}
               </article>
             );
           })}

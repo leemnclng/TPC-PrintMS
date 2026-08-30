@@ -20,7 +20,7 @@ export function ConfigurationPage() {
       <PageHeader
         eyebrow="CONFIGURATION"
         title="Configuration"
-        description="Reusable catalog options and document-analyzer pricing shared across services, products, and job orders."
+        description="Reusable catalog options and workflow-specific pricing shared across products and job orders."
         actions={<LinkButton to="/pricing" variant="secondary">View all pricing</LinkButton>}
       />
 

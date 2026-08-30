@@ -127,7 +127,7 @@ export function ProductWorkspace() {
       }
       if (form.operationKind === "photocopy") {
         const hasPaperAssignment = (data?.pricingRules ?? []).some((rule) =>
-          rule.printType === form.printType && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
+          rule.printType === form.printType && rule.pricingScope === form.operationKind && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
         if (!hasPaperAssignment) {
           setSaveError("Select at least one paper material for this photocopy product.");
           return;
@@ -144,20 +144,11 @@ export function ProductWorkspace() {
       }
       const referencePrice = isScan ? form.standalonePricePerPage ?? 0 : computeReferencePrice(
         form.printType,
+        form.operationKind,
         form.documentRates,
         data?.pricingRules ?? [],
         form.materialAssignments,
-        form.operationKind === "photocopy" && form.printType === "black_and_white",
       );
-      const requiresStandaloneRate = form.operationKind === "photocopy" && form.printType === "black_and_white";
-      const materialIds = form.materialAssignments.map((assignment) => assignment.inventoryItemId);
-      const selectedPaperRuleIds = (data?.pricingRules ?? [])
-        .filter((rule) => rule.printType === form.printType && materialIds.includes(rule.inventoryItemId))
-        .map((rule) => rule.id);
-      if (requiresStandaloneRate && selectedPaperRuleIds.some((ruleId) => !form.documentRates.some((rate) => rate.pricingRuleId === ruleId))) {
-        setSaveError("Set a product price for every selected photocopy paper.");
-        return;
-      }
       if (form.variants.some((variant) => referencePrice + variant.priceAdjustment < 0)) {
         setSaveError("A pricing variant cannot produce a negative final unit price.");
         return;
@@ -212,13 +203,12 @@ export function ProductWorkspace() {
   ) ?? [];
   const selectedPrintType = data?.printTypes.find((printType) => printType.key === form.printType);
   const isScan = form.operationKind === "scan";
-  const requiresStandaloneRate = form.operationKind === "photocopy" && form.printType === "black_and_white";
   const referencePrice = isScan ? form.standalonePricePerPage ?? 0 : computeReferencePrice(
     form.printType,
+    form.operationKind,
     form.documentRates,
     pricingRules,
     form.materialAssignments,
-    requiresStandaloneRate,
   );
 
   return (
@@ -304,9 +294,7 @@ export function ProductWorkspace() {
             <small>
               {isScan
                 ? "Standalone scanning rate with no paper, ink, or inventory usage."
-                : requiresStandaloneRate
-                ? "Computed only from this photocopy product's paper rates below."
-                : `Computed from the assigned paper material's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate below.`}
+                : `Computed from the ${form.operationKind === "photocopy" ? "Scan or Photocopy" : "Printing"} global table for the assigned paper's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate.`}
             </small>
           </div>
 
@@ -323,12 +311,13 @@ export function ProductWorkspace() {
               <section className="product-setup-section">
                 <div className="product-setup-section__heading">
                   <h3>Paper materials &amp; pricing</h3>
-                  <p>{requiresStandaloneRate ? "Select each paper and set its independent photocopy rate." : "Select the paper this product can use, then keep its global price or set a custom rate."}</p>
+                  <p>Select the paper this product can use, then keep its workflow's global price or set a custom product rate.</p>
                 </div>
                 {pricingRules.length ? (
                   <ProductDocumentRateSelector
                     idPrefix="product-workspace-document-rate"
                     printType={form.printType}
+                    operationKind={form.operationKind}
                     pricingRules={pricingRules}
                     value={form.documentRates}
                     materialAssignments={form.materialAssignments}
@@ -338,7 +327,6 @@ export function ProductWorkspace() {
                       materialAssignments,
                     }))}
                     disabled={saving}
-                    requireCustomPricing={requiresStandaloneRate}
                   />
                 ) : (
                   <div className="workspace-materials__empty">
@@ -401,6 +389,7 @@ export function ProductWorkspace() {
               items={data?.inventoryItems ?? []}
               value={form.materialAssignments}
               printType={form.printType}
+              operationKind={form.operationKind}
               pricingRules={pricingRules}
               documentRates={form.documentRates}
             />

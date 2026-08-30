@@ -2,6 +2,7 @@ import { formatCurrency } from "../../lib/format";
 import type {
   DocumentPricingRule,
   InventoryItem,
+  ProductOperationKind,
   ProductPrintType,
 } from "../../types/domain";
 import type { MaterialSelection } from "../MaterialMultiSelect/MaterialMultiSelect";
@@ -11,6 +12,7 @@ interface AssignedMaterialsSummaryProps {
   items: InventoryItem[];
   value: MaterialSelection[];
   printType: ProductPrintType;
+  operationKind: ProductOperationKind;
   pricingRules: DocumentPricingRule[];
   documentRates: ProductDocumentRateSelection[];
   error?: string | null;
@@ -20,6 +22,7 @@ export function AssignedMaterialsSummary({
   items,
   value,
   printType,
+  operationKind,
   pricingRules,
   documentRates,
   error,
@@ -44,7 +47,7 @@ export function AssignedMaterialsSummary({
           {assignedItems.map((item) => {
             const pricingRule = item.paperSize
               ? pricingRules.find(
-                  (rule) => rule.inventoryItemId === item.id && rule.printType === printType && rule.isActive,
+                  (rule) => rule.inventoryItemId === item.id && rule.printType === printType && rule.pricingScope === operationKind && rule.isActive,
                 )
               : null;
             const override = pricingRule

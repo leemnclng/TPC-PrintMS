@@ -9,6 +9,7 @@ from ..db.models import DocumentPricingRule, InventoryItem
 
 def reference_price_per_page(
     print_type: str,
+    pricing_scope: str,
     document_rate_overrides: dict[str, float],
     inventory_item_ids: list[str],
     db: Session,
@@ -19,9 +20,10 @@ def reference_price_per_page(
     override price, e.g. `{rate.pricing_rule_id: rate.price_per_page for rate
     in product.document_rates}` (or the equivalent from a not-yet-saved
     payload). The reference is the lowest usable rate among the product's
-    assigned paper materials, so catalog surfaces can honestly show a
-    starting price. Resolution per material is product override -> active
-    global rate; a product without a priced paper material resolves to 0."""
+    assigned paper materials within `pricing_scope`, so catalog surfaces can
+    honestly show a starting price. Resolution per material is product
+    override -> matching active global rate; a product without a priced paper
+    material resolves to 0."""
     if not inventory_item_ids:
         return 0.0
     rules = (
@@ -32,6 +34,7 @@ def reference_price_per_page(
             InventoryItem.paper_size.isnot(None),
             InventoryItem.is_active.is_(True),
             DocumentPricingRule.print_type == print_type,
+            DocumentPricingRule.pricing_scope == pricing_scope,
             DocumentPricingRule.is_active.is_(True),
         )
         .all()
@@ -50,6 +53,7 @@ def reference_price_per_page(
 
 def price_per_page_for_material(
     print_type: str,
+    pricing_scope: str,
     document_rate_overrides: dict[str, float],
     inventory_item_id: str,
     db: Session,
@@ -65,6 +69,7 @@ def price_per_page_for_material(
             InventoryItem.paper_size.isnot(None),
             InventoryItem.is_active.is_(True),
             DocumentPricingRule.print_type == print_type,
+            DocumentPricingRule.pricing_scope == pricing_scope,
             DocumentPricingRule.is_active.is_(True),
         )
         .first()

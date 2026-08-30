@@ -141,8 +141,9 @@ def test_analyzer_api_and_owner_pricing_rules(tmp_path) -> None:
     rules_response = client.get("/document-analyzer/pricing-rules", headers=headers)
     assert rules_response.status_code == 200
     rules = rules_response.json()
-    assert len(rules) == 3
-    a4_color = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored")
+    assert len(rules) == 6
+    assert {rule["pricingScope"] for rule in rules} == {"printing", "photocopy"}
+    a4_color = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored" and rule["pricingScope"] == "printing")
     assert a4_color["pricePerPage"] == 0
     seed_response = client.put(
         "/document-analyzer/pricing-rules",
@@ -238,9 +239,9 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
     ).json()
 
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
-    a4_color_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored")
-    a4_bw_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "black_and_white")
-    a4_semi_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "semi_colored")
+    a4_color_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored" and rule["pricingScope"] == "printing")
+    a4_bw_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "black_and_white" and rule["pricingScope"] == "printing")
+    a4_semi_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "semi_colored" and rule["pricingScope"] == "printing")
     seed_response = client.put(
         "/document-analyzer/pricing-rules",
         headers=headers,
@@ -283,6 +284,7 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
             "pricePerPage": 15,
             "paperSize": "A4",
             "printType": "colored",
+            "pricingScope": "printing",
         }
     ]
 

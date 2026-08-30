@@ -92,13 +92,12 @@ export function ProductCreateModal({
   const nameRef = useRef<HTMLInputElement>(null);
   const materialsRef = useRef<HTMLDivElement>(null);
   const isScan = form.operationKind === "scan";
-  const requiresStandaloneRate = form.operationKind === "photocopy" && form.printType === "black_and_white";
   const referencePrice = isScan ? form.standalonePricePerPage ?? 0 : computeReferencePrice(
     form.printType,
+    form.operationKind,
     form.documentRates,
     pricingRules,
     form.materialAssignments,
-    requiresStandaloneRate,
   );
 
   const nameError =
@@ -109,7 +108,7 @@ export function ProductCreateModal({
       : "Add at least one material needed to produce this product."
     : null;
   const hasPaperAssignment = pricingRules.some((rule) =>
-    rule.printType === form.printType && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
+    rule.printType === form.printType && rule.pricingScope === form.operationKind && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
   const photocopyPaperError = submitted && form.operationKind === "photocopy" && !hasPaperAssignment
     ? "Select at least one paper material for this photocopy product."
     : null;
@@ -134,16 +133,9 @@ export function ProductCreateModal({
       form.materialAssignments.length === 0 ||
       form.materialAssignments.some((assignment) => !assignment.inventoryItemId) ||
       new Set(materialIds).size !== materialIds.length);
-    const selectedPaperRuleIds = pricingRules
-      .filter((rule) => rule.printType === form.printType && materialIds.includes(rule.inventoryItemId))
-      .map((rule) => rule.id);
-    const missingStandaloneRate = requiresStandaloneRate && selectedPaperRuleIds.some(
-      (ruleId) => !form.documentRates.some((rate) => rate.pricingRuleId === ruleId),
-    );
     const invalidScanPrice = isScan && (form.standalonePricePerPage === null || form.standalonePricePerPage < 0);
-    if (!form.name.trim() || hasInvalidVariant || hasInvalidMaterial || missingStandaloneRate || (form.operationKind === "photocopy" && !hasPaperAssignment) || invalidScanPrice) {
+    if (!form.name.trim() || hasInvalidVariant || hasInvalidMaterial || (form.operationKind === "photocopy" && !hasPaperAssignment) || invalidScanPrice) {
       if (invalidScanPrice) setSaveError("Set a valid scan price per page.");
-      if (missingStandaloneRate) setSaveError("Set a product price for every selected photocopy paper.");
       window.requestAnimationFrame(() => {
         const firstInvalid = formElement.querySelector<HTMLElement>("[aria-invalid='true']");
         (firstInvalid ?? materialsRef.current)?.focus();
@@ -267,9 +259,7 @@ export function ProductCreateModal({
             <small>
               {isScan
                 ? "A standalone service rate with no paper, ink, or printing cost."
-                : requiresStandaloneRate
-                ? "Computed only from this photocopy product's paper rates below."
-                : `Computed from the assigned paper material's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate below.`}
+                : `Computed from the ${form.operationKind === "photocopy" ? "Scan or Photocopy" : "Printing"} global table for the assigned paper's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate.`}
             </small>
           </div>
 
@@ -304,12 +294,13 @@ export function ProductCreateModal({
               <section className="product-setup-section">
                 <div className="product-setup-section__heading">
                   <h3>Paper materials &amp; pricing</h3>
-                  <p>{requiresStandaloneRate ? "Select each paper and set its independent photocopy rate." : "Select the paper this product can use, then keep its global price or set a custom rate."}</p>
+                  <p>Select the paper this product can use, then keep its workflow's global price or set a custom product rate.</p>
                 </div>
                 {pricingRules.length ? (
                   <ProductDocumentRateSelector
                     idPrefix="product-create-document-rate"
                     printType={form.printType}
+                    operationKind={form.operationKind}
                     pricingRules={pricingRules}
                     value={form.documentRates}
                     materialAssignments={form.materialAssignments}
@@ -319,7 +310,6 @@ export function ProductCreateModal({
                       materialAssignments,
                     }))}
                     disabled={saving}
-                    requireCustomPricing={requiresStandaloneRate}
                   />
                 ) : (
                   <div className="product-create-form__variant-empty">
@@ -382,6 +372,7 @@ export function ProductCreateModal({
               items={inventoryItems}
               value={form.materialAssignments}
               printType={form.printType}
+              operationKind={form.operationKind}
               pricingRules={pricingRules}
               documentRates={form.documentRates}
               error={materialsError}

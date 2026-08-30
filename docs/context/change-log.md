@@ -2,6 +2,12 @@
 
 Track notable app changes by date.
 
+## 2026-08-30 (interactive production panes)
+
+- Changed: Production-line cards now open a contextual process panel when the owner clicks the pane or its keyboard-accessible step control.
+- Added: Each state explains and exposes its correct next action: print setup, scanning, photocopy completion, print confirmation, quality reprocessing, softcopy access, or a locked audit record.
+- Changed: Status and inventory mutations remain behind explicit action buttons; opening a pane never changes production data.
+
 ## 2026-08-30 (multi-service transactions)
 
 - Changed: New Job Order starts from an initial service but now accepts additional products from any active service in the same transaction.
@@ -261,3 +267,7 @@ Track notable app changes by date.
 - Changed: Every physical reprocess receives a fresh material allowance; successful replacement printing or photocopy completion deducts it again without restoring the rejected output's consumption.
 - Added: Job lists and production cards show reprocess cycle counts for quick identification.
 - Added: Active unpaid transactions can be cancelled with a required reason; cancelled orders retain history and consumed inventory while blocking further production.
+- Added: Separate global paper-rate tables for Printing and Scan or Photocopy, each segmented by stocked material and active print type.
+- Changed: Product and transaction pricing now inherit only from the global table matching the product workflow, then apply any product override.
+- Changed: B&W photocopy products may use the Scan or Photocopy global rate instead of requiring a custom price for every paper.
+- Preserved: Scan products keep a product-specific per-page softcopy rate because scanning consumes no paper or printing ink.

@@ -86,6 +86,7 @@ export interface ProductDocumentRate {
   pricingRuleId: string;
   paperSize: InventoryPaperSize;
   printType: ProductPrintType;
+  pricingScope: "printing" | "photocopy";
   pricePerPage: number;
 }
 
@@ -467,6 +468,7 @@ export interface DocumentPricingRule {
   inventoryItemName: string;
   paperSize: InventoryPaperSize;
   printType: ProductPrintType;
+  pricingScope: "printing" | "photocopy";
   pricePerPage: number;
   isActive: boolean;
 }

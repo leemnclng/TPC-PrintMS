@@ -29,6 +29,7 @@ class ProductDocumentRateRead(ProductDocumentRateIn):
     id: str
     paper_size: InventoryPaperSize
     print_type: str
+    pricing_scope: Literal["printing", "photocopy"]
 
 
 class ProductMaterialAssignmentIn(CamelModel):

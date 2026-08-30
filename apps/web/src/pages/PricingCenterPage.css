@@ -39,11 +39,17 @@
 .pricing-text-link,
 .pricing-row-link { color: var(--color-accent); font-size: var(--text-sm); font-weight: 600; text-decoration: underline; text-underline-offset: 0.18em; }
 
+.pricing-global-scopes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--color-hairline-strong); border-left: 1px solid var(--color-hairline-strong); }
+.pricing-global-scopes > section { min-width: 0; border-right: 1px solid var(--color-hairline-strong); border-bottom: 1px solid var(--color-hairline-strong); }
+.pricing-global-scopes > section > header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: var(--space-1) var(--space-3); padding: var(--space-3) var(--space-4); background: var(--color-paper-3); }
+.pricing-global-scopes > section > header span { color: var(--color-accent); font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: .04em; }
+.pricing-global-scopes > section > header h3 { margin: 0; font-family: var(--font-display); font-size: var(--text-lg); }
+.pricing-global-scopes > section > header small { grid-column: 1 / -1; color: var(--color-ink-faint); }
+
 .pricing-global-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   border-top: 1px solid var(--color-hairline);
-  border-left: 1px solid var(--color-hairline);
 }
 
 .pricing-global-grid > div {
@@ -135,6 +141,7 @@
   .pricing-summary > div:nth-child(2) { border-right: 0; }
   .pricing-summary > div:nth-child(-n + 2) { border-bottom: 1px solid var(--color-hairline); }
   .pricing-toolbar { grid-template-columns: 1fr; }
+  .pricing-global-scopes { grid-template-columns: minmax(0, 1fr); }
   .pricing-service-table__service { position: static; }
 }
 

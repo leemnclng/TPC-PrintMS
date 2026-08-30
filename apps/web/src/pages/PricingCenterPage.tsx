@@ -15,6 +15,10 @@ import "./PricingCenterPage.css";
 
 type PriceFilter = "all" | "custom" | "global" | "missing";
 const PAPER_SIZES: InventoryPaperSize[] = ["A4", "Letter", "Legal"];
+const GLOBAL_SCOPES = [
+  { key: "printing" as const, label: "Printing" },
+  { key: "photocopy" as const, label: "Scan or Photocopy" },
+];
 
 function workflowLabel(service: Service): string {
   if (service.category === "printing") return "Printing";
@@ -107,14 +111,16 @@ export function PricingCenterPage() {
           </section>
 
           <Card className="pricing-global-card">
-            <CardHeader title="Global paper rates" action={<Link className="pricing-text-link" to="/configuration#document-pricing">Edit in Configuration</Link>} />
-            <p className="pricing-card-copy">These are the default per-page prices. A product row below clearly marks any value that overrides them.</p>
+            <CardHeader title="Global workflow rates" action={<Link className="pricing-text-link" to="/configuration#document-pricing">Edit in Configuration</Link>} />
+            <p className="pricing-card-copy">Printing and Photocopy resolve from separate material-linked defaults. A product row below clearly marks any value that overrides its workflow table.</p>
             {data.rules.length ? (
-              <div className="pricing-global-grid">
-                {data.rules.map((rule) => {
-                  const type = data.printTypes.find((candidate) => candidate.key === rule.printType);
-                  return <div key={rule.id} className={!rule.isActive ? "is-inactive" : ""}><span>{rule.paperSize}</span><strong>{formatCurrency(rule.pricePerPage)}</strong><small>{type?.label ?? rule.printType} · {rule.inventoryItemName}{rule.isActive ? "" : " · Inactive"}</small></div>;
-                })}
+              <div className="pricing-global-scopes">
+                {GLOBAL_SCOPES.map((scope) => <section key={scope.key}><header><span>GLOBAL TABLE</span><h3>{scope.label}</h3>{scope.key === "photocopy" ? <small>Photocopy output; scanning remains per-product.</small> : <small>Uploaded documents sent to the printer.</small>}</header><div className="pricing-global-grid">
+                  {data.rules.filter((rule) => rule.pricingScope === scope.key).map((rule) => {
+                    const type = data.printTypes.find((candidate) => candidate.key === rule.printType);
+                    return <div key={rule.id} className={!rule.isActive ? "is-inactive" : ""}><span>{rule.paperSize}</span><strong>{formatCurrency(rule.pricePerPage)}</strong><small>{type?.label ?? rule.printType} · {rule.inventoryItemName}{rule.isActive ? "" : " · Inactive"}</small></div>;
+                  })}
+                </div></section>)}
               </div>
             ) : <p className="pricing-inline-empty">No global paper pricing has been configured.</p>}
           </Card>

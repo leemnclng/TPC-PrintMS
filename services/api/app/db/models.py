@@ -99,6 +99,11 @@ class ProductOperationKind(str, enum.Enum):
     scan = "scan"
 
 
+class DocumentPricingScope(str, enum.Enum):
+    printing = "printing"
+    photocopy = "photocopy"
+
+
 class InventoryPaperSize(str, enum.Enum):
     """The only paper sizes the shop stocks and prices by. Deliberately a
     closed set — see decisions.md "Tie Document Pricing to Real Paper Stock"."""
@@ -226,16 +231,23 @@ class Variant(TimestampMixin, Base):
 
 
 class DocumentPricingRule(TimestampMixin, Base):
-    """Owner-configurable global per-page rate for one real paper-stock
-    inventory item. Acts as the default a product's own rate falls back to
-    — see `ProductDocumentRate`."""
+    """Workflow-scoped global rate for one real paper-stock item and print type."""
 
     __tablename__ = "document_pricing_rules"
-    __table_args__ = (UniqueConstraint("inventory_item_id", "print_type"),)
+    __table_args__ = (
+        UniqueConstraint("inventory_item_id", "print_type", "pricing_scope"),
+        CheckConstraint(
+            "pricing_scope IN ('printing', 'photocopy')",
+            name="ck_document_pricing_rules_scope",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     inventory_item_id: Mapped[str] = mapped_column(ForeignKey("inventory_items.id"), nullable=False)
     print_type: Mapped[str] = mapped_column(ForeignKey("print_types.key"), nullable=False)
+    pricing_scope: Mapped[str] = mapped_column(
+        String, default=DocumentPricingScope.printing.value, nullable=False
+    )
     price_per_page: Mapped[float] = mapped_column(Float, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -325,6 +337,10 @@ class ProductDocumentRate(Base):
     @property
     def print_type(self) -> str:
         return self.pricing_rule.print_type
+
+    @property
+    def pricing_scope(self) -> str:
+        return self.pricing_rule.pricing_scope
 
 
 class InventoryItem(TimestampMixin, Base):

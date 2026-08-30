@@ -44,10 +44,10 @@ def _to_read(product: Product, db: Session) -> ProductRead:
             if product.operation_kind == "scan"
             else reference_price_per_page(
                 product.print_type,
+                product.operation_kind,
                 overrides,
                 material_ids,
                 db,
-                require_override=_requires_standalone_rate(product.operation_kind, product.print_type),
             )
         ),
         is_active=product.is_active,
@@ -87,16 +87,17 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         raise HTTPException(status_code=404, detail="Service not found.")
     _validate_operation(service, data["operation_kind"], data["standalone_price_per_page"], variants, material_assignments, document_rates)
     _validate_print_type(data["print_type"], db, require_active=True)
-    document_rates = _clean_document_rates(document_rates, data["print_type"], db)
+    document_rates = _clean_document_rates(
+        document_rates, data["print_type"], data["operation_kind"], db
+    )
     _validate_material_assignments(material_assignments, db, require_active=True)
     _validate_photocopy_materials(data["operation_kind"], material_assignments, db)
-    _validate_standalone_rates(data["operation_kind"], data["print_type"], material_assignments, document_rates, db)
     reference_price = data["standalone_price_per_page"] if data["operation_kind"] == "scan" else reference_price_per_page(
         data["print_type"],
+        data["operation_kind"],
         {rate["pricing_rule_id"]: rate["price_per_page"] for rate in document_rates},
         [assignment["inventory_item_id"] for assignment in material_assignments],
         db,
-        require_override=_requires_standalone_rate(data["operation_kind"], data["print_type"]),
     )
     variants = _clean_variants(variants, reference_price, db, require_active=True)
     product = Product(**data)
@@ -135,16 +136,17 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
         db,
         require_active=data["print_type"] != product.print_type,
     )
-    document_rates = _clean_document_rates(document_rates, data["print_type"], db)
+    document_rates = _clean_document_rates(
+        document_rates, data["print_type"], data["operation_kind"], db
+    )
     _validate_material_assignments(material_assignments, db)
     _validate_photocopy_materials(data["operation_kind"], material_assignments, db)
-    _validate_standalone_rates(data["operation_kind"], data["print_type"], material_assignments, document_rates, db)
     reference_price = data["standalone_price_per_page"] if data["operation_kind"] == "scan" else reference_price_per_page(
         data["print_type"],
+        data["operation_kind"],
         {rate["pricing_rule_id"]: rate["price_per_page"] for rate in document_rates},
         [assignment["inventory_item_id"] for assignment in material_assignments],
         db,
-        require_override=_requires_standalone_rate(data["operation_kind"], data["print_type"]),
     )
     existing_variant_ids = {variant.variant_id for variant in product.variants}
     variants = _clean_variants(
@@ -229,7 +231,9 @@ def _clean_variants(
     return variants
 
 
-def _clean_document_rates(document_rates: list[dict], print_type, db: Session) -> list[dict]:
+def _clean_document_rates(
+    document_rates: list[dict], print_type: str, operation_kind: str, db: Session
+) -> list[dict]:
     rule_ids = [rate["pricing_rule_id"] for rate in document_rates]
     if len(rule_ids) != len(set(rule_ids)):
         raise HTTPException(status_code=409, detail="Each paper size can be overridden only once.")
@@ -244,6 +248,16 @@ def _clean_document_rates(document_rates: list[dict], print_type, db: Session) -
             status_code=422,
             detail=f"A document pricing override must match this product's print type ({print_type}).",
         )
+    if mismatched_scope := next(
+        (rule for rule in rules if rule.pricing_scope != operation_kind), None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "A product pricing override must use the global table for "
+                f"{operation_kind.replace('_', ' ')} products."
+            ),
+        )
     return document_rates
 
 
@@ -255,10 +269,6 @@ def _validate_print_type(print_type: str, db: Session, *, require_active: bool) 
     if require_active and not definition.is_active:
         raise HTTPException(status_code=409, detail=f"Print type is inactive: {definition.label}.")
     return definition
-
-
-def _requires_standalone_rate(operation_kind: str, print_type: str) -> bool:
-    return operation_kind == "photocopy" and print_type == "black_and_white"
 
 
 def _validate_operation(
@@ -300,37 +310,3 @@ def _validate_photocopy_materials(
     ).first()
     if not has_paper:
         raise HTTPException(status_code=422, detail="Assign at least one priced paper material to a photocopy product.")
-
-
-def _validate_standalone_rates(
-    operation_kind: str,
-    print_type: str,
-    material_assignments: list[dict],
-    document_rates: list[dict],
-    db: Session,
-) -> None:
-    if not _requires_standalone_rate(operation_kind, print_type):
-        return
-    assignment_ids = [entry["inventory_item_id"] for entry in material_assignments]
-    paper_ids = {
-        item.id
-        for item in db.query(InventoryItem)
-        .filter(InventoryItem.id.in_(assignment_ids), InventoryItem.paper_size.isnot(None))
-        .all()
-    }
-    overridden_rule_ids = {entry["pricing_rule_id"] for entry in document_rates}
-    covered_paper_ids = {
-        rule.inventory_item_id
-        for rule in db.query(DocumentPricingRule)
-        .filter(
-            DocumentPricingRule.id.in_(overridden_rule_ids),
-            DocumentPricingRule.print_type == print_type,
-        )
-        .all()
-    }
-    if missing := paper_ids - covered_paper_ids:
-        item = db.get(InventoryItem, next(iter(missing)))
-        raise HTTPException(
-            status_code=422,
-            detail=f"Set a custom photocopy price for {item.name if item else 'each assigned paper'}.",
-        )

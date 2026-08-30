@@ -14,6 +14,21 @@ import "../SettingsPage.css";
 import { PrintTypeCreateModal } from "./PrintTypeCreateModal";
 
 const PAPER_ORDER: InventoryPaperSize[] = ["A4", "Letter", "Legal"];
+const PRICING_SCOPES = [
+  {
+    key: "printing" as const,
+    label: "Printing",
+    eyebrow: "FILE-BASED OUTPUT",
+    description: "Default paper and print-type rates for products that send an uploaded document to the printer.",
+  },
+  {
+    key: "photocopy" as const,
+    label: "Scan or Photocopy",
+    eyebrow: "DEVICE-SIDE OUTPUT",
+    description: "Default paper and print-type rates for Photocopy products. Scan products remain per-product because they consume no print material.",
+  },
+];
+
 export function DocumentPricingSettings() {
   const { data, state, error, reload } = useResource(
     async () => {
@@ -79,8 +94,8 @@ export function DocumentPricingSettings() {
           )}
         />
         <p className="settings-placeholder-text">
-          Global per-page rates for each stocked paper size. Products may override their own rate; job orders and
-          the Document Analyzer both price from these rates when a product doesn't.
+          Configure a separate global table for each built-in workflow. Every value remains tied to real paper
+          inventory and may still be overridden by an individual product.
         </p>
 
         {state === "loading" ? <LoadingState label="Loading pricing rules…" /> : null}
@@ -96,52 +111,59 @@ export function DocumentPricingSettings() {
 
         {state === "ready" && rules.length > 0 ? (
           <form className="settings-pricing-form" onSubmit={handleSubmit}>
-            <div className="settings-pricing-table" role="table" aria-label="Document analyzer per-page pricing rules">
-              <div className="settings-pricing-table__header" role="row" style={tableColumns}>
-                <span role="columnheader">Paper</span>
-                {printTypes.map((printType) => (
-                  <span role="columnheader" key={printType.key}>
-                    <strong>{printType.label || formatProductPrintType(printType.key)}</strong>
-                    <small>{printType.appliesInkCoverage ? "Base + ink coverage" : "Configured rate only"}</small>
-                  </span>
-                ))}
-              </div>
-              {PAPER_ORDER.filter((paperSize) => rules.some((rule) => rule.paperSize === paperSize)).map((paperSize) => {
-                const inventoryItemName = rules.find((rule) => rule.paperSize === paperSize)?.inventoryItemName;
+            <div className="settings-pricing-scopes">
+              {PRICING_SCOPES.map((scope, scopeIndex) => {
+                const scopedRules = rules.filter((rule) => rule.pricingScope === scope.key);
                 return (
-                  <div className="settings-pricing-table__row" role="row" key={paperSize} style={tableColumns}>
-                    <strong role="rowheader">
-                      {paperSize}
-                      {inventoryItemName ? <small> · {inventoryItemName}</small> : null}
-                    </strong>
-                    {printTypes.map((printType) => {
-                      const rule = rules.find((candidate) => candidate.paperSize === paperSize && candidate.printType === printType.key);
-                      return rule ? (
-                        <div className="settings-pricing-table__rate" role="cell" key={printType.key}>
-                          <label>
-                            <span>₱</span>
-                            <input
-                              className="numeric"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={rule.pricePerPage}
-                              aria-label={`${printType.label} rate for ${paperSize}`}
-                              onChange={(event) => updateRule(rule.id, { pricePerPage: Number(event.target.value) })}
-                            />
-                          </label>
-                          <label className="settings-pricing-table__toggle">
-                            <input
-                              type="checkbox"
-                              checked={rule.isActive}
-                              onChange={(event) => updateRule(rule.id, { isActive: event.target.checked })}
-                            />
-                            <span>Use</span>
-                          </label>
-                        </div>
-                      ) : <span role="cell" key={printType.key}>—</span>;
-                    })}
-                  </div>
+                  <section className="settings-pricing-scope" key={scope.key} aria-labelledby={`pricing-scope-${scope.key}`}>
+                    <header className="settings-pricing-scope__header">
+                      <span className="numeric">{String(scopeIndex + 1).padStart(2, "0")} / {scope.eyebrow}</span>
+                      <div><h3 id={`pricing-scope-${scope.key}`}>{scope.label}</h3><p>{scope.description}</p></div>
+                      <output>{scopedRules.filter((rule) => rule.isActive).length}<small>active rates</small></output>
+                    </header>
+                    <div className="settings-pricing-table" role="table" aria-label={`${scope.label} per-page pricing rules`}>
+                      <div className="settings-pricing-table__header" role="row" style={tableColumns}>
+                        <span role="columnheader">Paper material</span>
+                        {printTypes.map((printType) => (
+                          <span role="columnheader" key={printType.key}>
+                            <strong>{printType.label || formatProductPrintType(printType.key)}</strong>
+                            <small>{printType.appliesInkCoverage ? "Base + ink coverage" : "Paper and ink included"}</small>
+                          </span>
+                        ))}
+                      </div>
+                      {PAPER_ORDER.filter((paperSize) => scopedRules.some((rule) => rule.paperSize === paperSize)).map((paperSize) => {
+                        const inventoryItemName = scopedRules.find((rule) => rule.paperSize === paperSize)?.inventoryItemName;
+                        return (
+                          <div className="settings-pricing-table__row" role="row" key={paperSize} style={tableColumns}>
+                            <strong role="rowheader"><span>{paperSize}</span>{inventoryItemName ? <small>{inventoryItemName}</small> : null}</strong>
+                            {printTypes.map((printType) => {
+                              const rule = scopedRules.find((candidate) => candidate.paperSize === paperSize && candidate.printType === printType.key);
+                              return rule ? (
+                                <div className="settings-pricing-table__rate" role="cell" key={printType.key}>
+                                  <label>
+                                    <span>₱</span>
+                                    <input
+                                      className="numeric"
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={rule.pricePerPage}
+                                      aria-label={`${scope.label} ${printType.label} rate for ${paperSize}`}
+                                      onChange={(event) => updateRule(rule.id, { pricePerPage: Number(event.target.value) })}
+                                    />
+                                  </label>
+                                  <label className="settings-pricing-table__toggle">
+                                    <input type="checkbox" checked={rule.isActive} onChange={(event) => updateRule(rule.id, { isActive: event.target.checked })} />
+                                    <span>Use</span>
+                                  </label>
+                                </div>
+                              ) : <span role="cell" key={printType.key}>—</span>;
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
                 );
               })}
             </div>

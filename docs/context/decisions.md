@@ -544,3 +544,15 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Treat each failed-quality retry as a new product-level production cycle. Keep prior print attempts, scan history, status events, and consumed inventory; add one equivalent material allowance for a physical replacement and deduct it when that replacement is produced. Allow products to be appended only before the parent is Paid. Cancellation is transaction-level, requires a reason, and is allowed only before a verified payment or completion.
 - Rationale: Rejected output still consumed paper and supplies, while only the affected product needs to run again. Reversing stock would understate real usage, and changing a paid transaction would make its combined receipt unreliable.
 - Impact: Reprocess counts appear in the list and workspace. Cancelled transactions become immutable inside Printing-MS, but an already-submitted operating-system print may still require separate queue cancellation. Refund handling remains a prerequisite before cancelling a paid transaction.
+
+### Scope Global Paper Pricing by Fixed Workflow
+
+- Decision: Store global rates by `paper material × print type × workflow`, with fixed Printing and Photocopy scopes. Printing products resolve only from Printing; Photocopy products resolve only from the Scan or Photocopy table. Product-specific overrides remain attached to one rule in the matching scope. Scan pricing stays on the product and outside the material matrix.
+- Rationale: Printing and photocopy may use the same stocked paper and print-type vocabulary while having different operating prices. One shared matrix allowed unrelated products to inherit the wrong commercial default. Scan has no paper/ink relationship, so placing it in either physical-output matrix would fabricate a material dependency.
+- Impact: Existing global rates are copied into the new Photocopy scope during migration to preserve behavior; existing photocopy overrides are remapped to those copies. Owners may then change either workflow independently. New stocked paper and new print types receive entries in both physical-output tables.
+
+### Use Production Panes as Process Launchers
+
+- Decision: Let the owner open any product pane to reveal its current operation and controls, while requiring a separate explicit button for every status or inventory mutation.
+- Rationale: The production board should behave like an operational workflow rather than a passive report, but a broad card click must not accidentally submit printing, deduct stock, or start reprocessing.
+- Impact: Pointer users may open the whole pane, keyboard users receive a visible 44-pixel step control, only one pane stays open at a time, and paid, completed, or cancelled lines expose retained records without production controls.

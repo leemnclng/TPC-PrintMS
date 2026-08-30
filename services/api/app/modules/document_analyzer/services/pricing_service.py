@@ -16,7 +16,7 @@ class PricingService:
 
     def ensure_defaults(self, db: Session) -> list[DocumentPricingRule]:
         """Every active, paper-tagged inventory item gets a rule per print
-        type (starting at ₱0, for the owner to configure). Unlike the old
+        type and physical-output workflow (starting at ₱0). Unlike the old
         fixed paper-size list, this is fully driven by what the owner has
         actually tagged as paper stock in Inventory — see decisions.md "Tie
         Document Pricing to Real Paper Stock"."""
@@ -26,21 +26,27 @@ class PricingService:
             .filter(InventoryItem.paper_size.isnot(None), InventoryItem.is_active.is_(True))
             .all()
         )
-        existing = {(rule.inventory_item_id, rule.print_type) for rule in db.query(DocumentPricingRule).all()}
+        scopes = ("printing", "photocopy")
+        existing = {
+            (rule.inventory_item_id, rule.print_type, rule.pricing_scope)
+            for rule in db.query(DocumentPricingRule).all()
+        }
         created_default = False
         for item in paper_items:
             for print_type in print_types:
-                if (item.id, print_type.key) in existing:
-                    continue
-                db.add(
-                    DocumentPricingRule(
-                        inventory_item_id=item.id,
-                        print_type=print_type.key,
-                        price_per_page=0.0,
-                        is_active=True,
+                for scope in scopes:
+                    if (item.id, print_type.key, scope) in existing:
+                        continue
+                    db.add(
+                        DocumentPricingRule(
+                            inventory_item_id=item.id,
+                            print_type=print_type.key,
+                            pricing_scope=scope,
+                            price_per_page=0.0,
+                            is_active=True,
+                        )
                     )
-                )
-                created_default = True
+                    created_default = True
         if created_default:
             db.commit()
         # Every rule is returned (even ones whose item has since gone
@@ -57,12 +63,19 @@ class PricingService:
         paper_inventory_item_id: str | None = None,
     ) -> PricingResult:
         rules = self.ensure_defaults(db)
-        usable_rules = [rule for rule in rules if rule.inventory_item.is_active]
+        usable_rules = [
+            rule for rule in rules
+            if rule.inventory_item.is_active and rule.pricing_scope == "printing"
+        ]
         overrides: dict[tuple[str, str], float] | None = None
         definition: PrintType | None = None
         pricing_paper_size = None
         if product is not None:
             definition = db.get(PrintType, product.print_type)
+            usable_rules = [
+                rule for rule in rules
+                if rule.inventory_item.is_active and rule.pricing_scope == product.operation_kind
+            ]
             assigned_material_ids = {assignment.inventory_item_id for assignment in product.material_assignments}
             usable_rules = [
                 rule
@@ -108,6 +121,7 @@ class PricingService:
             inventory_item_name=rule.inventory_item.name,
             paper_size=rule.paper_size,
             print_type=rule.print_type,
+            pricing_scope=rule.pricing_scope,
             price_per_page=rule.price_per_page,
             is_active=rule.is_active,
         )

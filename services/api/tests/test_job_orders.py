@@ -98,8 +98,9 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     # A catalog reference uses the lowest assigned paper-material rate, while
     # a job line must use the exact paper material selected for that line.
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
-    bw_a4_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "black_and_white")
-    bw_letter_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "black_and_white")
+    bw_a4_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "black_and_white" and rule["pricingScope"] == "printing")
+    bw_letter_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "black_and_white" and rule["pricingScope"] == "printing")
+    photocopy_bw_a4_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "black_and_white" and rule["pricingScope"] == "photocopy")
     rate_response = client.put(
         "/document-analyzer/pricing-rules",
         headers=headers,
@@ -107,6 +108,7 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
             "rules": [
                 {"id": bw_a4_rule["id"], "pricePerPage": 5, "isActive": True},
                 {"id": bw_letter_rule["id"], "pricePerPage": 2, "isActive": True},
+                {"id": photocopy_bw_a4_rule["id"], "pricePerPage": 3, "isActive": True},
             ]
         },
     )
@@ -276,7 +278,24 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
         headers=headers,
         json={"name": "Xerox", "category": "photocopy", "isActive": True},
     ).json()
-    missing_custom_rate = client.post(
+    wrong_scope_rate = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": photocopy_service["id"],
+            "name": "Wrong global table",
+            "operationKind": "photocopy",
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}],
+            "documentRates": [{"pricingRuleId": bw_a4_rule["id"], "pricePerPage": 3}],
+        },
+    )
+    assert wrong_scope_rate.status_code == 422
+    assert "global table for photocopy" in wrong_scope_rate.json()["detail"]
+
+    global_photocopy_rate = client.post(
         "/products",
         headers=headers,
         json={
@@ -289,7 +308,9 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
             "materialAssignments": [{"inventoryItemId": paper["id"]}],
         },
     )
-    assert missing_custom_rate.status_code == 422
+    assert global_photocopy_rate.status_code == 201
+    assert global_photocopy_rate.json()["pricePerPage"] == 3
+    assert global_photocopy_rate.json()["documentRates"] == []
 
     photocopy_product = client.post(
         "/products",
@@ -302,7 +323,7 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
             "isActive": True,
             "variants": [{"variantId": back_to_back["id"], "priceAdjustment": 1}],
             "materialAssignments": [{"inventoryItemId": paper["id"]}],
-            "documentRates": [{"pricingRuleId": bw_a4_rule["id"], "pricePerPage": 3}],
+            "documentRates": [{"pricingRuleId": photocopy_bw_a4_rule["id"], "pricePerPage": 3}],
         },
     ).json()
     photocopy_response = client.post(
@@ -588,7 +609,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     # Detection must remain advisory throughout pricing, inventory, and printing.
     paper = _create_material(client, headers, "Letter transaction paper", "sheet", 100, paper_size="Letter")
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
-    bw_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "black_and_white")
+    bw_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "black_and_white" and rule["pricingScope"] == "printing")
     assert client.put(
         "/document-analyzer/pricing-rules",
         headers=headers,

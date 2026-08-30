@@ -264,15 +264,15 @@ def create_photocopy_job_order(
     overrides = {rate.pricing_rule_id: rate.price_per_page for rate in product.document_rates}
     base_rate = price_per_page_for_material(
         product.print_type,
+        product.operation_kind,
         overrides,
         paper_assignment.inventory_item_id,
         db,
-        require_override=product.print_type == "black_and_white",
     )
     if base_rate is None:
         raise HTTPException(
             status_code=422,
-            detail=f"Set a custom photocopy price for {paper_assignment.inventory_item.name}.",
+            detail=f"Configure the global photocopy price for {paper_assignment.inventory_item.name}.",
         )
     price_per_page = round(base_rate + (selected_variant.price_adjustment if selected_variant else 0), 2)
     if price_per_page < 0:
@@ -783,10 +783,10 @@ async def _save_transaction_lines(
                 pages = line.pages_per_copy
                 base_rate = price_per_page_for_material(
                     product.print_type,
+                    product.operation_kind,
                     overrides,
                     assignment.inventory_item_id,
                     db,
-                    require_override=product.print_type == "black_and_white",
                 )
                 if base_rate is None:
                     raise HTTPException(status_code=422, detail=f"Set a custom price for {product.name}.")
@@ -1127,10 +1127,10 @@ def _create_job_order(
             for material_id in active_paper_ids
             if price_per_page_for_material(
                 product.print_type,
+                product.operation_kind,
                 overrides,
                 material_id,
                 db,
-                require_override=product.operation_kind == "photocopy" and product.print_type == "black_and_white",
             ) is not None
         ]
         if active_paper_ids and not configured_paper_ids:
@@ -1177,18 +1177,18 @@ def _create_job_order(
         reference_price = product.standalone_price_per_page if product.operation_kind == "scan" else (
             price_per_page_for_material(
                 product.print_type,
+                product.operation_kind,
                 overrides,
                 priced_material_ids[0],
                 db,
-                require_override=product.operation_kind == "photocopy" and product.print_type == "black_and_white",
             )
             if priced_material_ids
             else reference_price_per_page(
                 product.print_type,
+                product.operation_kind,
                 overrides,
                 [assignment.inventory_item_id for assignment in product.material_assignments],
                 db,
-                require_override=product.operation_kind == "photocopy" and product.print_type == "black_and_white",
             )
         )
         reference_price = reference_price if reference_price is not None else 0.0

@@ -45,9 +45,8 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
     .filter((item): item is InventoryItem => Boolean(item?.isActive && item.paperSize)) ?? [];
   const selectedPaper = papers.find((paper) => paper.id === form.paperInventoryItemId);
   const duplexVariant = selectedProduct?.variants.find((variant) => variant.requiresManualDuplex);
-  const requireCustomRate = selectedProduct?.printType === "black_and_white";
   const baseRate = !isScan && selectedProduct && selectedPaper
-    ? computeSelectedMaterialPrice(selectedProduct.printType, selectedProduct.documentRates, pricingRules, selectedPaper.id, requireCustomRate)
+    ? computeSelectedMaterialPrice(selectedProduct.printType, selectedProduct.operationKind, selectedProduct.documentRates, pricingRules, selectedPaper.id)
     : null;
   const unitPrice = baseRate === null ? null : Math.max(0, baseRate + (form.backToBack ? duplexVariant?.priceAdjustment ?? 0 : 0));
   const totalPages = Math.max(0, form.pagesPerCopy) * Math.max(0, form.copies);
