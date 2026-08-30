@@ -33,3 +33,25 @@ class BusinessProfileUpdate(CamelModel):
         if not value:
             raise ValueError("Owner name is required.")
         return value
+
+
+class StorageStatusRead(CamelModel):
+    stage: str
+    environment_directory: str
+    database_path: str
+    managed_files_directory: str
+    config_path: str
+    backup_directory: str
+    managed_file_count: int
+    managed_file_bytes: int
+    backup_count: int
+    last_backup_at: str | None
+    config_updated_at: str | None
+
+
+class RestoreResultRead(CamelModel):
+    stage: str
+    restored_at: str
+    managed_file_count: int
+    safety_backup_filename: str
+    message: str

@@ -125,6 +125,15 @@ export interface Product {
   updatedAt: string;
 }
 
+export interface DeletedProduct {
+  id: string;
+  serviceId: string;
+  serviceName: string;
+  name: string;
+  deletedAt: string;
+  purgeAfter: string;
+}
+
 export interface InventoryItem {
   id: string;
   name: string;
@@ -365,6 +374,28 @@ export interface BusinessProfile {
   address?: string | null;
   quotationPrefix: string;
   jobOrderPrefix: string;
+}
+
+export interface StorageStatus {
+  stage: "development" | "production" | "test";
+  environmentDirectory: string;
+  databasePath: string;
+  managedFilesDirectory: string;
+  configPath: string;
+  backupDirectory: string;
+  managedFileCount: number;
+  managedFileBytes: number;
+  backupCount: number;
+  lastBackupAt?: string | null;
+  configUpdatedAt?: string | null;
+}
+
+export interface RestoreResult {
+  stage: "development" | "production" | "test";
+  restoredAt: string;
+  managedFileCount: number;
+  safetyBackupFilename: string;
+  message: string;
 }
 
 export interface HealthStatus {

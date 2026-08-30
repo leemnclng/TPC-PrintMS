@@ -334,6 +334,12 @@ Track product and technical decisions that affect future development.
 - Rationale: Development and production must never share an implicit database, while test runs need a third disposable data boundary. Applying the stage only at startup avoids changing SQLAlchemy connections while the application is running.
 - Impact: `services/api/.env.example` scaffolds all stages. Operators change `PRINT_MS_STAGE` and restart, and Settings marks the active database plus the source of every path.
 
+### Treat Each Environment Folder as One Recoverable Unit
+
+- Decision: Development, test, and production each own a complete folder under `PRINT_MS_DATA_DIR`: `printing-ms.db`, `files/`, `backups/`, and a non-secret `config.json` snapshot. Backup exports the active boundary as a checksum-verified ZIP; restore accepts only the active stage and creates a pre-restore safety archive first.
+- Rationale: Database-only copies leave uploaded and scanned documents behind, while shared file folders can mix test and live records. One boundary makes upgrades, reinstalls, and recovery predictable.
+- Impact: Existing database and file locations are copied forward without deleting the originals. Owner/runtime config is mirrored after startup and profile edits. Environment variables remain the bootstrap source for selecting the active path and are never placed in a backup with secrets.
+
 ### Remove the Separate Production Page
 
 - Decision: Remove Production from primary navigation and routing. Production status remains part of Job Orders, individual job workspaces, and Overview rather than a duplicate board.
@@ -523,9 +529,17 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 ### Keep Standard Scan Configuration Inside Printing-MS
 
-- Decision: Do not open WIA's `ShowSelectItems`/settings window for normal acquisition. Expose source, content type, 150/300/600 DPI, and standard document/photo capture areas in the Scan job modal, apply them through WIA item properties, and use `CommonDialog.ShowTransfer` only for hardware transfer/progress. If a driver rejects B&W text intent, retry acquisition in grayscale and disclose the applied mode.
-- Rationale: The external dialog duplicated context already owned by the job workflow and interrupted the single-page transaction experience. WIA exposes the required standard controls programmatically, while the retained in-app result provides a better review/retry loop than a separate preview window.
-- Impact: Automatic/Feeder/Flatbed source, Color/Grayscale/B&W text, 150/300/600 DPI, Automatic, A4, Letter, Legal, 4×6, 5×7, and 8×10 are configured inside Printing-MS. The settings selector stays closed, while standard transfer progress and durable in-app outcomes remain visible. Vendor-private controls remain outside the standard flow, and physical Canon validation is required before release.
+- Status: Refined on 2026-08-30 by “Use Colored as the Only Scanner Content Mode.”
+
+- Decision: Do not open WIA's `ShowSelectItems`/settings window for normal acquisition. Expose source, 150/300/600 DPI, and standard document/photo capture areas in the Scan job modal, apply them through WIA item properties, and use `CommonDialog.ShowTransfer` only for hardware transfer/progress. Acquire document content through the fixed Colored WIA intent.
+- Rationale: The external dialog duplicated context already owned by the job workflow and interrupted the single-page transaction experience. Colored acquisition is the only content intent proven to work reliably with the current Canon driver; presenting non-working grayscale and B&W choices creates false capability.
+- Impact: Automatic/Feeder/Flatbed source, fixed Colored content, 150/300/600 DPI, Automatic, A4, Letter, Legal, 4×6, 5×7, and 8×10 are configured inside Printing-MS. The settings selector stays closed, while standard transfer progress and durable in-app outcomes remain visible. Vendor-private controls remain outside the standard flow, and physical Canon validation is required before release.
+
+### Use Colored as the Only Scanner Content Mode
+
+- Decision: Show scanner content as a read-only Colored profile and reject any non-color acquisition request at the Electron bridge and PowerShell WIA boundary.
+- Rationale: Colored is the only mode currently working on the owner's Canon setup. Removing unreliable choices makes the interface accurately describe supported behavior and prevents stale renderer input from reaching the driver.
+- Impact: Existing scan files and product print-type classifications remain unchanged. New WIA captures always use the color intent; grayscale or B&W presentation can be added later only after physical driver validation.
 
 ### Keep Centralized Pricing Read-Only and Source-Linked
 
@@ -565,8 +579,8 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Rationale: The production board should behave like an operational workflow rather than a passive report, but a broad card click must not accidentally submit printing, deduct stock, or start reprocessing.
 - Impact: Pointer users may open the whole pane, keyboard users receive a visible 44-pixel step control, only one pane stays open at a time, and paid, completed, or cancelled lines expose retained records without production controls.
 
-### Archive Historically Referenced Products
+### Recover Product Deletion for Five Days
 
-- Decision: Interpret product removal as a hard delete only when no job item, quotation item, or inventory movement references the product. Otherwise mark it Inactive and preserve the row.
-- Rationale: Historical production and stock records depend on their original product relationship for names, pricing context, and audit integrity. Cascading or nulling that relationship would damage completed transaction evidence.
-- Impact: Removed products stop appearing in new-transaction choices immediately. Historically used products remain visible as Inactive for audit and may be reactivated deliberately; unused products leave the database permanently.
+- Decision: Product deletion immediately hides the record from operational catalogues, then allows restoration for exactly five days. After expiry, unused rows are physically deleted; historically referenced rows become non-restorable audit tombstones with editable pricing, material, variant, and description configuration removed.
+- Rationale: Owners need deletion to behave as deletion rather than an Inactive status, while a short Undo window prevents accidental loss. Historical production and stock records must retain a minimal product identity so completed transaction evidence remains readable.
+- Impact: Service workspaces expose Recently deleted products and expiry dates. Restoring returns the product to its previous active/inactive state. Startup and product reads finalize expired entries; referenced tombstones never return to catalogues or transaction choices.

@@ -42,6 +42,76 @@
   letter-spacing: 0.08em;
 }
 
+.service-workspace__recycle-bin {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.75fr) minmax(18rem, 1.25fr);
+  gap: var(--space-6);
+  margin-block-start: var(--space-7);
+  border-top: 1px solid var(--color-hairline);
+  padding-block-start: var(--space-4);
+}
+
+.service-workspace__recycle-bin h2 {
+  margin: var(--space-1) 0;
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-lg);
+}
+
+.service-workspace__recycle-bin p,
+.service-workspace__deleted-product span {
+  margin: 0;
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+}
+
+.service-workspace__recycle-label {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.service-workspace__deleted-list {
+  border: 1px solid var(--color-hairline);
+  background: var(--color-paper-2);
+}
+
+.service-workspace__deleted-product {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: 4.5rem;
+  padding: var(--space-3) var(--space-4);
+}
+
+.service-workspace__deleted-product + .service-workspace__deleted-product {
+  border-top: 1px solid var(--color-hairline);
+}
+
+.service-workspace__deleted-product > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.service-workspace__deleted-product strong {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-workspace__restore-error {
+  border-top: 1px solid var(--color-danger);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-danger) !important;
+}
+
 @media (max-width: 39.99rem) {
   .service-workspace__section-header,
   .service-workspace__section-title {
@@ -51,5 +121,14 @@
   .service-workspace__section-title {
     flex-direction: column;
     gap: var(--space-2);
+  }
+
+  .service-workspace__recycle-bin {
+    grid-template-columns: 1fr;
+  }
+
+  .service-workspace__deleted-product {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

@@ -2,6 +2,18 @@
 
 Chronological notes about app progress.
 
+## 2026-08-30 (colored-only scanner acquisition)
+
+- Summary: Reduced Windows scan content configuration to the single working Colored mode.
+- Completed: Replaced the content selector with a read-only Colored profile, removed grayscale/text branches from renderer and desktop contracts, and restricted the PowerShell WIA intent to color.
+- Verified: Renderer build/lint, desktop TypeScript build, API regression suite, and whitespace validation pass.
+
+## 2026-08-30 (environment backup and restore)
+
+- Summary: Completed the Phase 7 local backup/restore mechanism for development, test, and production.
+- Completed: Isolated each stage's SQLite database, retained print/scan files, backups, and non-secret JSON configuration; added live SQLite snapshots, ZIP manifests/checksums, same-stage validation, pre-restore safety backups, legacy storage migration, and Settings controls with confirmation and recovery feedback.
+- Verified: All 35 API tests, renderer production build, renderer lint, and archive round-trip coverage pass.
+
 ## 2026-08-30 (safe product removal)
 
 - Summary: Fixed product removal when historical transactions or inventory records still reference the product.
@@ -520,3 +532,9 @@ Chronological notes about app progress.
 - Summary: Segregated material-linked global rates by fixed production workflow.
 - Completed: Added independent Printing and Scan or Photocopy matrices across persistence, API resolution, Configuration, Pricing Center, product overrides, product creation, analyzer pricing, and transaction pricing. Photocopy no longer requires a custom B&W rate; it inherits its workflow table unless the product overrides it. Scan retains its independent per-product softcopy rate.
 - Verified: Fresh and populated SQLite migrations reach `d352af906b41` while preserving and remapping existing photocopy overrides. All 28 API tests, renderer lint, and renderer production build pass.
+
+## 2026-08-30 (five-day product recycle bin)
+
+- Summary: Replaced product deactivation/removal ambiguity with recoverable deletion.
+- Completed: Products disappear from catalogues and transaction choices immediately, remain visible only in a service-level Recently deleted pane, and can be restored to their prior activity state for five days. Expired unused rows are physically purged; referenced rows become hidden non-restorable audit tombstones after their editable configuration is removed.
+- Verified: Alembic resolves the new recycle-bin migration as head; all 35 API tests, renderer build/lint, desktop build, and diff validation pass.

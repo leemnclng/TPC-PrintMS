@@ -1,4 +1,4 @@
-"""Resolves the managed application-data directory.
+"""Resolves the root managed application-data directory.
 
 Per docs/context/decisions.md, local persistence lives in a managed
 application-data directory (not the project folder), so it survives
@@ -27,6 +27,5 @@ def resolve_data_dir(override: str | Path | None = None) -> Path:
         base = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
         path = Path(base) / APP_DIR_NAME
 
-    (path / "files").mkdir(parents=True, exist_ok=True)
-    (path / "backups").mkdir(parents=True, exist_ok=True)
+    path.mkdir(parents=True, exist_ok=True)
     return path

@@ -9,15 +9,16 @@ import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { PageHeader } from "../../components/PageHeader/PageHeader";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import { useResource } from "../../hooks/useResource";
-import { api } from "../../lib/apiClient";
+import { api, ApiError } from "../../lib/apiClient";
 import { formatCurrency, formatProductPrintType } from "../../lib/format";
-import type { DocumentPricingRule, InventoryItem, PrintTypeDefinition, Product, ScanPricingTier, Service, Variant } from "../../types/domain";
+import type { DeletedProduct, DocumentPricingRule, InventoryItem, PrintTypeDefinition, Product, ScanPricingTier, Service, Variant } from "../../types/domain";
 import { ProductCreateModal } from "./ProductCreateModal";
 import "./ServiceWorkspace.css";
 
 interface WorkspaceData {
   service: Service;
   products: Product[];
+  deletedProducts: DeletedProduct[];
   inventoryItems: InventoryItem[];
   variants: Variant[];
   pricingRules: DocumentPricingRule[];
@@ -30,13 +31,16 @@ export function ServiceWorkspace() {
   const { serviceId } = useParams<{ serviceId: string }>();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createdProducts, setCreatedProducts] = useState<Product[]>([]);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const { data, state, error, reload } = useResource<WorkspaceData>(
     async () => {
       if (!serviceId) throw new Error("Service not found.");
 
-      const [service, products, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes] = await Promise.all([
+      const [service, products, deletedProducts, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes] = await Promise.all([
         api.get<Service>(`/services/${serviceId}`),
         api.get<Product[]>(`/products?service_id=${encodeURIComponent(serviceId)}`),
+        api.get<DeletedProduct[]>(`/products/deleted?service_id=${encodeURIComponent(serviceId)}`),
         api.get<InventoryItem[]>("/inventory-items"),
         api.get<Variant[]>("/variants"),
         api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
@@ -44,7 +48,7 @@ export function ServiceWorkspace() {
         api.get<PrintTypeDefinition[]>("/print-types"),
       ]);
 
-      return { service, products, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes };
+      return { service, products, deletedProducts, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes };
     },
     [serviceId],
   );
@@ -64,6 +68,30 @@ export function ServiceWorkspace() {
     .filter((product, index, collection) => collection.findIndex((item) => item.id === product.id) === index)
     .sort((left, right) => left.name.localeCompare(right.name));
   const productCount = `${products.length} ${products.length === 1 ? "product" : "products"}`;
+
+  async function restoreProduct(product: DeletedProduct) {
+    setRestoringId(product.id);
+    setRestoreError(null);
+    try {
+      await api.post<Product>(`/products/${product.id}/restore`);
+      reload();
+    } catch (err) {
+      setRestoreError(err instanceof ApiError ? err.message : `Couldn't restore ${product.name}.`);
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
+  function formatPurgeDate(value: string) {
+    const utcValue = /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`;
+    return new Intl.DateTimeFormat("en-PH", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(utcValue));
+  }
 
   return (
     <>
@@ -149,6 +177,37 @@ export function ServiceWorkspace() {
           />
         )}
       </section>
+
+      {data.deletedProducts.length > 0 ? (
+        <section className="service-workspace__recycle-bin" aria-labelledby="service-recycle-bin-title">
+          <div>
+            <span className="service-workspace__recycle-label">Recently deleted</span>
+            <h2 id="service-recycle-bin-title">Restore within 5 days</h2>
+            <p>These products are hidden from the catalog and new transactions.</p>
+          </div>
+          <div className="service-workspace__deleted-list">
+            {data.deletedProducts.map((product) => (
+              <div className="service-workspace__deleted-product" key={product.id}>
+                <div>
+                  <strong>{product.name}</strong>
+                  <span>Permanent after {formatPurgeDate(product.purgeAfter)}</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  loading={restoringId === product.id}
+                  disabled={restoringId !== null && restoringId !== product.id}
+                  onClick={() => restoreProduct(product)}
+                >
+                  Undo delete
+                </Button>
+              </div>
+            ))}
+            {restoreError ? <p className="service-workspace__restore-error" role="alert">{restoreError}</p> : null}
+          </div>
+        </section>
+      ) : null}
 
       <ProductCreateModal
         open={createModalOpen}

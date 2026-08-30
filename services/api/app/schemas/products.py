@@ -77,3 +77,12 @@ class ProductRead(ProductBase):
     document_rates: list[ProductDocumentRateRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class DeletedProductRead(CamelModel):
+    id: str
+    service_id: str
+    service_name: str
+    name: str
+    deleted_at: datetime
+    purge_after: datetime

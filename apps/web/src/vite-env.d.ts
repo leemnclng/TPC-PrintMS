@@ -50,7 +50,7 @@ export interface PaperClubBridge {
   }>;
   acquireScannerPage: (deviceId: string, settings: {
     source: "auto" | "flatbed" | "feeder";
-    contentType: "color" | "grayscale" | "text";
+    contentType: "color";
     resolutionDpi: 150 | 300 | 600;
     pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
     placementConfirmed: boolean;
@@ -61,7 +61,7 @@ export interface PaperClubBridge {
     deviceName?: string;
     source?: "auto" | "flatbed" | "feeder";
     settings?: {
-      contentType: "color" | "grayscale" | "text";
+      contentType: "color";
       resolutionDpi: 150 | 300 | 600;
       pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
     };

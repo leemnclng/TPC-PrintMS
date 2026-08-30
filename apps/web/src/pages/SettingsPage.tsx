@@ -10,6 +10,7 @@ import { useResource } from "../hooks/useResource";
 import { useHealth } from "../hooks/useHealth";
 import { api, ApiError } from "../lib/apiClient";
 import type { BusinessProfile } from "../types/domain";
+import { BackupRestorePanel } from "./settings/BackupRestorePanel";
 import "./SettingsPage.css";
 
 const DATABASE_STAGES = ["development", "test", "production"] as const;
@@ -140,13 +141,7 @@ export function SettingsPage() {
         <PlannedNotice phase="Phase 4 — Job Order & Files" />
       </Card>
 
-      <Card>
-        <CardHeader title="Backup & restore" />
-        <p className="settings-placeholder-text">
-          Local database and managed-file backup/restore, so data survives reinstalls and upgrades.
-        </p>
-        <PlannedNotice phase="Phase 7 — Release Hardening" />
-      </Card>
+      <BackupRestorePanel onRestored={reload} />
 
       <Card className="settings-environments">
         <CardHeader title="Runtime environments" meta="RESTART TO SWITCH" />

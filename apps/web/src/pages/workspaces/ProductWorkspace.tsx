@@ -177,7 +177,7 @@ export function ProductWorkspace() {
 
   async function handleDelete() {
     if (!productId) return;
-    if (!window.confirm(`Remove ${form.name || "this product"} from the catalog? Products used by existing transactions will be archived so their history remains accurate.`)) return;
+    if (!window.confirm(`Delete ${form.name || "this product"}? It will disappear from the catalog now. You can restore it from this service for 5 days before deletion becomes permanent.`)) return;
     setDeleting(true);
     setSaveError(null);
     try {
@@ -439,7 +439,7 @@ export function ProductWorkspace() {
             </Button>
             {!isNew && (
               <Button type="button" variant="danger" loading={deleting} disabled={saving} onClick={handleDelete}>
-                Remove product
+                Delete product
               </Button>
             )}
             {saveError && <span className="workspace-form__error">{saveError}</span>}

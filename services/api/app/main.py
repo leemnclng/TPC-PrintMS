@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import socket
 from contextlib import asynccontextmanager
-from pathlib import Path
-
-from alembic import command
-from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core.config import settings
+from .db.models import BusinessProfile
+from .db.migrations import run_migrations
 from .db.session import SessionLocal
 from .modules.document_analyzer import router as document_analyzer_router
 from .routers import (
@@ -27,27 +25,22 @@ from .routers import (
     variants,
 )
 from .seed import seed_business_profile
+from .services.backup_restore import write_environment_config
+from .services.product_deletion import finalize_expired_product_deletions
 from .services.printing.spooler_monitor import spooler_monitor
-
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 
 # Set by run() before uvicorn starts, read by lifespan() once startup
 # (migrations + seed) has actually finished — see the note on lifespan below.
 _runtime: dict[str, int] = {}
 
 
-def _run_migrations() -> None:
-    cfg = Config(str(PACKAGE_ROOT / "alembic.ini"))
-    cfg.set_main_option("script_location", str(PACKAGE_ROOT / "alembic"))
-    cfg.set_main_option("sqlalchemy.url", settings.database_url)
-    command.upgrade(cfg, "head")
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    _run_migrations()
+    run_migrations()
     with SessionLocal() as db:
         seed_business_profile(db)
+        finalize_expired_product_deletions(db)
+        write_environment_config(db.query(BusinessProfile).first())
 
     if settings.resolved_printer_platform == "windows":
         spooler_monitor.start()

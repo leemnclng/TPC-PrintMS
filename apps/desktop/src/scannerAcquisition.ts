@@ -8,7 +8,7 @@ const MAX_SCAN_PAGE_BYTES = 25 * 1024 * 1024;
 
 export interface ScannerAcquisitionSettings {
   source: "auto" | "flatbed" | "feeder";
-  contentType: "color" | "grayscale" | "text";
+  contentType: "color";
   resolutionDpi: 150 | 300 | 600;
   pageSize: "auto" | "a4" | "letter" | "legal" | "4x6" | "5x7" | "8x10";
   placementConfirmed: boolean;
@@ -40,7 +40,7 @@ interface ScriptResult {
   files?: Array<{ path: string; filename: string }>;
   deviceName?: string;
   source?: "auto" | "flatbed" | "feeder";
-  contentType?: "color" | "grayscale" | "text";
+  contentType?: "color";
   resolutionDpi?: 150 | 300 | 600;
   pageSize?: ScannerAcquisitionSettings["pageSize"];
 }
@@ -147,8 +147,8 @@ export async function acquireScannerPage(deviceId: unknown, settings: unknown): 
   if (candidate.source !== "auto" && candidate.source !== "flatbed" && candidate.source !== "feeder") {
     return { status: "error", code: "invalid_request", message: "The scanner source selection is invalid." };
   }
-  if (candidate.contentType !== "color" && candidate.contentType !== "grayscale" && candidate.contentType !== "text") {
-    return { status: "error", code: "invalid_request", message: "The scanner content type is invalid." };
+  if (candidate.contentType !== "color") {
+    return { status: "error", code: "invalid_request", message: "Scanning currently supports colored documents only." };
   }
   if (candidate.resolutionDpi !== 150 && candidate.resolutionDpi !== 300 && candidate.resolutionDpi !== 600) {
     return { status: "error", code: "invalid_request", message: "The scanner resolution is invalid." };

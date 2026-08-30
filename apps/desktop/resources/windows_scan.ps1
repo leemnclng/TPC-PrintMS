@@ -5,7 +5,7 @@ param(
   [string]$DeviceId = "",
   [ValidateSet("auto", "flatbed", "feeder")]
   [string]$Source = "auto",
-  [ValidateSet("color", "grayscale", "text")]
+  [ValidateSet("color")]
   [string]$ContentType = "color",
   [ValidateSet(150, 300, 600)]
   [int]$ResolutionDpi = 300,
@@ -240,26 +240,15 @@ function Resolve-ScanSource {
 }
 
 function Set-WiaAcquisitionSettings {
-  param($Item, [string]$RequestedContentType, [int]$RequestedDpi, [string]$RequestedPageSize)
-  $intent = switch ($RequestedContentType) {
-    "grayscale" { 2 }
-    "text" { 4 }
-    default { 1 }
-  }
-  $appliedContentType = $RequestedContentType
+  param($Item, [int]$RequestedDpi, [string]$RequestedPageSize)
+  $appliedContentType = "color"
   $notice = $null
-  if (-not (Set-WiaPropertyValue $Item.Properties $WiaCurrentIntent $intent)) {
-    if ($RequestedContentType -eq "text" -and (Set-WiaPropertyValue $Item.Properties $WiaCurrentIntent 2)) {
-      $appliedContentType = "grayscale"
-      $notice = "This Canon driver does not expose native B&W text acquisition through WIA, so the page was acquired in grayscale instead."
-    }
-    else {
-      return [pscustomobject]@{ issue = "The scanner driver does not expose the selected content mode through WIA. Choose another content mode."; appliedContentType = $RequestedContentType; notice = $null }
-    }
+  if (-not (Set-WiaPropertyValue $Item.Properties $WiaCurrentIntent 1)) {
+    return [pscustomobject]@{ issue = "The scanner driver does not expose colored acquisition through WIA."; appliedContentType = $appliedContentType; notice = $null }
   }
   if (-not (Set-WiaPropertyValue $Item.Properties $WiaHorizontalResolution $RequestedDpi) -or
       -not (Set-WiaPropertyValue $Item.Properties $WiaVerticalResolution $RequestedDpi)) {
-    return [pscustomobject]@{ issue = "The scanner does not support $RequestedDpi DPI for this content mode. Choose another resolution."; appliedContentType = $appliedContentType; notice = $notice }
+    return [pscustomobject]@{ issue = "The scanner does not support $RequestedDpi DPI for colored acquisition. Choose another resolution."; appliedContentType = $appliedContentType; notice = $notice }
   }
   if ($RequestedPageSize -eq "auto") {
     return [pscustomobject]@{ issue = $null; appliedContentType = $appliedContentType; notice = $notice }
@@ -406,7 +395,7 @@ try {
   if ($null -eq $selectedItem) {
     $selectedItem = $device.Items.Item(1)
   }
-  $settingsResult = Set-WiaAcquisitionSettings $selectedItem $ContentType $ResolutionDpi $PageSize
+  $settingsResult = Set-WiaAcquisitionSettings $selectedItem $ResolutionDpi $PageSize
   if (-not [string]::IsNullOrWhiteSpace($settingsResult.issue)) {
     Write-Result ([pscustomobject]@{ status = "error"; code = "unsupported_scan_setting"; message = $settingsResult.issue })
     exit 0

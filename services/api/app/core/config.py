@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+import shutil
 import sys
 from pathlib import Path
 from typing import Literal
@@ -45,17 +46,39 @@ class Settings(BaseSettings):
 
     @property
     def resolved_data_dir(self) -> Path:
+        """The active stage's complete, portable persistence boundary."""
+        path = self.resolved_data_root / self.stage
+        (path / "files").mkdir(parents=True, exist_ok=True)
+        (path / "backups").mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def resolved_data_root(self) -> Path:
         if self.data_dir is not None:
             return resolve_data_dir(self._absolute(self.data_dir))
         return resolve_data_dir()
 
+    def data_dir_for_stage(self, stage: Literal["development", "production", "test"]) -> Path:
+        path = self.resolved_data_root / stage
+        (path / "files").mkdir(parents=True, exist_ok=True)
+        (path / "backups").mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def resolved_managed_files_dir(self) -> Path:
+        return self.resolved_data_dir / "files"
+
+    @property
+    def resolved_backup_dir(self) -> Path:
+        return self.resolved_data_dir / "backups"
+
+    @property
+    def resolved_environment_config_path(self) -> Path:
+        return self.resolved_data_dir / "config.json"
+
     @property
     def resolved_scan_output_dir(self) -> Path:
-        # Scanned softcopies are kept alongside the project instead of the
-        # managed OS application-data directory, split into a "prod"/"nonprod"
-        # bucket by stage so live and development/test scans never mix.
-        bucket = "prod" if self.stage == "production" else "nonprod"
-        path = PACKAGE_ROOT / ".data" / bucket / "scan"
+        path = self.resolved_managed_files_dir / "scans"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -75,12 +98,47 @@ class Settings(BaseSettings):
         }[stage]
         if configured_path is not None:
             return self._absolute(configured_path)
-        filename = {
+        return self.data_dir_for_stage(stage) / "printing-ms.db"
+
+    def migrate_legacy_database_if_needed(self) -> bool:
+        """Copy a pre-environment-folder database once, preserving the original."""
+        target = self.resolved_database_path
+        if target.exists() or self.database_path is not None:
+            return False
+        legacy_name = {
             "development": "printing-ms-dev.db",
             "production": "printing-ms.db",
             "test": "printing-ms-test.db",
-        }[stage]
-        return self.resolved_data_dir / filename
+        }[self.stage]
+        legacy = self.resolved_data_root / legacy_name
+        if not legacy.is_file():
+            return False
+        shutil.copy2(legacy, target)
+        return True
+
+    def migrate_legacy_files_if_needed(self) -> int:
+        """Copy retained files from the former shared roots without deleting them."""
+        copied = 0
+
+        def copy_missing(source_root: Path, destination_root: Path) -> None:
+            nonlocal copied
+            if not source_root.is_dir() or source_root.resolve() == destination_root.resolve():
+                return
+            for source in source_root.rglob("*"):
+                if not source.is_file():
+                    continue
+                target = destination_root / source.relative_to(source_root)
+                if target.exists():
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                copied += 1
+
+        copy_missing(self.resolved_data_root / "files", self.resolved_managed_files_dir)
+        scan_bucket = "prod" if self.stage == "production" else "nonprod"
+        copy_missing(PACKAGE_ROOT / ".data" / scan_bucket / "scan", self.resolved_scan_output_dir)
+        copy_missing(self.resolved_data_root / "backups", self.resolved_backup_dir)
+        return copied
 
     @property
     def resolved_database_paths(self) -> dict[str, Path]:

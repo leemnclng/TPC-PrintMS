@@ -46,10 +46,43 @@ def test_default_stage_database_names_are_separate(monkeypatch, tmp_path: Path) 
     configured = Settings(_env_file=None, data_dir=tmp_path)
     paths = configured.resolved_database_paths
 
-    assert paths["development"] == tmp_path / "printing-ms-dev.db"
-    assert paths["test"] == tmp_path / "printing-ms-test.db"
-    assert paths["production"] == tmp_path / "printing-ms.db"
+    assert paths["development"] == tmp_path / "development" / "printing-ms.db"
+    assert paths["test"] == tmp_path / "test" / "printing-ms.db"
+    assert paths["production"] == tmp_path / "production" / "printing-ms.db"
     assert len(set(paths.values())) == 3
+
+
+def test_each_stage_owns_files_backups_and_config(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("PRINT_MS_DATABASE_PATH", raising=False)
+    configured = Settings(_env_file=None, data_dir=tmp_path, stage="production")
+
+    assert configured.resolved_data_dir == tmp_path / "production"
+    assert configured.resolved_managed_files_dir == tmp_path / "production" / "files"
+    assert configured.resolved_backup_dir == tmp_path / "production" / "backups"
+    assert configured.resolved_environment_config_path == tmp_path / "production" / "config.json"
+
+
+def test_legacy_database_and_files_are_copied_forward(monkeypatch, tmp_path: Path) -> None:
+    for name in (
+        "PRINT_MS_DATABASE_PATH",
+        "PRINT_MS_DEVELOPMENT_DATABASE_PATH",
+        "PRINT_MS_TEST_DATABASE_PATH",
+        "PRINT_MS_PRODUCTION_DATABASE_PATH",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    configured = Settings(_env_file=None, data_dir=tmp_path, stage="development")
+    legacy_database = tmp_path / "printing-ms-dev.db"
+    legacy_database.write_bytes(b"legacy-database")
+    legacy_file = tmp_path / "files" / "job-1" / "source.pdf"
+    legacy_file.parent.mkdir(parents=True)
+    legacy_file.write_bytes(b"legacy-file")
+
+    assert configured.migrate_legacy_database_if_needed()
+    assert configured.migrate_legacy_files_if_needed() >= 1
+    assert configured.resolved_database_path.read_bytes() == b"legacy-database"
+    assert (configured.resolved_managed_files_dir / "job-1" / "source.pdf").read_bytes() == b"legacy-file"
+    assert legacy_database.exists()
+    assert legacy_file.exists()
 
 
 def test_printer_platform_auto_detection_and_environment_override(monkeypatch) -> None:

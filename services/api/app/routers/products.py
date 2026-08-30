@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -7,19 +9,20 @@ from ..core.security import require_token
 from ..db.models import (
     DocumentPricingRule,
     InventoryItem,
-    InventoryMovement,
-    JobOrderItem,
     PrintType,
     Product,
     ProductDocumentRate,
     ProductMaterialAssignment,
     ProductVariant,
-    QuotationItem,
     Service,
     Variant,
 )
 from ..db.session import get_db
-from ..schemas.products import ProductCreate, ProductRead, ProductUpdate
+from ..schemas.products import DeletedProductRead, ProductCreate, ProductRead, ProductUpdate
+from ..services.product_deletion import (
+    PRODUCT_RECOVERY_WINDOW,
+    finalize_expired_product_deletions,
+)
 from ..services.product_pricing import reference_price_per_page, resolve_scan_price_per_page
 from ..services.print_types import ensure_builtin_print_types
 
@@ -72,13 +75,42 @@ def _to_read(product: Product, db: Session) -> ProductRead:
     )
 
 
+def _to_deleted_read(product: Product) -> DeletedProductRead:
+    if product.deleted_at is None or product.purge_after is None:
+        raise ValueError("Product is not in the recycle bin.")
+    return DeletedProductRead(
+        id=product.id,
+        service_id=product.service_id,
+        service_name=product.service.name,
+        name=product.name,
+        deleted_at=product.deleted_at,
+        purge_after=product.purge_after,
+    )
+
+
 @router.get("", response_model=list[ProductRead])
 def list_products(service_id: str | None = None, db: Session = Depends(get_db)) -> list[ProductRead]:
-    query = db.query(Product)
+    finalize_expired_product_deletions(db)
+    query = db.query(Product).filter(Product.deleted_at.is_(None))
     if service_id:
         query = query.filter(Product.service_id == service_id)
     products = query.join(Product.service).order_by(Service.name, Product.name).all()
     return [_to_read(product, db) for product in products]
+
+
+@router.get("/deleted", response_model=list[DeletedProductRead])
+def list_deleted_products(
+    service_id: str | None = None, db: Session = Depends(get_db)
+) -> list[DeletedProductRead]:
+    finalize_expired_product_deletions(db)
+    query = db.query(Product).filter(
+        Product.deleted_at.isnot(None),
+        Product.deletion_finalized_at.is_(None),
+    )
+    if service_id:
+        query = query.filter(Product.service_id == service_id)
+    products = query.join(Product.service).order_by(Product.purge_after, Product.name).all()
+    return [_to_deleted_read(product) for product in products]
 
 
 @router.post("", response_model=ProductRead, status_code=201)
@@ -119,8 +151,9 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
 
 @router.get("/{product_id}", response_model=ProductRead)
 def get_product(product_id: str, db: Session = Depends(get_db)) -> ProductRead:
+    finalize_expired_product_deletions(db)
     product = db.get(Product, product_id)
-    if not product:
+    if not product or product.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Product not found.")
     return _to_read(product, db)
 
@@ -128,7 +161,7 @@ def get_product(product_id: str, db: Session = Depends(get_db)) -> ProductRead:
 @router.put("/{product_id}", response_model=ProductRead)
 def update_product(product_id: str, payload: ProductUpdate, db: Session = Depends(get_db)) -> ProductRead:
     product = db.get(Product, product_id)
-    if not product:
+    if not product or product.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Product not found.")
     data = payload.model_dump()
     variants = data.pop("variants")
@@ -180,25 +213,41 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
     return _to_read(product, db)
 
 
-@router.delete("/{product_id}", status_code=204)
-def delete_product(product_id: str, db: Session = Depends(get_db)) -> None:
+@router.delete("/{product_id}", response_model=DeletedProductRead)
+def delete_product(product_id: str, db: Session = Depends(get_db)) -> DeletedProductRead:
+    finalize_expired_product_deletions(db)
     product = db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found.")
-    has_history = any((
-        db.query(JobOrderItem.id).filter(JobOrderItem.product_id == product_id).first(),
-        db.query(QuotationItem.id).filter(QuotationItem.product_id == product_id).first(),
-        db.query(InventoryMovement.id).filter(InventoryMovement.product_id == product_id).first(),
-    ))
-    if has_history:
-        # Completed work must keep its product relationship for audit, pricing,
-        # inventory, and job-order rendering. Removing a used product therefore
-        # means retiring it from new transactions rather than erasing history.
-        product.is_active = False
-        db.commit()
-        return
-    db.delete(product)
+    if product.deleted_at is not None:
+        raise HTTPException(status_code=409, detail="Product is already deleted.")
+    now = datetime.utcnow()
+    product.deleted_was_active = product.is_active
+    product.is_active = False
+    product.deleted_at = now
+    product.purge_after = now + PRODUCT_RECOVERY_WINDOW
     db.commit()
+    db.refresh(product)
+    return _to_deleted_read(product)
+
+
+@router.post("/{product_id}/restore", response_model=ProductRead)
+def restore_product(product_id: str, db: Session = Depends(get_db)) -> ProductRead:
+    product = db.get(Product, product_id)
+    if not product or product.deleted_at is None:
+        raise HTTPException(status_code=404, detail="Deleted product not found.")
+    now = datetime.utcnow()
+    if product.deletion_finalized_at is not None or not product.purge_after or product.purge_after <= now:
+        finalize_expired_product_deletions(db, now=now)
+        raise HTTPException(status_code=410, detail="The five-day restore window has expired.")
+    product.is_active = product.deleted_was_active if product.deleted_was_active is not None else True
+    product.deleted_at = None
+    product.purge_after = None
+    product.deletion_finalized_at = None
+    product.deleted_was_active = None
+    db.commit()
+    db.refresh(product)
+    return _to_read(product, db)
 
 
 def _validate_material_assignments(

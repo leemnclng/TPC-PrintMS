@@ -2,6 +2,18 @@
 
 Track notable app changes by date.
 
+## 2026-08-30 (colored-only scanner acquisition)
+
+- Changed: Scan setup now shows Document content as a fixed Colored value instead of offering unreliable grayscale and B&W choices.
+- Changed: The Electron scanner bridge and Windows WIA script reject non-color requests, keeping UI behavior aligned with the validated Canon acquisition path.
+
+## 2026-08-30 (environment backup and restore)
+
+- Added: Settings can create and download a complete backup of the active environment and restore a matching-stage ZIP.
+- Added: Every archive contains a consistent SQLite snapshot, retained print/scan files, non-secret JSON configuration, a manifest, and integrity checksums.
+- Added: Restore validates archive safety and database integrity, then creates a pre-restore safety backup before replacing current data.
+- Changed: Development, test, and production now keep databases, managed files, backups, and config snapshots in separate environment folders; legacy data is copied forward without deleting its source.
+
 ## 2026-08-30 (safe product removal)
 
 - Fixed: removing a product no longer fails when completed or active records reference it.
@@ -284,3 +296,6 @@ Track notable app changes by date.
 - Changed: Product and transaction pricing now inherit only from the global table matching the product workflow, then apply any product override.
 - Changed: B&W photocopy products may use the Scan or Photocopy global rate instead of requiring a custom price for every paper.
 - Preserved: Scan products keep a product-specific per-page softcopy rate because scanning consumes no paper or printing ink.
+- Changed: Delete product now removes the product from catalogues and new transactions immediately instead of showing it as Inactive.
+- Added: Each service shows its Recently deleted products with an expiry date and Undo delete action for five days.
+- Changed: Expired unused products are permanently purged; historically referenced products become hidden, non-restorable audit identities so completed job and inventory history remains readable.

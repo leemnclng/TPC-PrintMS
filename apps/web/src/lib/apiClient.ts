@@ -71,7 +71,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function download(path: string): Promise<Blob> {
   const { baseUrl, token } = await resolveConfig();
   const response = await fetch(`${baseUrl}${path}`, { headers: { "X-Print-MS-Token": token } });
-  if (!response.ok) throw new ApiError(response.status, "The retained file could not be downloaded.");
+  if (!response.ok) {
+    let message = "The file could not be downloaded.";
+    try {
+      const body = await response.json();
+      message = body?.detail ?? message;
+    } catch {
+      // Keep the generic download message for non-JSON failures.
+    }
+    throw new ApiError(response.status, message);
+  }
   return response.blob();
 }
 

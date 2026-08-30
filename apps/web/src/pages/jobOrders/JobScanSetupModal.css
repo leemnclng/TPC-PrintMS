@@ -1,6 +1,20 @@
 .job-scan-setup-modal { width: min(calc(100% - var(--space-6)), 70rem); }
 .job-scan-setup-form__content { display: grid; min-height: 0; grid-template-columns: minmax(0, 1.6fr) minmax(17rem, .75fr); overflow: auto; }
 
+.scan-profile__fixed output {
+  display: flex;
+  min-height: var(--control-height);
+  align-items: center;
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-sm);
+  padding-inline: var(--space-3);
+  color: var(--color-ink);
+  font-weight: 600;
+  background: var(--color-paper-2);
+}
+
+.scan-profile__fixed small { color: var(--color-ink-faint); }
+
 @media (max-width: 48rem) {
   .job-scan-setup-form__content { display: block; }
 }

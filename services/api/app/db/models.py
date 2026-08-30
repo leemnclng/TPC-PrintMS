@@ -302,6 +302,10 @@ class Product(TimestampMixin, Base):
     )
     standalone_price_per_page: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    purge_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deletion_finalized_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_was_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     service: Mapped["Service"] = relationship(back_populates="products")
     print_type_definition: Mapped["PrintType"] = relationship(back_populates="products")

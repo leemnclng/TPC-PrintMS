@@ -556,12 +556,12 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     )
     assert download.status_code == 200
     assert download.content.startswith(b"%PDF-")
-    # Scanned softcopies are kept under the project's own .data/<stage>/scan
-    # bucket rather than the managed OS application-data directory.
+    # Scanned softcopies share the active stage's managed-file boundary so a
+    # backup contains both uploaded print files and scanner output.
     scan_job_directory = settings.resolved_scan_output_dir / scanned_order["id"]
     assert scan_job_directory.is_dir()
     assert any(scan_job_directory.iterdir())
-    assert str(settings.resolved_scan_output_dir).endswith(str(Path(".data") / "nonprod" / "scan"))
+    assert settings.resolved_scan_output_dir == settings.resolved_data_dir / "files" / "scans"
 
     # A failed quality check sends the scan back to the queue for a re-scan;
     # resubmitting replaces the prior softcopy rather than keeping both.

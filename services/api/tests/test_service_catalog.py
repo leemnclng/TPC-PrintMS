@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -5,12 +7,12 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
-from app.db.models import JobOrder, JobOrderItem
+from app.db.models import JobOrder, JobOrderItem, Product
 from app.db.session import get_db
 from app.routers import inventory, print_types, products, services, variants
 
 
-def test_removing_used_product_archives_history_while_unused_product_is_deleted(tmp_path) -> None:
+def test_product_deletion_can_be_undone_for_five_days_then_is_finalized(tmp_path) -> None:
     engine = create_engine(
         f"sqlite:///{tmp_path / 'product-removal.db'}",
         connect_args={"check_same_thread": False},
@@ -77,15 +79,45 @@ def test_removing_used_product_archives_history_while_unused_product_is_deleted(
         db.commit()
         item_id = order.items[0].id
 
-    assert client.delete(f"/products/{used_product['id']}", headers=headers).status_code == 204
-    archived = client.get(f"/products/{used_product['id']}", headers=headers)
-    assert archived.status_code == 200
-    assert archived.json()["isActive"] is False
+    deleted_used = client.delete(f"/products/{used_product['id']}", headers=headers)
+    deleted_unused = client.delete(f"/products/{unused_product['id']}", headers=headers)
+    assert deleted_used.status_code == 200
+    assert deleted_unused.status_code == 200
+    assert datetime.fromisoformat(deleted_used.json()["purgeAfter"]) - datetime.fromisoformat(
+        deleted_used.json()["deletedAt"]
+    ) == timedelta(days=5)
+    assert client.get(f"/products/{used_product['id']}", headers=headers).status_code == 404
+    assert client.get(f"/products/{unused_product['id']}", headers=headers).status_code == 404
+
+    recycle_bin = client.get(
+        f"/products/deleted?service_id={service['id']}", headers=headers
+    )
+    assert recycle_bin.status_code == 200
+    assert {entry["id"] for entry in recycle_bin.json()} == {
+        used_product["id"],
+        unused_product["id"],
+    }
+
+    restored = client.post(f"/products/{used_product['id']}/restore", headers=headers)
+    assert restored.status_code == 200
+    assert restored.json()["isActive"] is True
+    assert client.delete(f"/products/{used_product['id']}", headers=headers).status_code == 200
+
+    with test_session() as db:
+        past = datetime.utcnow() - timedelta(seconds=1)
+        db.get(Product, used_product["id"]).purge_after = past
+        db.get(Product, unused_product["id"]).purge_after = past
+        db.commit()
+
+    assert client.get("/products/deleted", headers=headers).json() == []
     with test_session() as db:
         assert db.get(JobOrderItem, item_id).product_id == used_product["id"]
+        retained_audit_product = db.get(Product, used_product["id"])
+        assert retained_audit_product is not None
+        assert retained_audit_product.deletion_finalized_at is not None
+        assert db.get(Product, unused_product["id"]) is None
 
-    assert client.delete(f"/products/{unused_product['id']}", headers=headers).status_code == 204
-    assert client.get(f"/products/{unused_product['id']}", headers=headers).status_code == 404
+    assert client.post(f"/products/{used_product['id']}/restore", headers=headers).status_code == 410
 
 
 def test_removing_used_print_type_deactivates_while_unused_print_type_is_deleted(tmp_path) -> None:
@@ -408,9 +440,15 @@ def test_service_owns_products_and_cannot_be_removed_while_in_use(tmp_path) -> N
     blocked_delete = client.delete(f"/services/{service['id']}", headers=headers)
     assert blocked_delete.status_code == 409
 
-    assert client.delete(f"/products/{product['id']}", headers=headers).status_code == 204
-    assert client.delete(f"/products/{custom_type_product['id']}", headers=headers).status_code == 204
-    assert client.delete(f"/products/{second_product['id']}", headers=headers).status_code == 204
+    assert client.delete(f"/products/{product['id']}", headers=headers).status_code == 200
+    assert client.delete(f"/products/{custom_type_product['id']}", headers=headers).status_code == 200
+    assert client.delete(f"/products/{second_product['id']}", headers=headers).status_code == 200
+    with test_session() as db:
+        past = datetime.utcnow() - timedelta(seconds=1)
+        for product_id in (product["id"], custom_type_product["id"], second_product["id"]):
+            db.get(Product, product_id).purge_after = past
+        db.commit()
+    assert client.get("/products/deleted", headers=headers).json() == []
     assert client.delete(
         f"/variants/{matte['id']}",
         headers=headers,

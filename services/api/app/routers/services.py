@@ -18,7 +18,7 @@ def _to_read(service: Service) -> ServiceRead:
         category=service.category,
         description=service.description,
         is_active=service.is_active,
-        product_count=len(service.products),
+        product_count=sum(product.deleted_at is None for product in service.products),
         created_at=service.created_at,
         updated_at=service.updated_at,
     )

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -5,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
+from app.db.models import Product
 from app.db.session import get_db
 from app.modules.document_analyzer.api import router as document_analyzer_router
 from app.routers import inventory, products, services
@@ -157,7 +160,14 @@ def test_inventory_item_deletion_guards(tmp_path) -> None:
     blocked_by_assignment = client.delete(f"/inventory-items/{linked_item['id']}", headers=headers)
     assert blocked_by_assignment.status_code == 409
 
-    assert client.delete(f"/products/{product['id']}", headers=headers).status_code == 204
+    assert client.delete(f"/products/{product['id']}", headers=headers).status_code == 200
+
+    # The assignment remains restorable with the product for five days. Once
+    # that window expires, lazy cleanup removes the unused product and links.
+    with test_session() as db:
+        db.get(Product, product["id"]).purge_after = datetime.utcnow() - timedelta(seconds=1)
+        db.commit()
+    assert client.get("/products/deleted", headers=headers).json() == []
 
     # Recorded stock movements (its opening balance, here) no longer block
     # deletion once nothing else references the item — they're deleted

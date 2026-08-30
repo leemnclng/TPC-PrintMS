@@ -52,14 +52,17 @@ cp services/api/.env.example services/api/.env
 ```
 
 `PRINT_MS_STAGE` accepts `development`, `production`, or `test`.
+`PRINT_MS_DATA_DIR` is the durable root (the scaffold uses `services/api/.data`).
 `PRINT_MS_DEVELOPMENT_DATABASE_PATH`, `PRINT_MS_TEST_DATABASE_PATH`, and
 `PRINT_MS_PRODUCTION_DATABASE_PATH` independently select where each stage
 creates its SQLite `.db`; relative paths resolve from `services/api`. Changing
 only `PRINT_MS_STAGE` and restarting therefore switches data sets without
 overwriting another stage. `PRINT_MS_DATABASE_PATH` remains a legacy override
-for the active stage. Use a persistent, writable absolute production path.
-Managed files still default to the OS-standard application-data directory and
-can be moved with `PRINT_MS_DATA_DIR`.
+for the active stage. Each stage owns a complete folder containing its database,
+`files/`, `backups/`, and non-secret `config.json`. Settings can download a
+verified ZIP of that boundary or restore a same-stage ZIP after automatically
+creating a pre-restore safety backup. Use a persistent, writable absolute data
+root for installed production builds.
 
 ## Project layout
 
