@@ -15,7 +15,7 @@ import { api } from "../../lib/apiClient";
 import { formatCurrency, formatDate, formatDateTime } from "../../lib/format";
 import { printMediaLabel } from "../../lib/printProfiles";
 import { jobOrderStatusMeta } from "../../types/statusMeta";
-import type { DocumentPricingRule, InventoryItem, InventoryMovement, JobFile, JobOrder, JobOrderItem, Product, ScanPricingTier, Service } from "../../types/domain";
+import type { DocumentPricingRule, InventoryItem, InventoryMovement, JobFile, JobOrder, JobOrderItem, Product, ScanPricingTier, Service, SpoolerMonitorInfo } from "../../types/domain";
 import { JobMaterialUsageModal } from "../jobOrders/JobMaterialUsageModal";
 import { JobPaymentModal } from "../jobOrders/JobPaymentModal";
 import { JobPrintSetupModal } from "../jobOrders/JobPrintSetupModal";
@@ -72,7 +72,7 @@ export function JobOrderWorkspace() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const { data, state, error, reload } = useResource(async () => {
-    const [order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers] = await Promise.all([
+    const [order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, spoolerMonitor] = await Promise.all([
       api.get<JobOrder>(`/job-orders/${jobOrderId}`),
       api.get<InventoryMovement[]>(`/inventory-movements?job_order_id=${encodeURIComponent(jobOrderId ?? "")}`),
       api.get<Service[]>("/services"),
@@ -80,15 +80,17 @@ export function JobOrderWorkspace() {
       api.get<InventoryItem[]>("/inventory-items"),
       api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
       api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
+      api.get<SpoolerMonitorInfo>("/printers/spooler-jobs").catch(() => null),
     ]);
-    return { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers };
+    return { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, spoolerMonitor };
   }, [jobOrderId]);
 
   if (state === "loading") return <LoadingState label="Loading job order…" />;
   if (state === "error") return <ErrorState description={error ?? undefined} onRetry={reload} />;
   if (!data) return <EmptyState title="Job order not found" description="It may have been removed." />;
 
-  const { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers } = data;
+  const { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, spoolerMonitor } = data;
+  const otherObservedPrintJobs = (spoolerMonitor?.jobs ?? []).filter((job) => job.reviewStatus === "unreviewed");
   const firstProduct = products.find((product) => product.id === order.items[0]?.productId);
   const initialService = services.find((service) => service.id === firstProduct?.serviceId)
     ?? services.find((service) => service.isActive && service.productCount > 0);
@@ -309,7 +311,7 @@ export function JobOrderWorkspace() {
       {scanItem ? <JobScanSetupModal open order={order} item={scanItem} onClose={() => { setScanItem(null); reload(); }} onScanned={handleUpdated} /> : null}
       <JobMaterialUsageModal open={usageOpen} order={order} onClose={() => setUsageOpen(false)} onRecorded={() => { setUsageOpen(false); reload(); }} />
       {previewFile ? <ScanOutputPreviewModal open orderId={order.id} jobFile={previewFile} onClose={() => setPreviewFile(null)} /> : null}
-      {initialService ? <TransactionCreateModal open={addProductsOpen} order={order} initialService={initialService} services={services} products={products} inventoryItems={inventoryItems} pricingRules={pricingRules} scanPricingTiers={scanPricingTiers} customers={[]} onClose={() => setAddProductsOpen(false)} onCreated={() => { setAddProductsOpen(false); reload(); }} /> : null}
+      {initialService ? <TransactionCreateModal open={addProductsOpen} order={order} initialService={initialService} services={services} products={products} inventoryItems={inventoryItems} pricingRules={pricingRules} scanPricingTiers={scanPricingTiers} otherObservedPrintJobs={otherObservedPrintJobs} customers={[]} onClose={() => setAddProductsOpen(false)} onCreated={() => { setAddProductsOpen(false); reload(); }} /> : null}
       {qualityFailureItem ? <JobQualityFailureModal open order={order} item={qualityFailureItem} onClose={() => setQualityFailureItem(null)} onReprocessed={handleUpdated} /> : null}
       <JobCancelModal open={cancelOpen} order={order} onClose={() => setCancelOpen(false)} onCancelled={handleUpdated} />
     </>
