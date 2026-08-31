@@ -32,17 +32,23 @@ which itself spawns the FastAPI backend via `uv`. One command, frontend and
 backend both running; close the app window (or `Ctrl+C` the terminal) to
 stop everything.
 
-**Windows desktop shortcut:** a `.bat` file can't carry a custom icon on its
+**Windows desktop shortcut:** a `.sh` file can't carry a custom icon on its
 own, so run this once to add a "Printing-MS" shortcut to the Desktop, using
-The Paper Club logo, that launches `scripts\run.bat`:
+The Paper Club logo, that launches `scripts/run.sh` through Git Bash — the
+same way you'd run it by hand:
 
 ```
-powershell -ExecutionPolicy Bypass -File scripts\create-desktop-shortcut.ps1
+powershell -ExecutionPolicy Bypass -File scripts/create-desktop-shortcut.ps1
 ```
 
-Re-running the command safely replaces the existing shortcut. The shortcut
-uses Windows' command processor explicitly, so repository paths containing
-spaces work and its terminal closes when the Electron window closes.
+(Right-click the `.ps1` file and choose "Run with PowerShell" also works.
+Don't double-click it directly — Windows opens `.ps1` files in a text editor
+instead of running them.)
+
+Re-running the command safely replaces the existing shortcut. It requires
+Git for Windows (for `git-bash.exe`/`bash.exe`) and finds it automatically;
+repository paths containing spaces work, and its terminal closes when the
+Electron window closes.
 
 This still runs the app from source (it needs Node.js and `uv` on the
 machine, same as `run.bat` above) — it's a shortcut to the dev launcher, not

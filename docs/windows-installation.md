@@ -10,21 +10,25 @@ application installer and the printer/scanner driver are separate packages.
    validated Canon workstation, installing the **IJPAT driver/package** made the
    scanner available to Printing-MS through Windows Image Acquisition (WIA).
 3. Restart Windows after installing or repairing the Canon package.
-4. For development installations only, install Node.js 20+, npm, and `uv`, then
-   use `scripts\run.bat`. A production installer must bundle its runtime and must
-   not require these developer tools.
+4. For development installations only, install Node.js 20+, npm, `uv`, and Git
+   for Windows (for Git Bash), then use `scripts/run.sh` from a Git Bash
+   terminal (or `scripts\run.bat` from cmd/PowerShell). A production installer
+   must bundle its runtime and must not require these developer tools.
 
 To create or repair the development desktop shortcut, run this once from the
 repository root:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\create-desktop-shortcut.ps1
+powershell -ExecutionPolicy Bypass -File scripts/create-desktop-shortcut.ps1
 ```
 
-It replaces `Printing-MS.lnk` on the current user's Windows Desktop and works
-with repository paths containing spaces. Closing the final Printing-MS window
-stops its managed backend and returns the launcher command, which also closes a
-shortcut-opened terminal.
+Right-click the `.ps1` file and choose "Run with PowerShell" also works; don't
+double-click it directly, since Windows opens `.ps1` files in a text editor
+instead of running them. The script replaces `Printing-MS.lnk` on the current
+user's Windows Desktop, launching `scripts/run.sh` through Git Bash (found
+automatically), and works with repository paths containing spaces. Closing
+the final Printing-MS window stops its managed backend and also closes the
+shortcut-opened Git Bash terminal.
 
 Always obtain the Canon package from Canon's support page for the exact model
 and Windows version. Do not redistribute a vendor driver inside the Printing-MS
