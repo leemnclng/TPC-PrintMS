@@ -54,6 +54,13 @@ export function ExternalPrintPrompt() {
     navigate(`/job-orders?create=1&spoolerJobId=${encodeURIComponent(job.id)}`);
   }
 
+  function attachToExistingOrder() {
+    if (!job) return;
+    suppressed.current.add(job.id);
+    setJob(null);
+    navigate(`/job-orders?attachSpoolerJobId=${encodeURIComponent(job.id)}`);
+  }
+
   async function dismiss() {
     if (!job || dismissing) return;
     setDismissing(true);
@@ -74,13 +81,14 @@ export function ExternalPrintPrompt() {
       <div className="external-print-prompt__signal" aria-hidden="true"><span /></div>
       <div className="external-print-prompt__body">
         <span className="numeric">WINDOWS PRINT RECEIVED{unreviewedCount > 1 ? ` · ${unreviewedCount} UNREVIEWED` : ""}</span>
-        <h2 id="external-print-prompt-title">Create a job order for this print?</h2>
+        <h2 id="external-print-prompt-title">Record this print in a job order?</h2>
         <strong>{job.documentName}</strong>
         <small>{job.printerName} · job {job.osJobId} · {formatDateTime(job.firstSeenAt)}</small>
         <p>Windows provides the event metadata, but the source file must be uploaded again for preview, analysis, pricing, and inventory planning.</p>
         {error && <p className="external-print-prompt__error" role="alert">{error}</p>}
         <div className="external-print-prompt__actions">
           <Button type="button" variant="ghost" size="sm" onClick={dismiss} loading={dismissing}>Not now</Button>
+          <Button type="button" variant="secondary" size="sm" onClick={attachToExistingOrder} disabled={dismissing}>Add to order</Button>
           <Button type="button" variant="primary" size="sm" onClick={startJobOrder} disabled={dismissing}>Create job</Button>
         </div>
       </div>

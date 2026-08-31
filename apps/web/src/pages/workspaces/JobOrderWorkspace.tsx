@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "../../components/Button/Button";
 import { LinkButton } from "../../components/Button/LinkButton";
 import { PageHeader } from "../../components/PageHeader/PageHeader";
@@ -58,6 +58,8 @@ const NEXT_STEP_COPY: Record<string, string> = {
 
 export function JobOrderWorkspace() {
   const { jobOrderId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const attachSpoolerJobId = searchParams.get("attachSpoolerJobId");
   const [usageOpen, setUsageOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [printItem, setPrintItem] = useState<JobOrderItem | null>(null);
@@ -68,6 +70,7 @@ export function JobOrderWorkspace() {
   const [itemActionError, setItemActionError] = useState<string | null>(null);
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [addProductsOpen, setAddProductsOpen] = useState(false);
+  const [attachedSpoolerJobId, setAttachedSpoolerJobId] = useState<string | null>(null);
   const [qualityFailureItem, setQualityFailureItem] = useState<JobOrderItem | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
@@ -85,12 +88,42 @@ export function JobOrderWorkspace() {
     return { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, spoolerMonitor };
   }, [jobOrderId]);
 
+  // Arriving here from the "Add to order" picker (ExternalPrintPrompt →
+  // JobOrdersPage's order picker) carries the tracked print's id in the URL.
+  // Consume it once data is in hand: open "Add products" pre-attached to
+  // that print, then strip the param so a reload/back doesn't repeat this.
+  useEffect(() => {
+    if (!data || !attachSpoolerJobId) return;
+    const eligible = ["queued", "printing", "ready"].includes(data.order.status);
+    const stillAvailable = (data.spoolerMonitor?.jobs ?? []).some(
+      (job) => job.id === attachSpoolerJobId && job.reviewStatus === "unreviewed",
+    );
+    if (eligible && stillAvailable) {
+      setAttachedSpoolerJobId(attachSpoolerJobId);
+      setAddProductsOpen(true);
+    } else {
+      setItemActionError(
+        !eligible
+          ? "This order can no longer accept new products, so the tracked print could not be added automatically."
+          : "That tracked print is no longer available — it may already have been recorded elsewhere.",
+      );
+    }
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("attachSpoolerJobId");
+    setSearchParams(nextParams, { replace: true });
+    // Only the arrival of attachSpoolerJobId (and data becoming available)
+    // should trigger this — searchParams/setSearchParams are stable setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, attachSpoolerJobId]);
+
   if (state === "loading") return <LoadingState label="Loading job order…" />;
   if (state === "error") return <ErrorState description={error ?? undefined} onRetry={reload} />;
   if (!data) return <EmptyState title="Job order not found" description="It may have been removed." />;
 
   const { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, spoolerMonitor } = data;
-  const otherObservedPrintJobs = (spoolerMonitor?.jobs ?? []).filter((job) => job.reviewStatus === "unreviewed");
+  const otherObservedPrintJobs = (spoolerMonitor?.jobs ?? []).filter(
+    (job) => job.reviewStatus === "unreviewed" && job.id !== attachedSpoolerJobId,
+  );
   const firstProduct = products.find((product) => product.id === order.items[0]?.productId);
   const initialService = services.find((service) => service.id === firstProduct?.serviceId)
     ?? services.find((service) => service.isActive && service.productCount > 0);
@@ -311,7 +344,7 @@ export function JobOrderWorkspace() {
       {scanItem ? <JobScanSetupModal open order={order} item={scanItem} onClose={() => { setScanItem(null); reload(); }} onScanned={handleUpdated} /> : null}
       <JobMaterialUsageModal open={usageOpen} order={order} onClose={() => setUsageOpen(false)} onRecorded={() => { setUsageOpen(false); reload(); }} />
       {previewFile ? <ScanOutputPreviewModal open orderId={order.id} jobFile={previewFile} onClose={() => setPreviewFile(null)} /> : null}
-      {initialService ? <TransactionCreateModal open={addProductsOpen} order={order} initialService={initialService} services={services} products={products} inventoryItems={inventoryItems} pricingRules={pricingRules} scanPricingTiers={scanPricingTiers} otherObservedPrintJobs={otherObservedPrintJobs} customers={[]} onClose={() => setAddProductsOpen(false)} onCreated={() => { setAddProductsOpen(false); reload(); }} /> : null}
+      {initialService ? <TransactionCreateModal open={addProductsOpen} order={order} initialService={initialService} services={services} products={products} inventoryItems={inventoryItems} pricingRules={pricingRules} scanPricingTiers={scanPricingTiers} sourceSpoolerJobId={attachedSpoolerJobId} otherObservedPrintJobs={otherObservedPrintJobs} customers={[]} onClose={() => { setAddProductsOpen(false); setAttachedSpoolerJobId(null); }} onCreated={() => { setAddProductsOpen(false); setAttachedSpoolerJobId(null); reload(); }} /> : null}
       {qualityFailureItem ? <JobQualityFailureModal open order={order} item={qualityFailureItem} onClose={() => setQualityFailureItem(null)} onReprocessed={handleUpdated} /> : null}
       <JobCancelModal open={cancelOpen} order={order} onClose={() => setCancelOpen(false)} onCancelled={handleUpdated} />
     </>

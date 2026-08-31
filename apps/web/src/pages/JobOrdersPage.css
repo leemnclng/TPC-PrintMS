@@ -16,3 +16,54 @@
   color: var(--color-ink-faint);
   font-size: var(--text-xs);
 }
+
+.job-orders-attach-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+  background: var(--color-accent-softer);
+}
+
+.job-orders-attach-banner > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.job-orders-attach-banner > div:first-child > span {
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+}
+
+.job-orders-attach-banner strong {
+  margin-top: var(--space-1);
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-orders-attach-banner small {
+  color: var(--color-ink-faint);
+  font-size: var(--text-xs);
+}
+
+.job-orders-attach-banner p {
+  margin: var(--space-2) 0 0;
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+}
+
+.job-orders-attach-banner__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
+}

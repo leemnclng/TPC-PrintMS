@@ -22,6 +22,8 @@ export function JobOrdersPage() {
   const [chooserOpen, setChooserOpen] = useState(searchParams.get("create") === "1");
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const sourceSpoolerJobId = searchParams.get("spoolerJobId");
+  const attachSpoolerJobId = searchParams.get("attachSpoolerJobId");
+  const attaching = Boolean(attachSpoolerJobId);
   const { data, state, error, reload } = useResource(async () => {
     const [orders, customers, products, inventoryItems, services, pricingRules, scanPricingTiers, spoolerMonitor] = await Promise.all([
       api.get<JobOrder[]>("/job-orders"),
@@ -58,6 +60,17 @@ export function JobOrdersPage() {
       nextParams.delete("spoolerJobId");
       setSearchParams(nextParams, { replace: true });
     }
+  }
+
+  function cancelAttach() {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("attachSpoolerJobId");
+    setSearchParams(nextParams, { replace: true });
+  }
+
+  function createInsteadOfAttach() {
+    if (!attachSpoolerJobId) return;
+    navigate(`/job-orders?create=1&spoolerJobId=${encodeURIComponent(attachSpoolerJobId)}`, { replace: true });
   }
 
   const columns: DataTableColumn<JobOrder>[] = [
@@ -99,7 +112,50 @@ export function JobOrdersPage() {
       {state === "loading" && <LoadingState label="Loading job orders…" />}
       {state === "error" && <ErrorState description={error ?? undefined} onRetry={reload} />}
 
-      {state === "ready" && data && data.orders.length === 0 && (
+      {state === "ready" && data && attaching && (() => {
+        const attachJob = data.spoolerMonitor?.jobs.find((job) => job.id === attachSpoolerJobId && job.reviewStatus === "unreviewed") ?? null;
+        if (!attachJob) {
+          return (
+            <EmptyState
+              title="This tracked print is no longer available"
+              description="It may already have been added to an order, or dismissed, from somewhere else."
+              action={<Button variant="secondary" onClick={cancelAttach}>Back to job orders</Button>}
+            />
+          );
+        }
+        const eligibleOrders = data.orders.filter((order) => ["queued", "printing", "ready"].includes(order.status));
+        return (
+          <>
+            <div className="job-orders-attach-banner" role="status">
+              <div>
+                <span className="numeric">ADD TRACKED PRINT</span>
+                <strong>{attachJob.documentName}</strong>
+                <small>{attachJob.printerName} · job {attachJob.osJobId}</small>
+                <p>Pick the order below to add this print to — it's recorded as its own already-printed line, and existing lines stay untouched.</p>
+              </div>
+              <div className="job-orders-attach-banner__actions">
+                <Button type="button" variant="ghost" size="sm" onClick={cancelAttach}>Cancel</Button>
+                <Button type="button" variant="secondary" size="sm" onClick={createInsteadOfAttach}>Create new order instead</Button>
+              </div>
+            </div>
+            {eligibleOrders.length === 0 ? (
+              <EmptyState
+                title="No open orders to add this print to"
+                description="Every existing order is already paid, completed, or cancelled."
+                action={<Button variant="primary" onClick={createInsteadOfAttach}>Create a new order instead</Button>}
+              />
+            ) : (
+              <DataTable
+                columns={columns}
+                rows={eligibleOrders}
+                onRowClick={(row) => navigate(`/job-orders/${row.id}?attachSpoolerJobId=${encodeURIComponent(attachSpoolerJobId!)}`)}
+              />
+            )}
+          </>
+        );
+      })()}
+
+      {state === "ready" && data && !attaching && data.orders.length === 0 && (
         <EmptyState
           title="No job orders yet"
           description="Create the first order, choose its products, and plan the materials the work will use."
@@ -107,7 +163,7 @@ export function JobOrdersPage() {
         />
       )}
 
-      {state === "ready" && data && data.orders.length > 0 && (
+      {state === "ready" && data && !attaching && data.orders.length > 0 && (
         <DataTable columns={columns} rows={data.orders} onRowClick={(row) => navigate(`/job-orders/${row.id}`)} />
       )}
 
