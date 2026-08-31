@@ -33,6 +33,14 @@ BUILTIN_PRINT_TYPES = (
         "applies_ink_coverage": True,
         "sort_order": 30,
     },
+    {
+        "key": ProductPrintType.photo_print.value,
+        "label": "Photo Print",
+        "description": "High-quality color photo output with photo-media and crop-aware printing controls.",
+        "color_mode": "color",
+        "applies_ink_coverage": True,
+        "sort_order": 40,
+    },
 )
 
 

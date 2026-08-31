@@ -299,3 +299,20 @@ Track notable app changes by date.
 - Changed: Delete product now removes the product from catalogues and new transactions immediately instead of showing it as Inactive.
 - Added: Each service shows its Recently deleted products with an expiry date and Undo delete action for five days.
 - Changed: Expired unused products are permanently purged; historically referenced products become hidden, non-restorable audit identities so completed job and inventory history remains readable.
+
+## 2026-08-31
+
+- Fixed: Analyzed Printing products in multi-product job intake once again show their uploaded document beneath the analysis controls.
+- Added: PDF previews retain continuous scrolling, zoom, rotation, retry, and download; supported images render in the same per-product pane.
+- Added: Required job-order inputs and the analysis step are visibly labeled and highlighted only while they still need owner input.
+- Added: Inventory materials can store an optional purchase price in Philippine pesos using their configured stock unit; sheet-based paper may instead record the supplier's whole-ream amount.
+- Added: The Inventory register shows the saved cost basis, its per-sheet equivalent for reams, or Not set when no current cost is known.
+- Preserved: Purchase costs do not automatically change product, analyzer, or transaction selling prices.
+- Changed: Inventory unit entry is now limited to Sheet, Ream, Bottle, Cartridge, Roll, Pack, and Piece instead of accepting arbitrary measurements such as milliliter.
+- Added: Photo Print is available as a built-in print type in product configuration and material-linked pricing.
+- Added: Photo jobs start with high quality, fill-and-crop, borderless output and expose Canon-style media choices including Glossy II, Pro Luster, Semi-gloss, Glossy, Matte, Hagaki, greeting card, and card stock.
+- Added: Selected media is retained in job audit and Print History and is sent to the installed print system with the closest standard driver media hint.
+- Changed: Inventory paper size now uses the Canon G4070 catalogue instead of only A4, Letter, and Legal; every choice includes its canonical width and height.
+- Added: Custom paper accepts measured dimensions within 55 × 89 mm and 216 × 1200 mm, with inline validation and normalized short/long edges.
+- Changed: Analyzer guidance, product pricing, job paper choices, and print history display the same measured media profile selected in Inventory.
+- Changed: More than one material may use the same paper size, allowing separate bond, glossy, matte, and specialty stocks with independent pricing.

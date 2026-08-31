@@ -35,6 +35,7 @@
 .job-cancel-confirmation > p { border-left: 3px solid var(--color-danger); padding: var(--space-3) var(--space-4); background: var(--color-danger-soft); }
 
 .job-print-modal { width: min(calc(100% - var(--space-6)), 70rem); }
+.job-print-modal--photo { width: min(calc(100% - var(--space-6)), 92rem); }
 .duplex-progress { border-bottom: 1px solid var(--color-hairline); background: var(--color-paper-2); }
 .duplex-progress ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
 .duplex-progress li { display: flex; min-width: 0; align-items: center; gap: var(--space-2); border-right: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-5); color: var(--color-ink-faint); font-size: var(--text-xs); }
@@ -104,6 +105,7 @@
 .job-print-proof dt { color: var(--color-ink-faint); font-size: var(--text-xs); text-transform: uppercase; }
 .job-print-proof dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; }
 .job-print-settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.job-print-media-field { grid-column: span 2; border-left: 3px solid var(--color-accent); padding-left: var(--space-3); }
 .job-print-check { display: flex; min-height: 4.75rem; align-items: flex-start; gap: var(--space-3); border: 1px solid var(--color-hairline-strong); padding: var(--space-3); cursor: pointer; }
 .job-print-check:focus-within { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .job-print-check > input { margin-top: .2rem; }
@@ -113,6 +115,74 @@
 .job-print-auto-note,
 .job-print-driver-note { margin: 0; border-left: 2px solid var(--color-warning); padding-left: var(--space-3); color: var(--color-ink-soft); font-size: var(--text-xs); }
 .job-print-driver-note { border-left-color: var(--color-hairline-strong); }
+.job-print-photo-note { display: grid; gap: var(--space-1); margin: 0; border: 1px solid var(--color-accent); padding: var(--space-3) var(--space-4); background: var(--color-accent-softer); }
+.job-print-photo-note .numeric { color: var(--color-accent); font-size: var(--text-xs); }
+.job-print-photo-note strong { font-size: var(--text-sm); }
+.job-print-photo-note small { color: var(--color-ink-soft); font-size: var(--text-xs); }
+
+.photo-print-studio {
+  display: grid;
+  min-width: 0;
+  min-height: 36rem;
+  grid-template-columns: minmax(24rem, 1.45fr) minmax(18rem, .55fr);
+  border: 1px solid var(--color-hairline-strong);
+}
+
+.photo-print-studio .printer-output-preview { border: 0; border-right: 1px solid var(--color-hairline-strong); }
+
+.photo-print-controls {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow-y: auto;
+  padding: var(--space-4);
+  background: var(--color-paper-2);
+}
+
+.photo-print-controls__device,
+.photo-print-paper {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-hairline);
+  padding-bottom: var(--space-3);
+}
+
+.photo-print-controls__device > span { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .06em; }
+.photo-print-controls__device strong,
+.photo-print-paper strong { overflow-wrap: anywhere; }
+.photo-print-controls__device small,
+.photo-print-paper small { color: var(--color-ink-faint); font-size: var(--text-xs); }
+.photo-print-paper > span { font-size: var(--text-sm); font-weight: 600; }
+.photo-print-paper strong { font-family: var(--font-mono); font-size: var(--text-sm); }
+
+.photo-print-orientation {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.photo-print-orientation legend { grid-column: 1 / -1; margin-bottom: var(--space-1); padding: 0; font-size: var(--text-sm); font-weight: 600; }
+.photo-print-orientation label { position: relative; display: flex; min-height: var(--control-height); align-items: center; justify-content: center; flex-direction: column; gap: var(--space-1); border: 1px solid var(--color-hairline-strong); padding: var(--space-2); background: var(--color-paper); cursor: pointer; }
+.photo-print-orientation label:hover { border-color: var(--color-ink-faint); }
+.photo-print-orientation label.is-selected { border-color: var(--color-accent); background: var(--color-accent-softer); box-shadow: inset 0 -2px var(--color-accent); }
+.photo-print-orientation label:focus-within { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.photo-print-orientation input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.photo-print-orientation strong { font-size: var(--text-xs); }
+
+.photo-print-orientation__sheet { display: block; width: .85rem; height: 1.15rem; border: 1px solid currentColor; color: var(--color-ink-faint); background: repeating-linear-gradient(to bottom, transparent 0 3px, currentColor 3px 4px); }
+.photo-print-orientation__sheet.is-landscape { width: 1.15rem; height: .85rem; }
+.photo-print-orientation__sheet.is-auto { border-style: dashed; }
+.photo-print-orientation label.is-selected .photo-print-orientation__sheet { color: var(--color-accent); }
+
+.photo-print-toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.photo-print-toggles .job-print-check { min-height: var(--control-height); background: var(--color-paper); }
+.photo-print-controls .job-print-photo-note { margin-top: auto; }
 .job-payment-form { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .job-payment-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--color-hairline); background: var(--color-paper-2); }
 .job-payment-summary > div { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); border-right: 1px solid var(--color-hairline); padding: var(--space-4) var(--space-5); }
@@ -521,6 +591,9 @@
   .transaction-document-preview { height: min(58vh, 38rem); }
   .transaction-review__details { overflow: visible; }
   .job-order-form__body--review { overflow-y: auto; }
+  .photo-print-studio { grid-template-columns: minmax(0, 1fr); }
+  .photo-print-studio .printer-output-preview { border-right: 0; border-bottom: 1px solid var(--color-hairline-strong); }
+  .photo-print-controls { overflow: visible; }
 }
 
 @media (max-width: 36rem) {
@@ -545,6 +618,11 @@
   .job-print-section > header { align-items: flex-start; flex-direction: column; }
   .job-print-proof dl,
   .job-print-settings { grid-template-columns: minmax(0, 1fr); }
+  .job-print-media-field { grid-column: auto; }
+  .photo-print-studio { min-height: 0; border-inline: 0; }
+  .photo-print-orientation { grid-template-columns: minmax(0, 1fr); }
+  .photo-print-orientation label { min-height: var(--control-height); flex-direction: row; }
+  .photo-print-toggles { grid-template-columns: minmax(0, 1fr); }
   .job-print-proof dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .job-printer-choice { grid-template-columns: auto minmax(0, 1fr); }
   .job-printer-choice .status-pill { grid-column: 2; justify-self: start; }

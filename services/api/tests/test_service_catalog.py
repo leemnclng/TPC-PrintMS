@@ -232,6 +232,7 @@ def test_service_owns_products_and_cannot_be_removed_while_in_use(tmp_path) -> N
         "black_and_white",
         "semi_colored",
         "colored",
+        "photo_print",
     ]
     spot_type_response = client.post(
         "/print-types",
@@ -287,7 +288,7 @@ def test_service_owns_products_and_cannot_be_removed_while_in_use(tmp_path) -> N
         json={
             "name": "Black ink",
             "category": "Ink",
-            "unit": "milliliter",
+            "unit": "bottle",
             "openingQuantity": 500,
             "reorderLevel": 50,
             "isActive": True,

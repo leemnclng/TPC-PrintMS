@@ -1,9 +1,10 @@
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, lazy, Suspense, useEffect, useState } from "react";
 import { Button } from "../../components/Button/Button";
 import { Modal } from "../../components/Modal/Modal";
 import { ApiError, api } from "../../lib/apiClient";
-import { formatCurrency } from "../../lib/format";
+import { formatCurrency, formatFileSize } from "../../lib/format";
 import { hasScanPricingConfigured, resolveScanPricePerPage } from "../../lib/productPricing";
+import { paperSizeDisplay } from "../../lib/paperSizes";
 import type {
   Customer,
   DocumentAnalysisResponse,
@@ -15,6 +16,8 @@ import type {
   Service,
 } from "../../types/domain";
 import "./TransactionCreateModal.css";
+
+const PdfViewer = lazy(() => import("../../components/PdfViewer/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
 type PriceMode = "suggested" | "custom";
 
@@ -269,13 +272,13 @@ export function TransactionCreateModal({
       <form className="transaction-create" onSubmit={submit} noValidate>
         <div className="transaction-create__body">
           {!order ? <section className="transaction-create__identity">
-            <label className="form-field"><span>Transaction name</span><input value={name} maxLength={100} onChange={(event) => setName(event.target.value)} aria-invalid={submitted && !name.trim()} placeholder="e.g. Santos thesis package" /></label>
+            <label className={`form-field form-field--required${!name.trim() ? " is-awaiting-input" : ""}`}><span>Transaction name</span><input value={name} maxLength={100} onChange={(event) => setName(event.target.value)} aria-invalid={submitted && !name.trim()} placeholder="e.g. Santos thesis package" required /></label>
             <label className="form-field"><span>Customer</span><select value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Walk-in / no customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select></label>
             <label className="form-field"><span>Due date</span><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>
           </section> : <div className="transaction-create__existing"><span>Current transaction</span><strong>{order.name}</strong><small>{order.number} · {formatCurrency(order.total)} before additions</small></div>}
 
           <section className="transaction-create__lines" aria-label="Products in this transaction">
-            <header><div><span className="numeric">01 / WORK</span><h3>Products and operations</h3><p>Each product moves independently until every line is ready.</p></div><Button type="button" variant="secondary" onClick={() => setLines((current) => [...current, newLine(initialService.id)])}>Add product</Button></header>
+            <header><div><span className="numeric">01 / WORK</span><h3>Products and operations</h3><p>Each product moves independently until every line is ready.</p><small className="transaction-create__required-key"><i aria-hidden="true" /> Highlighted fields are required to continue.</small></div><Button type="button" variant="secondary" onClick={() => setLines((current) => [...current, newLine(initialService.id)])}>Add product</Button></header>
             {lines.map((line, index) => {
               const { product, papers, scanConfigured, suggested, total } = lineContext(line);
               const lineProducts = products.filter((candidate) => candidate.isActive && candidate.serviceId === line.serviceId);
@@ -284,18 +287,19 @@ export function TransactionCreateModal({
                   <header><div><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><strong>{product?.name || "Choose a product"}</strong>{product ? <small>{product.operationKind} workflow · {product.serviceName}</small> : null}</div>{lines.length > 1 ? <Button type="button" variant="ghost" size="sm" onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))}>Remove</Button> : null}</header>
                   <div className="transaction-line__fields">
                     <label className="form-field"><span>Service</span><select value={line.serviceId} disabled={!order && index === 0} onChange={(event) => chooseService(line, event.target.value)}>{activeServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{!order && index === 0 ? <small>Initial service</small> : null}</label>
-                    <label className="form-field"><span>Product</span><select value={line.productId} onChange={(event) => chooseProduct(line, event.target.value)} aria-invalid={submitted && !product}><option value="">Select product</option>{lineProducts.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
-                    {product && product.operationKind !== "scan" ? <label className="form-field"><span>Paper</span><select value={line.paperId} onChange={(event) => updateLine(line.key, { paperId: event.target.value, analysis: null })} aria-invalid={submitted && !line.paperId}><option value="">Select configured paper</option>{papers.map((paper) => <option key={paper.id} value={paper.id}>{paper.paperSize} · {paper.name}</option>)}</select></label> : null}
-                    {product?.operationKind === "printing" ? <label className="form-field transaction-line__file"><span>Customer document</span><input type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.docx,.xlsx,.pptx" onChange={(event) => selectFile(line, event)} aria-invalid={submitted && !line.file} /><small>{line.analysis ? `${line.analysis.analysis.pageCount} pages · best fit ${line.analysis.analysis.paperSize}` : "Analyze after choosing the file and paper."}</small></label> : null}
-                    {product?.operationKind === "photocopy" ? <label className="form-field"><span>Pages</span><input type="number" min={1} value={line.pages} onChange={(event) => updateLine(line.key, { pages: Number(event.target.value) })} /></label> : null}
-                    {product && product.operationKind !== "scan" ? <label className="form-field"><span>Copies</span><input type="number" min={1} value={line.copies} onChange={(event) => updateLine(line.key, { copies: Number(event.target.value) })} /></label> : null}
+                    <label className={`form-field form-field--required${!product ? " is-awaiting-input" : ""}`}><span>Product</span><select value={line.productId} onChange={(event) => chooseProduct(line, event.target.value)} aria-invalid={submitted && !product} required><option value="">Select product</option>{lineProducts.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
+                    {product && product.operationKind !== "scan" ? <label className={`form-field form-field--required${!line.paperId ? " is-awaiting-input" : ""}`}><span>Paper</span><select value={line.paperId} onChange={(event) => updateLine(line.key, { paperId: event.target.value, analysis: null })} aria-invalid={submitted && !line.paperId} required><option value="">Select configured paper</option>{papers.map((paper) => <option key={paper.id} value={paper.id}>{paperSizeDisplay(paper.paperSize, paper.paperWidthMm, paper.paperHeightMm)} · {paper.name}</option>)}</select></label> : null}
+                    {product?.operationKind === "printing" ? <label className={`form-field form-field--required transaction-line__file${!line.file ? " is-awaiting-input" : ""}`}><span>Customer document</span><input type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.docx,.xlsx,.pptx" onChange={(event) => selectFile(line, event)} aria-invalid={submitted && !line.file} required /><small>{line.analysis ? `${line.analysis.analysis.pageCount} pages · best fit ${line.analysis.analysis.paperSize}` : "Analyze after choosing the file and paper."}</small></label> : null}
+                    {product?.operationKind === "photocopy" ? <label className={`form-field form-field--required${line.pages < 1 ? " is-awaiting-input" : ""}`}><span>Pages</span><input type="number" min={1} value={line.pages} onChange={(event) => updateLine(line.key, { pages: Number(event.target.value) })} aria-invalid={submitted && line.pages < 1} required /></label> : null}
+                    {product && product.operationKind !== "scan" ? <label className={`form-field form-field--required${line.copies < 1 ? " is-awaiting-input" : ""}`}><span>Copies</span><input type="number" min={1} value={line.copies} onChange={(event) => updateLine(line.key, { copies: Number(event.target.value) })} aria-invalid={submitted && line.copies < 1} required /></label> : null}
                     {product && product.operationKind !== "scan" && product.variants.length ? <label className="form-field"><span>Variant</span><select value={line.variantId} onChange={(event) => { const variant = product.variants.find((candidate) => candidate.variantId === event.target.value); updateLine(line.key, { variantId: event.target.value, backToBack: Boolean(variant?.requiresManualDuplex), analysis: null }); }}><option value="">No variant</option>{product.variants.map((variant) => <option key={variant.variantId} value={variant.variantId}>{variant.label}</option>)}</select></label> : null}
                   </div>
-                  {product?.operationKind === "printing" ? <div className="transaction-line__analysis"><Button type="button" variant="secondary" disabled={line.analyzing || !line.file || !line.paperId} onClick={() => analyzeLine(line)}>{line.analyzing ? "Analyzing…" : line.analysis ? "Analyze again" : "Analyze document"}</Button><p>{line.analysis ? "Analysis complete. The detected size is guidance; your selected paper controls production." : "Pricing is calculated only after analysis."}</p></div> : null}
+                  {product?.operationKind === "printing" ? <div className={`transaction-line__analysis${!line.analysis ? " is-awaiting-action" : ""}`}><Button type="button" variant="secondary" disabled={line.analyzing || !line.file || !line.paperId} onClick={() => analyzeLine(line)}>{line.analyzing ? "Analyzing…" : line.analysis ? "Analyze again" : "Analyze document"}</Button><p>{line.analysis ? "Analysis complete. The detected size is guidance; your selected paper controls production." : line.file && line.paperId ? "Required · Analyze the document to calculate pricing and continue." : "Choose the required file and paper to enable analysis."}</p></div> : null}
+                  {product?.operationKind === "printing" && line.file && line.analysis ? <TransactionLineDocumentPreview file={line.file} analysis={line.analysis} /> : null}
                   {product?.operationKind === "scan" ? <p className="transaction-line__notice">Create the job now. Scanning and page detection happen later inside this product line.</p> : null}
                   {product?.operationKind === "scan" && !scanConfigured ? <p className="workspace-form__error" role="alert">Set a price for {product.name} — either on the product itself or a global page-count tier in Settings.</p> : null}
                   {product?.operationKind === "photocopy" ? <p className="transaction-line__notice">Complete the physical copies on the printer, then record this line as ready.</p> : null}
-                  {product ? <footer><div><span>{product.operationKind === "scan" ? "Estimated (1 page)" : "Suggested"}</span><strong>{formatCurrency(suggested)}</strong></div><label><span>Pricing</span><select value={line.priceMode} onChange={(event) => updateLine(line.key, { priceMode: event.target.value as PriceMode })}><option value="suggested">Use suggested</option><option value="custom">Owner price</option></select></label>{line.priceMode === "custom" ? <label><span>Final line price</span><input type="number" min={0} step="0.01" value={line.customPrice} onChange={(event) => updateLine(line.key, { customPrice: event.target.value })} /></label> : null}<output>{formatCurrency(total)}</output></footer> : null}
+                  {product ? <footer><div><span>{product.operationKind === "scan" ? "Estimated (1 page)" : "Suggested"}</span><strong>{formatCurrency(suggested)}</strong></div><label><span>Pricing</span><select value={line.priceMode} onChange={(event) => updateLine(line.key, { priceMode: event.target.value as PriceMode })}><option value="suggested">Use suggested</option><option value="custom">Owner price</option></select></label>{line.priceMode === "custom" ? <label className={`form-field--required${!line.customPrice.trim() || Number(line.customPrice) < 0 ? " is-awaiting-input" : ""}`}><span>Final line price</span><input type="number" min={0} step="0.01" value={line.customPrice} onChange={(event) => updateLine(line.key, { customPrice: event.target.value })} aria-invalid={submitted && (!line.customPrice.trim() || Number(line.customPrice) < 0)} required /></label> : null}<output>{formatCurrency(total)}</output></footer> : null}
                 </article>
               );
             })}
@@ -307,5 +311,43 @@ export function TransactionCreateModal({
         <footer className="transaction-create__checkout"><div><span>{order ? "Updated transaction total" : "Combined transaction total"}</span><strong>{formatCurrency((order?.total ?? 0) + combinedTotal)}</strong><small>{order ? `${formatCurrency(combinedTotal)} being added · transaction returns to production` : `${lines.length} product ${lines.length === 1 ? "line" : "lines"} · paid together after all work is ready`}</small></div><Button type="button" variant="ghost" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" disabled={saving}>{saving ? "Saving…" : order ? "Add to transaction" : "Create transaction"}</Button></footer>
       </form>
     </Modal>
+  );
+}
+
+function TransactionLineDocumentPreview({ file, analysis }: { file: File; analysis: DocumentAnalysisResponse }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const isPdf = extension === "pdf" || file.type === "application/pdf";
+  const isImage = ["png", "jpg", "jpeg", "bmp", "webp"].includes(extension)
+    || (file.type.startsWith("image/") && !file.type.includes("tiff"));
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  return (
+    <section className="transaction-line-preview" aria-label={`Analyzed preview of ${file.name}`}>
+      <header>
+        <div><span className="numeric">ANALYZED DOCUMENT</span><strong>{file.name}</strong></div>
+        <small>{analysis.analysis.pageCount} {analysis.analysis.pageCount === 1 ? "page" : "pages"} · {formatFileSize(file.size)}</small>
+      </header>
+      <div className="transaction-line-preview__canvas">
+        {isPdf ? (
+          <Suspense fallback={<div className="transaction-line-preview__status" role="status">Loading interactive preview…</div>}>
+            <PdfViewer file={file} filename={file.name} downloadUrl={previewUrl} />
+          </Suspense>
+        ) : isImage && previewUrl ? (
+          <div className="transaction-line-preview__image"><img src={previewUrl} alt={`Preview of ${file.name}`} /></div>
+        ) : (
+          <div className="transaction-line-preview__status">
+            <span aria-hidden="true">DOC</span>
+            <strong>Visual preview unavailable</strong>
+            <p>The analysis is complete. Office and TIFF files require local PDF conversion before a page-accurate preview can be shown.</p>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

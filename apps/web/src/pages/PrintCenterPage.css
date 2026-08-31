@@ -226,6 +226,11 @@
 .print-controls__intro strong { margin-top: var(--space-1); font-family: var(--font-display); font-size: var(--text-lg); }
 .print-controls__intro small { margin-top: var(--space-1); color: var(--color-ink-faint); }
 .print-controls__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); padding: 0 var(--space-5) var(--space-5); }
+.print-media-field { grid-column: span 2; border-left: 3px solid var(--color-accent); padding-left: var(--space-3); }
+.print-controls__photo-profile { display: grid; gap: var(--space-1); margin: 0 var(--space-5) var(--space-5); border: 1px solid var(--color-accent); padding: var(--space-3) var(--space-4); background: var(--color-accent-softer); }
+.print-controls__photo-profile .numeric { color: var(--color-accent); font-size: var(--text-xs); }
+.print-controls__photo-profile strong { font-size: var(--text-sm); }
+.print-controls__photo-profile small { color: var(--color-ink-soft); font-size: var(--text-xs); }
 .print-toggle { display: flex; min-height: 5.25rem; align-items: flex-start; gap: var(--space-3); border: 1px solid var(--color-hairline-strong); padding: var(--space-3); background: var(--color-paper); cursor: pointer; }
 .print-toggle:focus-within { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .print-toggle > input { margin-top: .2rem; }
@@ -357,6 +362,7 @@
   .print-controls__intro { align-items: stretch; flex-direction: column; }
   .print-controls__intro > button { align-self: flex-start; }
   .print-controls__grid { grid-template-columns: minmax(0, 1fr); }
+  .print-media-field { grid-column: auto; }
   .print-submission__confirm,
   .print-submission__gate { align-items: stretch; flex-direction: column; }
   .spooler-job-list article { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }

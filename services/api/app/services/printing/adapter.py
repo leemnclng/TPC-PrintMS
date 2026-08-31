@@ -23,6 +23,8 @@ from pathlib import Path
 import pymupdf
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from ..paper_sizes import cups_media_size, paper_size_definition
+
 
 @dataclass
 class DetectedPrinter:
@@ -41,6 +43,25 @@ class PrintSubmissionError(RuntimeError):
     pass
 
 
+IPP_MEDIA_TYPES = {
+    "plain": "stationery",
+    "photo_plus_glossy_ii": "photographic-high-gloss",
+    "photo_pro_luster": "photographic-satin",
+    "photo_plus_semi_gloss": "photographic-semi-gloss",
+    "glossy_photo": "photographic-glossy",
+    "matte_photo": "photographic-matte",
+    "envelope": "envelope",
+    "ink_jet_hagaki_a": "stationery-coated",
+    "ink_jet_hagaki": "stationery-coated",
+    "hagaki_k_a": "stationery-coated",
+    "hagaki_k": "stationery-coated",
+    "hagaki_a": "stationery-coated",
+    "hagaki": "stationery-coated",
+    "inkjet_greeting_card": "stationery-coated",
+    "card_stock": "cardstock",
+}
+
+
 class PrinterAdapter:
     def list_printers(self) -> list[DetectedPrinter]:
         raise NotImplementedError
@@ -52,6 +73,9 @@ class PrinterAdapter:
         copies: int,
         color_mode: str,
         media_size: str,
+        media_type: str = "auto",
+        media_width_mm: float | None = None,
+        media_height_mm: float | None = None,
         orientation: str = "auto",
         scaling: str = "auto",
         quality: str = "auto",
@@ -118,6 +142,9 @@ class CupsPrinterAdapter(PrinterAdapter):
         copies: int,
         color_mode: str,
         media_size: str,
+        media_type: str = "auto",
+        media_width_mm: float | None = None,
+        media_height_mm: float | None = None,
         orientation: str = "auto",
         scaling: str = "auto",
         quality: str = "auto",
@@ -126,7 +153,13 @@ class CupsPrinterAdapter(PrinterAdapter):
         tracking_id: str | None = None,
         duplex_pass: str = "simplex",
     ) -> PrintSubmission:
-        media_option = f"{media_size}.Borderless" if borderless else media_size
+        definition = paper_size_definition(media_size)
+        width_mm = media_width_mm or definition.width_mm
+        height_mm = media_height_mm or definition.height_mm
+        if width_mm is None or height_mm is None:
+            raise PrintSubmissionError("The selected paper size has no usable dimensions.")
+        cups_size = cups_media_size(media_size, width_mm, height_mm)
+        media_option = f"{cups_size}.Borderless" if borderless else cups_size
         command = [
             "lp",
             "-d",
@@ -144,6 +177,8 @@ class CupsPrinterAdapter(PrinterAdapter):
         ]
         if quality != "auto":
             command.extend(["-o", f"print-quality={3 if quality == 'draft' else 5 if quality == 'high' else 4}"])
+        if media_type in IPP_MEDIA_TYPES:
+            command.extend(["-o", f"media-type={IPP_MEDIA_TYPES[media_type]}"])
         if duplex_pass == "front":
             command.extend(["-o", "page-set=odd"])
         elif duplex_pass == "back":
@@ -234,6 +269,9 @@ class WindowsPrinterAdapter(PrinterAdapter):
         copies: int,
         color_mode: str,
         media_size: str,
+        media_type: str = "auto",
+        media_width_mm: float | None = None,
+        media_height_mm: float | None = None,
         orientation: str = "auto",
         scaling: str = "auto",
         quality: str = "auto",
@@ -242,6 +280,11 @@ class WindowsPrinterAdapter(PrinterAdapter):
         tracking_id: str | None = None,
         duplex_pass: str = "simplex",
     ) -> PrintSubmission:
+        definition = paper_size_definition(media_size)
+        width_mm = media_width_mm or definition.width_mm
+        height_mm = media_height_mm or definition.height_mm
+        if width_mm is None or height_mm is None:
+            raise PrintSubmissionError("The selected paper size has no usable dimensions.")
         script_path = Path(__file__).with_name("windows_print.ps1")
         with tempfile.TemporaryDirectory(prefix="printing-ms-pages-") as temporary_directory:
             page_count = _render_windows_print_pages(
@@ -274,6 +317,12 @@ class WindowsPrinterAdapter(PrinterAdapter):
                 color_mode,
                 "-MediaSize",
                 media_size,
+                "-MediaWidthMm",
+                str(width_mm),
+                "-MediaHeightMm",
+                str(height_mm),
+                "-MediaType",
+                media_type,
                 "-Orientation",
                 orientation,
                 "-Scaling",

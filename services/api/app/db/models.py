@@ -85,6 +85,7 @@ class ProductPrintType(str, enum.Enum):
     black_and_white = "black_and_white"
     semi_colored = "semi_colored"
     colored = "colored"
+    photo_print = "photo_print"
 
 
 class ServiceCategory(str, enum.Enum):
@@ -105,12 +106,37 @@ class DocumentPricingScope(str, enum.Enum):
 
 
 class InventoryPaperSize(str, enum.Enum):
-    """The only paper sizes the shop stocks and prices by. Deliberately a
-    closed set — see decisions.md "Tie Document Pricing to Real Paper Stock"."""
-
-    a4 = "A4"
     letter = "Letter"
     legal = "Legal"
+    executive = "Executive"
+    a6 = "A6"
+    a5 = "A5"
+    a4 = "A4"
+    b5 = "B5"
+    b_oficio = "B-Oficio"
+    m_oficio = "M-Oficio"
+    foolscap = "Foolscap/F4/Oficio2"
+    legal_india = "Legal (India)"
+    photo_4x6 = '4"x6"'
+    photo_5x7 = '5"x7"'
+    photo_7x10 = '7"x10"'
+    photo_8x10 = '8"x10"'
+    photo_l = "L"
+    photo_2l = "2L"
+    square_3_5 = 'Square 3.5"x3.5"'
+    square_5 = 'Square 5"x5"'
+    hagaki = "Hagaki"
+    hagaki_2 = "Hagaki 2"
+    envelope_com10 = "Envelope #10"
+    envelope_dl = "Envelope DL"
+    nagagata_3 = "Nagagata 3"
+    nagagata_4 = "Nagagata 4"
+    yougata_4 = "Yougata 4"
+    yougata_6 = "Yougata 6"
+    envelope_c5 = "Envelope C5"
+    envelope_monarch = "Envelope Monarch"
+    card = "Card 55x91mm"
+    custom = "Custom"
 
 
 class PaymentMethod(str, enum.Enum):
@@ -374,6 +400,21 @@ class InventoryItem(TimestampMixin, Base):
     """Consumable stock used by day-to-day production."""
 
     __tablename__ = "inventory_items"
+    __table_args__ = (
+        CheckConstraint(
+            "purchase_price IS NULL OR purchase_price >= 0",
+            name="ck_inventory_items_purchase_price",
+        ),
+        CheckConstraint(
+            "purchase_price_basis IN ('unit', 'ream')",
+            name="ck_inventory_items_purchase_basis",
+        ),
+        CheckConstraint(
+            "(purchase_price_basis = 'unit' AND sheets_per_ream IS NULL) OR "
+            "(purchase_price_basis = 'ream' AND sheets_per_ream > 0)",
+            name="ck_inventory_items_ream_size",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
@@ -381,6 +422,9 @@ class InventoryItem(TimestampMixin, Base):
     unit: Mapped[str] = mapped_column(String, nullable=False)
     quantity_on_hand: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     reorder_level: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    purchase_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    purchase_price_basis: Mapped[str] = mapped_column(String, default="unit", nullable=False)
+    sheets_per_ream: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     paper_size: Mapped[InventoryPaperSize | None] = mapped_column(
@@ -392,6 +436,8 @@ class InventoryItem(TimestampMixin, Base):
         ),
         nullable=True,
     )
+    paper_width_mm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    paper_height_mm: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     product_assignments: Mapped[list["ProductMaterialAssignment"]] = relationship(
         back_populates="inventory_item"
@@ -659,6 +705,9 @@ class PrintJob(Base):
     copies: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     color_mode: Mapped[str] = mapped_column(String, default="color", nullable=False)
     media_size: Mapped[str] = mapped_column(String, default="A4", nullable=False)
+    media_width_mm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    media_height_mm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    media_type: Mapped[str] = mapped_column(String, default="auto", nullable=False)
     orientation: Mapped[str] = mapped_column(String, default="auto", nullable=False)
     scaling: Mapped[str] = mapped_column(String, default="auto", nullable=False)
     quality: Mapped[str] = mapped_column(String, default="auto", nullable=False)

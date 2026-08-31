@@ -14,8 +14,17 @@ from .base import DocumentAnalyzer, InvalidDocumentError, estimate_print_time
 PAPER_SIZE_BY_CODE = {
     "8": PaperSize.a3,
     "9": PaperSize.a4,
+    "11": PaperSize.a5,
+    "13": PaperSize.b5,
     "1": PaperSize.letter,
     "5": PaperSize.legal,
+    "7": PaperSize.executive,
+    "14": PaperSize.foolscap,
+    "20": PaperSize.envelope_com10,
+    "27": PaperSize.envelope_dl,
+    "28": PaperSize.envelope_c5,
+    "37": PaperSize.envelope_monarch,
+    "43": PaperSize.hagaki,
 }
 MAX_ROWS_ANALYZED = 5_000
 MAX_COLUMNS_ANALYZED = 200

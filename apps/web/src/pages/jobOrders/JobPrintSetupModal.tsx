@@ -3,10 +3,13 @@ import { Button } from "../../components/Button/Button";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { Modal } from "../../components/Modal/Modal";
+import { PrinterOutputPreview } from "../../components/PrinterOutputPreview/PrinterOutputPreview";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import { useResource } from "../../hooks/useResource";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatDate } from "../../lib/format";
+import { PRINT_MEDIA_OPTIONS, type PrintMediaType } from "../../lib/printProfiles";
+import { paperSizeDefinition, paperSizeDisplay } from "../../lib/paperSizes";
 import { printerStateMeta } from "../../types/statusMeta";
 import type { JobOrder, JobOrderItem, Printer } from "../../types/domain";
 import "../workspaceForm.css";
@@ -30,6 +33,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
   const [orientation, setOrientation] = useState<"auto" | "portrait" | "landscape">("auto");
   const [scaling, setScaling] = useState<"auto" | "fit" | "fill" | "actual_size">("auto");
   const [quality, setQuality] = useState<"auto" | "draft" | "standard" | "high">("auto");
+  const [mediaType, setMediaType] = useState<PrintMediaType>("auto");
   const [borderless, setBorderless] = useState(false);
   const [collate, setCollate] = useState(true);
   const [workingOrder, setWorkingOrder] = useState(order);
@@ -40,9 +44,16 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
   const [actionError, setActionError] = useState<string | null>(null);
 
   const printItem = workingOrder.items.find((candidate) => candidate.id === item.id) ?? item;
+  const isPhotoPrint = printItem.printType === "photo_print";
+  const initialPaperSize = item.materials.find((material) => material.paperSize)?.paperSize;
   const selectedFile = workingOrder.files.find((file) => file.id === selectedFileId);
   const paperPlan = printItem?.materials.find((material) => material.paperSize);
   const mediaSize = paperPlan?.paperSize ?? selectedFile?.detectedPaperSize ?? "A4";
+  const mediaSizeLabel = paperSizeDisplay(mediaSize, paperPlan?.paperWidthMm, paperPlan?.paperHeightMm);
+  const mediaDefinition = paperSizeDefinition(mediaSize);
+  const mediaWidthMm = paperPlan?.paperWidthMm ?? mediaDefinition?.widthMm ?? 210;
+  const mediaHeightMm = paperPlan?.paperHeightMm ?? mediaDefinition?.heightMm ?? 297;
+  const printReadyFiles = workingOrder.files.filter((file) => file.kind === "print_ready" && (!file.jobOrderItemId || file.jobOrderItemId === item.id));
   const copies = printItem?.copies ?? 1;
   const pages = selectedFile?.detectedPageCount ?? printItem?.pagesPerCopy ?? 1;
   const completedFrontPass = workingOrder.printAttempts.find(
@@ -71,9 +82,10 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
     setSelectedPrinterId("");
     setSelectedFileId(order.files.find((file) => file.kind === "print_ready" && (!file.jobOrderItemId || file.jobOrderItemId === item.id))?.id ?? "");
     setOrientation("auto");
-    setScaling("auto");
-    setQuality("auto");
-    setBorderless(false);
+    setScaling(item.printType === "photo_print" ? "fill" : "auto");
+    setQuality(item.printType === "photo_print" ? "high" : "auto");
+    setMediaType(item.printType === "photo_print" ? "photo_plus_glossy_ii" : "auto");
+    setBorderless(item.printType === "photo_print" && initialPaperSize !== "Legal");
     setCollate(true);
     setPaperReinserted(false);
     setActionError(null);
@@ -84,12 +96,13 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
       setSelectedPrinterId(priorFront.printerId);
       setSelectedFileId(priorFront.jobFileId ?? order.files.find((file) => file.kind === "print_ready" && (!file.jobOrderItemId || file.jobOrderItemId === item.id))?.id ?? "");
       setOrientation(priorFront.orientation);
+      setMediaType(priorFront.mediaType as PrintMediaType);
       setScaling(priorFront.scaling);
       setQuality(priorFront.quality);
       setBorderless(priorFront.borderless);
       setCollate(priorFront.collate);
     }
-  }, [open, order, item.id]);
+  }, [initialPaperSize, open, order, item.id, item.printType]);
 
   useEffect(() => {
     if (!open || !printers?.length || selectedPrinterId) return;
@@ -135,6 +148,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
         jobFileId: selectedFileId,
         jobOrderItemId: item.id,
         orientation,
+        mediaType,
         scaling,
         quality,
         borderless,
@@ -168,7 +182,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
   }
 
   return (
-    <Modal open={open} title={manualDuplex ? "Supervised back-to-back printing" : "Print setup"} description={`${order.name} · ${order.number} · ${manualDuplex ? "Complete both physical passes without losing the job context." : "Choose the printer and output settings without leaving this job order."}`} onClose={onClose} busy={saving} status={actionError ? "error" : saving ? "loading" : "idle"} className="job-print-modal">
+    <Modal open={open} title={manualDuplex ? "Supervised back-to-back printing" : isPhotoPrint ? "Photo Print studio" : "Print setup"} description={`${order.name} · ${order.number} · ${manualDuplex ? "Complete both physical passes without losing the job context." : isPhotoPrint ? "Proof the image against the selected physical paper before handing it to the driver." : "Choose the printer and output settings without leaving this job order."}`} onClose={onClose} busy={saving} status={actionError ? "error" : saving ? "loading" : "idle"} className={`job-print-modal${isPhotoPrint ? " job-print-modal--photo" : ""}`}>
       {state === "loading" ? <LoadingState label="Reading printers…" /> : state === "error" ? <ErrorState title="Printers unavailable" description={printerError ?? undefined} onRetry={reload} /> : (
         <form className="job-print-form" onSubmit={handleSubmit}>
           {manualDuplex && (
@@ -185,7 +199,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
               <ManualDuplexReload
                 printer={selectedPrinter}
                 filename={selectedFile?.originalFilename ?? "Print-ready file"}
-                paperSize={mediaSize}
+                paperSize={mediaSizeLabel}
                 copies={copies}
                 sheetsPerCopy={sheetsPerCopy}
                 backPages={backPages}
@@ -206,19 +220,68 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
 
             <section className="job-print-section">
               <header><div><span className="numeric">02 / OUTPUT</span><h3>Confirm file and settings</h3></div>{window.paperClub?.platform === "win32" && selectedPrinter && <Button type="button" size="sm" variant="secondary" onClick={handleOpenPreferences} loading={openingPreferences}>{/canon/i.test(selectedPrinter.displayName) ? "Canon print settings" : "Printer settings"}</Button>}</header>
-              <div className="job-print-proof">
-                <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{workingOrder.files.filter((file) => file.kind === "print_ready" && (!file.jobOrderItemId || file.jobOrderItemId === item.id)).map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
-                <dl><div><dt>Pages</dt><dd>{pages}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Paper</dt><dd>{mediaSize}</dd></div><div><dt>Output</dt><dd>Auto · {automaticColorMode}</dd></div></dl>
-              </div>
-              <div className="job-print-settings">
-                <label className="form-field"><span>Orientation</span><select value={orientation} onChange={(event) => setOrientation(event.target.value as typeof orientation)}><option value="auto">Auto per page</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
-                <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="auto">Automatic · preserve size</option><option value="fit">Fit printable area</option><option value="actual_size">Actual size · allow clipping</option><option value="fill">Fill paper · crop edges</option></select></label>
-                <label className="form-field"><span>Quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="auto">Automatic · driver default</option><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
-                <label className="job-print-check"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Force borderless</strong><small>Off uses printer margins automatically</small></span></label>
-                <label className="job-print-check"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate copies</strong><small>Complete sets in order</small></span></label>
-              </div>
-              <p className="job-print-auto-note" role="status"><strong>Automatic document profile:</strong> product print type remains pricing-only. Source analysis controls color and orientation; original dimensions and document margins are preserved, shrinking only when the printer's physical area requires it.</p>
-              {window.paperClub?.platform === "win32" && selectedPrinter && <p className="job-print-driver-note"><strong>{/canon/i.test(selectedPrinter.displayName) ? "Canon driver controls" : "Installed driver controls"}:</strong> the driver keeps its media, paper-source, color-correction, and quality defaults unless you explicitly override them here.</p>}
+              {isPhotoPrint ? (
+                <div className="photo-print-studio">
+                  <PrinterOutputPreview
+                    orderId={order.id}
+                    file={selectedFile}
+                    paperLabel={mediaSizeLabel}
+                    paperWidthMm={mediaWidthMm}
+                    paperHeightMm={mediaHeightMm}
+                    orientation={orientation}
+                    scaling={scaling}
+                    borderless={borderless}
+                  />
+                  <aside className="photo-print-controls" aria-label="Photo Print output controls">
+                    <div className="photo-print-controls__device">
+                      <span className="numeric">SELECTED DEVICE</span>
+                      <strong>{selectedPrinter?.displayName ?? "Choose a printer above"}</strong>
+                      <small>{selectedPrinter ? `${selectedPrinter.systemName} · ${printerStateMeta[selectedPrinter.lastSeenState].label}` : "A printer is required before submission."}</small>
+                    </div>
+
+                    <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{printReadyFiles.map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select><small>{pages} {pages === 1 ? "page" : "pages"} · {automaticColorMode}</small></label>
+
+                    <div className="photo-print-paper"><span>Paper size</span><strong>{mediaSizeLabel}</strong><small>Selected by the approved job; pricing and inventory use this material.</small></div>
+
+                    <fieldset className="photo-print-orientation">
+                      <legend>Orientation</legend>
+                      {(["auto", "portrait", "landscape"] as const).map((value) => (
+                        <label className={orientation === value ? "is-selected" : ""} key={value}>
+                          <input type="radio" name="photo-orientation" value={value} checked={orientation === value} onChange={() => setOrientation(value)} />
+                          <span aria-hidden="true" className={`photo-print-orientation__sheet is-${value}`} />
+                          <strong>{value === "auto" ? "Auto" : value === "portrait" ? "Portrait" : "Landscape"}</strong>
+                        </label>
+                      ))}
+                    </fieldset>
+
+                    <label className="form-field"><span>Media type</span><select value={mediaType} onChange={(event) => setMediaType(event.target.value as PrintMediaType)}>{PRINT_MEDIA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><small>Match this to the stock loaded in the printer.</small></label>
+                    <label className="form-field"><span>Layout on paper</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="fill">Fill paper · crop edges</option><option value="fit">Fit · preserve entire image</option><option value="auto">Automatic · preserve source</option><option value="actual_size">Actual size · allow clipping</option></select><small>The output proof updates immediately.</small></label>
+                    <label className="form-field"><span>Quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="high">High</option><option value="auto">Automatic · driver default</option><option value="standard">Standard</option><option value="draft">Draft</option></select></label>
+                    <div className="photo-print-toggles">
+                      <label className="job-print-check"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Borderless</strong><small>Fill the sheet edge to edge</small></span></label>
+                      <label className="job-print-check"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate</strong><small>{copies} {copies === 1 ? "copy" : "copies"}</small></span></label>
+                    </div>
+                    <p className="job-print-photo-note" role="status"><span className="numeric">PHOTO OUTPUT</span><strong>{quality === "high" ? "High quality" : quality} · {scaling === "fill" ? "fill and crop" : scaling} · {borderless ? "borderless" : "driver margins"}</strong><small>The proof predicts geometry. The installed driver retains final authority over physical margins, tray support, and color correction.</small></p>
+                  </aside>
+                </div>
+              ) : (
+                <>
+                  <div className="job-print-proof">
+                    <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{printReadyFiles.map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
+                    <dl><div><dt>Pages</dt><dd>{pages}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Paper</dt><dd>{mediaSizeLabel}</dd></div><div><dt>Output</dt><dd>Auto · {automaticColorMode}</dd></div></dl>
+                  </div>
+                  <div className="job-print-settings">
+                    <label className="form-field"><span>Media type</span><select value={mediaType} onChange={(event) => setMediaType(event.target.value as PrintMediaType)}>{PRINT_MEDIA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><small>Automatic keeps the installed driver's current media profile.</small></label>
+                    <label className="form-field"><span>Orientation</span><select value={orientation} onChange={(event) => setOrientation(event.target.value as typeof orientation)}><option value="auto">Auto per page</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+                    <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="auto">Automatic · preserve size</option><option value="fit">Fit printable area</option><option value="actual_size">Actual size · allow clipping</option><option value="fill">Fill paper · crop edges</option></select></label>
+                    <label className="form-field"><span>Quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="auto">Automatic · driver default</option><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+                    <label className="job-print-check"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Force borderless</strong><small>Off uses printer margins automatically</small></span></label>
+                    <label className="job-print-check"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate copies</strong><small>Complete sets in order</small></span></label>
+                  </div>
+                  <p className="job-print-auto-note" role="status"><strong>Automatic document profile:</strong> product print type remains pricing-only. Source analysis controls color and orientation; original dimensions and document margins are preserved, shrinking only when the printer's physical area requires it.</p>
+                  {window.paperClub?.platform === "win32" && selectedPrinter && <p className="job-print-driver-note"><strong>{/canon/i.test(selectedPrinter.displayName) ? "Canon driver controls" : "Installed driver controls"}:</strong> the driver keeps its media, paper-source, color-correction, and quality defaults unless you explicitly override them here.</p>}
+                </>
+              )}
             </section>
             {manualDuplex && <div className="duplex-supervision-note"><span className="numeric">SUPERVISED OUTPUT</span><strong>This submission prints front sides only.</strong><p>{frontPages} front-side {frontPages === 1 ? "page" : "pages"} per copy will print first. Keep the output stack together; this modal will then pause for reinsertion before any back side is sent.</p></div>}
             </>

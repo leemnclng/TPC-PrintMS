@@ -9,6 +9,7 @@ import { Modal } from "../../components/Modal/Modal";
 import { useResource } from "../../hooks/useResource";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatProductPrintType } from "../../lib/format";
+import { comparePaperSizes, paperSizeDisplay } from "../../lib/paperSizes";
 import type { DocumentPricingRule, InventoryPaperSize, PrintTypeDefinition, ScanPricingTier } from "../../types/domain";
 import "../SettingsPage.css";
 import { PrintTypeCreateModal } from "./PrintTypeCreateModal";
@@ -17,13 +18,13 @@ interface MaterialSummary {
   id: string;
   name: string;
   paperSize: InventoryPaperSize;
+  paperWidthMm?: number | null;
+  paperHeightMm?: number | null;
 }
-
-const PAPER_ORDER: InventoryPaperSize[] = ["A4", "Letter", "Legal"];
 
 function sortMaterials(materials: MaterialSummary[]): MaterialSummary[] {
   return materials.sort((left, right) =>
-    PAPER_ORDER.indexOf(left.paperSize) - PAPER_ORDER.indexOf(right.paperSize) || left.name.localeCompare(right.name));
+    comparePaperSizes(left.paperSize, right.paperSize) || left.name.localeCompare(right.name));
 }
 
 const PRICING_SCOPES = [
@@ -151,7 +152,7 @@ export function DocumentPricingSettings() {
         {state === "ready" && rules.length === 0 ? (
           <EmptyState
             title="No paper sizes configured yet"
-            description="Tag an inventory item as A4, Letter, or Legal paper stock in Inventory to start pricing by size."
+            description="Tag an inventory material with a supported Canon paper size to start pricing by size."
             action={<LinkButton to="/inventory" variant="secondary" size="sm">Open inventory</LinkButton>}
           />
         ) : null}
@@ -173,6 +174,8 @@ export function DocumentPricingSettings() {
                         id: rule.inventoryItemId,
                         name: rule.inventoryItemName,
                         paperSize: rule.paperSize,
+                        paperWidthMm: rule.paperWidthMm,
+                        paperHeightMm: rule.paperHeightMm,
                       }])).values())).map((material) => {
                         const materialRules = scopedRules.filter((rule) => rule.inventoryItemId === material.id);
                         const activeCount = materialRules.filter((rule) => rule.isActive).length;
@@ -184,7 +187,7 @@ export function DocumentPricingSettings() {
                             key={material.id}
                             onClick={() => setEditingMaterial({ scope, material })}
                           >
-                            <span className="pricing-material__label"><strong>{material.name}</strong><small>{material.paperSize}</small></span>
+                            <span className="pricing-material__label"><strong>{material.name}</strong><small>{paperSizeDisplay(material.paperSize, material.paperWidthMm, material.paperHeightMm)}</small></span>
                             <span className="pricing-material__chips">
                               {printTypes.map((printType) => {
                                 const rule = materialRules.find((candidate) => candidate.printType === printType.key);
@@ -264,7 +267,7 @@ function MaterialRatesModal({
     <Modal
       open={open}
       title={material ? `${material.name} · ${scopeLabel}` : "Material rates"}
-      description={material ? `${material.paperSize} paper · edits apply once you save pricing rules below.` : undefined}
+      description={material ? `${paperSizeDisplay(material.paperSize, material.paperWidthMm, material.paperHeightMm)} · edits apply once you save pricing rules below.` : undefined}
       onClose={onClose}
       className="material-rates-modal"
     >

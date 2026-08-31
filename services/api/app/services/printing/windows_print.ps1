@@ -5,7 +5,10 @@ param(
     [Parameter(Mandatory = $true)][string]$PrinterName,
     [Parameter(Mandatory = $true)][ValidateRange(1, 99)][int]$Copies,
     [Parameter(Mandatory = $true)][ValidateSet("color", "grayscale")][string]$ColorMode,
-    [Parameter(Mandatory = $true)][ValidateSet("A4", "Letter", "Legal")][string]$MediaSize,
+    [Parameter(Mandatory = $true)][string]$MediaSize,
+    [Parameter(Mandatory = $true)][ValidateRange(55.0, 216.0)][double]$MediaWidthMm,
+    [Parameter(Mandatory = $true)][ValidateRange(55.0, 1200.0)][double]$MediaHeightMm,
+    [Parameter(Mandatory = $true)][ValidateSet("auto", "plain", "photo_plus_glossy_ii", "photo_pro_luster", "photo_plus_semi_gloss", "glossy_photo", "matte_photo", "envelope", "ink_jet_hagaki_a", "ink_jet_hagaki", "hagaki_k_a", "hagaki_k", "hagaki_a", "hagaki", "inkjet_greeting_card", "card_stock")][string]$MediaType,
     [Parameter(Mandatory = $true)][ValidateSet("auto", "portrait", "landscape")][string]$Orientation,
     [Parameter(Mandatory = $true)][ValidateSet("auto", "fit", "fill", "actual_size")][string]$Scaling,
     [Parameter(Mandatory = $true)][ValidateSet("auto", "draft", "standard", "high")][string]$Quality,
@@ -29,6 +32,51 @@ if ($imagePaths.Count -eq 0) {
 }
 
 Add-Type -AssemblyName System.Drawing
+Add-Type -TypeDefinition @"
+using System;
+using System.Drawing.Printing;
+using System.Runtime.InteropServices;
+
+public static class PrintingMsMediaHint
+{
+    private const int DM_MEDIATYPE = 0x02000000;
+    private const int DMMEDIA_STANDARD = 1;
+    private const int DMMEDIA_GLOSSY = 3;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DevMode
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+        public short dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra;
+        public int dmFields;
+        public short dmOrientation, dmPaperSize, dmPaperLength, dmPaperWidth, dmScale,
+            dmCopies, dmDefaultSource, dmPrintQuality, dmColor, dmDuplex, dmYResolution,
+            dmTTOption, dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+        public short dmLogPixels;
+        public int dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency,
+            dmICMMethod, dmICMIntent, dmMediaType, dmDitherType, dmReserved1, dmReserved2,
+            dmPanningWidth, dmPanningHeight;
+    }
+
+    public static void Apply(PrinterSettings settings, bool glossy)
+    {
+        IntPtr handle = settings.GetHdevmode();
+        try
+        {
+            DevMode mode = (DevMode)Marshal.PtrToStructure(handle, typeof(DevMode));
+            mode.dmFields |= DM_MEDIATYPE;
+            mode.dmMediaType = glossy ? DMMEDIA_GLOSSY : DMMEDIA_STANDARD;
+            Marshal.StructureToPtr(mode, handle, false);
+            settings.SetHdevmode(handle);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(handle);
+        }
+    }
+}
+"@
 
 $document = New-Object System.Drawing.Printing.PrintDocument
 $useBorderless = ($Borderless -eq "true")
@@ -40,12 +88,30 @@ if (-not $document.PrinterSettings.IsValid) {
     throw "The selected Windows printer queue is unavailable."
 }
 
+# Windows' public DEVMODE contract only distinguishes standard and glossy
+# media. Canon-specific names remain useful in history and are reduced to the
+# closest standard hint here; the installed driver keeps final authority.
+if ($MediaType -ne "auto") {
+    $glossyMedia = @("photo_plus_glossy_ii", "photo_pro_luster", "photo_plus_semi_gloss", "glossy_photo") -contains $MediaType
+    try { [PrintingMsMediaHint]::Apply($document.PrinterSettings, $glossyMedia) } catch { }
+}
+
+$targetWidth = [int][Math]::Round($MediaWidthMm * 100 / 25.4)
+$targetHeight = [int][Math]::Round($MediaHeightMm * 100 / 25.4)
+$normalizedMediaName = ($MediaSize -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
 $paperSize = $document.PrinterSettings.PaperSizes |
-    Where-Object { $_.Kind.ToString() -eq $MediaSize } |
+    Where-Object {
+        $paperName = ($_.PaperName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+        $_.Kind.ToString() -eq $MediaSize -or
+        $paperName -eq $normalizedMediaName -or
+        ([Math]::Abs($_.Width - $targetWidth) -le 2 -and [Math]::Abs($_.Height - $targetHeight) -le 2)
+    } |
     Select-Object -First 1
 if ($null -eq $paperSize) {
-    $document.Dispose()
-    throw "The selected printer does not report support for $MediaSize paper."
+    # Canon and other drivers do not expose every regional/photo name through
+    # PaperSizes even when they accept the dimensions. Use a per-job custom
+    # PaperSize and let the installed driver reject it if truly unsupported.
+    $paperSize = [System.Drawing.Printing.PaperSize]::new("Printing-MS $MediaSize", $targetWidth, $targetHeight)
 }
 
 $document.DefaultPageSettings.PaperSize = $paperSize

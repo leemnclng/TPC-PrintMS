@@ -120,6 +120,8 @@ class PricingService:
             inventory_item_id=rule.inventory_item_id,
             inventory_item_name=rule.inventory_item.name,
             paper_size=rule.paper_size,
+            paper_width_mm=rule.inventory_item.paper_width_mm,
+            paper_height_mm=rule.inventory_item.paper_height_mm,
             print_type=rule.print_type,
             pricing_scope=rule.pricing_scope,
             price_per_page=rule.price_per_page,

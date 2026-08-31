@@ -28,7 +28,7 @@ interface WorkspaceData {
 
 export function ServiceWorkspace() {
   const navigate = useNavigate();
-  const { serviceId } = useParams<{ serviceId: string }>();
+  const { serviceId } = useParams<{ serviceId: string; }>();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createdProducts, setCreatedProducts] = useState<Product[]>([]);
   const [restoringId, setRestoringId] = useState<string | null>(null);
@@ -96,7 +96,7 @@ export function ServiceWorkspace() {
   return (
     <>
       <PageHeader
-        eyebrow="Printing Services"
+        eyebrow="Services"
         title={service.name}
         description={service.description || "Products available under this service."}
         actions={

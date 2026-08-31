@@ -13,7 +13,7 @@ import "./ServiceSettingsWorkspace.css";
 
 export function ServiceSettingsWorkspace() {
   const navigate = useNavigate();
-  const { serviceId } = useParams<{ serviceId: string }>();
+  const { serviceId } = useParams<{ serviceId: string; }>();
   const isNew = !serviceId;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -82,7 +82,7 @@ export function ServiceSettingsWorkspace() {
   return (
     <>
       <PageHeader
-        eyebrow="Printing Services"
+        eyebrow="Services"
         title={isNew ? "New service" : "Service settings"}
         description={
           isNew

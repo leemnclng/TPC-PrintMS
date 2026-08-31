@@ -92,7 +92,7 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     ).json()
     paper = _create_material(client, headers, "A4 paper", "sheet", 100, paper_size="A4")
     alternative_paper = _create_material(client, headers, "Short paper", "sheet", 100, paper_size="Letter")
-    ink = _create_material(client, headers, "Black ink", "ml", 50)
+    ink = _create_material(client, headers, "Black ink", "bottle", 50)
     unassigned = _create_material(client, headers, "Long paper", "sheet", 100)
 
     # A catalog reference uses the lowest assigned paper-material rate, while
@@ -744,8 +744,8 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
         fail = True
         calls = []
 
-        def submit_file(self, *args):
-            self.calls.append(args)
+        def submit_file(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
             if self.fail:
                 raise PrintSubmissionError("Test queue rejected the first attempt.")
             return PrintSubmission(external_job_id="Canon-42")
@@ -803,6 +803,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
             "orientation": "landscape",
             "scaling": "fill",
             "quality": "high",
+            "mediaType": "photo_plus_glossy_ii",
             "borderless": False,
             "collate": False,
         },
@@ -815,13 +816,21 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert printed.json()["printAttempts"][0]["copies"] == 2
     assert printed.json()["printAttempts"][0]["colorMode"] == "color"
     assert printed.json()["printAttempts"][0]["mediaSize"] == "Letter"
+    assert printed.json()["printAttempts"][0]["mediaType"] == "photo_plus_glossy_ii"
     assert printed.json()["printAttempts"][0]["orientation"] == "landscape"
     assert printed.json()["printAttempts"][0]["scaling"] == "fill"
     assert printed.json()["printAttempts"][0]["quality"] == "high"
     assert printed.json()["printAttempts"][0]["borderless"] is False
     assert printed.json()["printAttempts"][0]["collate"] is False
-    assert stub_adapter.calls[-1][5:10] == ("landscape", "fill", "high", False, False)
-    assert stub_adapter.calls[-1][10] == printed.json()["printAttempts"][0]["id"]
+    assert stub_adapter.calls[-1][1]["media_type"] == "photo_plus_glossy_ii"
+    assert stub_adapter.calls[-1][1]["orientation"] == "landscape"
+    assert stub_adapter.calls[-1][1]["scaling"] == "fill"
+    assert stub_adapter.calls[-1][1]["quality"] == "high"
+    assert stub_adapter.calls[-1][1]["borderless"] is False
+    assert stub_adapter.calls[-1][1]["collate"] is False
+    assert stub_adapter.calls[-1][1]["media_width_mm"] == 215.9
+    assert stub_adapter.calls[-1][1]["media_height_mm"] == 279.4
+    assert stub_adapter.calls[-1][1]["tracking_id"] == printed.json()["printAttempts"][0]["id"]
     assert printed.json()["items"][0]["materials"][0]["consumedQuantity"] == 2
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 98
     auto_movements = client.get(
@@ -894,7 +903,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert front_pass.status_code == 201
     assert front_pass.json()["status"] == "queued"
     assert front_pass.json()["printAttempts"][0]["duplexPass"] == "front"
-    assert stub_adapter.calls[-1][11] == "front"
+    assert stub_adapter.calls[-1][1]["duplex_pass"] == "front"
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == stock_before_front
     wrong_printer_pass = client.post(
         f"/job-orders/{manual_order['id']}/print-attempts",
@@ -918,7 +927,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert back_pass.status_code == 201
     assert back_pass.json()["status"] == "printing"
     assert back_pass.json()["printAttempts"][0]["duplexPass"] == "back"
-    assert stub_adapter.calls[-1][11] == "back"
+    assert stub_adapter.calls[-1][1]["duplex_pass"] == "back"
     assert back_pass.json()["items"][0]["materials"][0]["consumedQuantity"] == 2
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == stock_before_front - 2
 

@@ -20,6 +20,7 @@ from app.db.models import JobOrder, JobOrderItem, JobOrderStatus, ObservedPrintJ
 from app.db.session import get_db
 from app.routers import printers
 from app.services.printing.adapter import (
+    CupsPrinterAdapter,
     DetectedPrinter,
     PrintSubmissionError,
     WindowsPrinterAdapter,
@@ -50,6 +51,35 @@ def test_windows_adapter_reads_vendor_neutral_spooler_queues(monkeypatch) -> Non
     assert detected[0].is_default is True
 
 
+def test_cups_adapter_sends_photo_media_profile(tmp_path, monkeypatch) -> None:
+    image = tmp_path / "photo.png"
+    image.write_bytes(b"photo")
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **_kwargs):
+        captured["command"] = command
+        return subprocess.CompletedProcess(command, 0, stdout="request id is Canon-9", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    submission = CupsPrinterAdapter().submit_file(
+        "Canon_G4070_series",
+        image,
+        copies=1,
+        color_mode="color",
+        media_size="A4",
+        media_type="photo_plus_glossy_ii",
+        quality="high",
+        borderless=True,
+    )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert "media=iso_a4_210x297mm.Borderless" in command
+    assert "media-type=photographic-high-gloss" in command
+    assert "print-quality=5" in command
+    assert submission.external_job_id == "Canon-9"
+
+
 def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypatch) -> None:
     document = tmp_path / "approved file.pdf"
     pdf = pymupdf.open()
@@ -75,6 +105,7 @@ def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypat
         copies=2,
         color_mode="color",
         media_size="A4",
+        media_type="photo_plus_glossy_ii",
         orientation="landscape",
         scaling="actual_size",
         quality="high",
@@ -93,6 +124,9 @@ def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypat
     assert command[command.index("-Copies") + 1] == "2"
     assert command[command.index("-ColorMode") + 1] == "color"
     assert command[command.index("-MediaSize") + 1] == "A4"
+    assert command[command.index("-MediaWidthMm") + 1] == "210.0"
+    assert command[command.index("-MediaHeightMm") + 1] == "297.0"
+    assert command[command.index("-MediaType") + 1] == "photo_plus_glossy_ii"
     assert command[command.index("-Orientation") + 1] == "landscape"
     assert command[command.index("-Scaling") + 1] == "actual_size"
     assert command[command.index("-Quality") + 1] == "high"
@@ -125,6 +159,9 @@ def test_windows_print_geometry_uses_driver_printable_area_once() -> None:
     assert "PageBounds.Width - (2 * $originX)" not in script
     assert "PageBounds.Height - (2 * $originY)" not in script
     assert 'ValidateSet("auto", "fit", "fill", "actual_size")' in script
+    assert "$MediaWidthMm" in script
+    assert "$MediaHeightMm" in script
+    assert "DMMEDIA_GLOSSY" in script
 
 
 def test_spooler_monitor_persists_external_jobs_and_links_internal_attempts(tmp_path) -> None:

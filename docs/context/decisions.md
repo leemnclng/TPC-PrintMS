@@ -584,3 +584,29 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Product deletion immediately hides the record from operational catalogues, then allows restoration for exactly five days. After expiry, unused rows are physically deleted; historically referenced rows become non-restorable audit tombstones with editable pricing, material, variant, and description configuration removed.
 - Rationale: Owners need deletion to behave as deletion rather than an Inactive status, while a short Undo window prevents accidental loss. Historical production and stock records must retain a minimal product identity so completed transaction evidence remains readable.
 - Impact: Service workspaces expose Recently deleted products and expiry dates. Restoring returns the product to its previous active/inactive state. Startup and product reads finalize expired entries; referenced tombstones never return to catalogues or transaction choices.
+
+## 2026-08-31
+
+### Keep Material Purchase Cost Separate From Selling Price
+
+- Decision: Store one optional, non-negative current purchase price and its purchasing basis. Materials counted by sheet may use either Per sheet or Whole ream plus the actual sheet count; other materials remain costed by their inventory unit. Treat it as a cost reference only; do not feed it automatically into product, analyzer, quotation, or job-order selling prices.
+- Rationale: Paper is normally purchased by ream but consumed by sheet. Recording the supplier amount as entered while deriving the sheet equivalent avoids manual conversion and preserves the owner's customer-pricing rules.
+- Impact: Material create/edit owns the purchase cost basis. The Inventory register shows the entered ream or unit amount and, for reams, its effective per-sheet cost. Existing per-unit values migrate without changing their meaning. Weighted-average costing, supplier purchase orders, cost history, and profit reporting remain separate future work.
+
+### Limit Inventory Units to Printing Materials
+
+- Decision: New and edited inventory materials must use Sheet, Ream, Bottle, Cartridge, Roll, Pack, or Piece. Keep the stored values lowercase and singular while presenting readable title-case labels.
+- Rationale: Free-text units introduced unusable measurements such as milliliters and inconsistent spellings. A small production-focused vocabulary makes stock, product assignments, and purchase-cost labels predictable.
+- Impact: Material create/edit uses a closed selector and the API rejects unsupported units. Legacy unsupported values remain readable, but the owner must select a supported replacement before saving that material again.
+
+### Keep Photo Media App-Managed and Driver-Neutral
+
+- Decision: Seed Photo Print in the shared print-type catalogue and store a named media profile per print attempt. Use standard IPP media keywords on CUPS and Windows DEVMODE's standard/glossy hint rather than modifying Canon-private driver data.
+- Rationale: Canon's exact paper names are useful workflow choices, but proprietary driver profiles are not exposed consistently to third-party Windows applications. Writing private driver bytes would couple the app to one driver version and printer model.
+- Impact: Job setup can reproduce the relevant Canon-style controls and keep an audit record. The installed driver retains final authority over tray availability and model-specific color correction; physical behavior must be validated per supported Windows printer.
+
+### Store Paper as a Canonical Measured Profile
+
+- Decision: Store each paper material with a catalogue key plus millimeter width and height. Named Canon G4070 profiles always use app-owned canonical dimensions; Custom profiles normalize their short and long edges and stay within Canon's documented custom-media range. Permit multiple inventory materials to share one physical size.
+- Rationale: A name without dimensions cannot reliably drive analyzer best-fit or a physical driver request, while editable dimensions beside a named standard can become contradictory. Paper size identifies geometry; the inventory material still identifies stock type, brand, finish, cost, quantity, and pricing row.
+- Impact: Material creation, pricing, job selection, analysis, and printing share one geometry definition. CUPS uses standard PWG media keywords when available and measured custom media otherwise; Windows matches the installed driver's named/dimensioned size or creates a per-job custom `PaperSize`. The installed driver remains the authority on tray and borderless support.

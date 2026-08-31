@@ -11,6 +11,8 @@ import { ErrorState } from "../components/ErrorState/ErrorState";
 import { useResource } from "../hooks/useResource";
 import { api, ApiError } from "../lib/apiClient";
 import { formatCurrency, formatDate, formatDateTime, formatFileSize } from "../lib/format";
+import { PRINT_MEDIA_OPTIONS, printMediaLabel, type PrintMediaType } from "../lib/printProfiles";
+import { paperSizeDefinition, paperSizeDisplay } from "../lib/paperSizes";
 import { jobOrderStatusMeta, printerStateMeta } from "../types/statusMeta";
 import type { JobOrder, Printer, PrinterPlatformInfo, SpoolerMonitorInfo } from "../types/domain";
 import "./PrintCenterPage.css";
@@ -51,6 +53,7 @@ export function PrintCenterPage() {
   const [orientation, setOrientation] = useState<"auto" | "portrait" | "landscape">("auto");
   const [scaling, setScaling] = useState<"auto" | "fit" | "fill" | "actual_size">("auto");
   const [quality, setQuality] = useState<"auto" | "draft" | "standard" | "high">("auto");
+  const [mediaType, setMediaType] = useState<PrintMediaType>("auto");
   const [borderless, setBorderless] = useState(false);
   const [collate, setCollate] = useState(true);
 
@@ -77,15 +80,13 @@ export function PrintCenterPage() {
         ? "LINUX QUEUE"
         : "OS QUEUE";
   const printItem = stagedOrder?.items[0];
+  const isPhotoPrint = printItem?.printType === "photo_print";
   const selectedFile = stagedOrder?.files.find((file) => file.id === selectedFileId);
   const paperPlan = printItem?.materials.find((material) => material.paperSize);
   const configuredPaper = paperPlan?.paperSize;
   const detectedPaper = selectedFile?.detectedPaperSize;
-  const mediaSize = configuredPaper ?? (
-    detectedPaper === "A4" || detectedPaper === "Letter" || detectedPaper === "Legal"
-      ? detectedPaper
-      : "A4"
-  );
+  const mediaSize = configuredPaper ?? (paperSizeDefinition(detectedPaper) ? detectedPaper : "A4");
+  const mediaSizeLabel = paperSizeDisplay(mediaSize, paperPlan?.paperWidthMm, paperPlan?.paperHeightMm);
   const copies = printItem?.copies ?? 1;
   const pageCount = selectedFile?.detectedPageCount ?? printItem?.pagesPerCopy ?? 1;
   const automaticColorMode = selectedFile?.detectedColorPages === 0 && (selectedFile.detectedBwPages ?? 0) > 0
@@ -108,11 +109,12 @@ export function PrintCenterPage() {
 
   useEffect(() => {
     setOrientation("auto");
-    setScaling("auto");
-    setQuality("auto");
-    setBorderless(false);
+    setScaling(isPhotoPrint ? "fill" : "auto");
+    setQuality(isPhotoPrint ? "high" : "auto");
+    setMediaType(isPhotoPrint ? "photo_plus_glossy_ii" : "auto");
+    setBorderless(Boolean(isPhotoPrint && configuredPaper !== "Legal"));
     setCollate(true);
-  }, [jobOrderId]);
+  }, [configuredPaper, isPhotoPrint, jobOrderId]);
 
   useEffect(() => {
     if (!data?.length || selectedPrinterId) return;
@@ -137,6 +139,7 @@ export function PrintCenterPage() {
         printerId: selectedPrinterId,
         jobFileId: selectedFileId,
         orientation,
+        mediaType,
         scaling,
         quality,
         borderless,
@@ -378,7 +381,7 @@ export function PrintCenterPage() {
                   <div><dt>Pages</dt><dd>{pageCount.toLocaleString()}</dd></div>
                   <div><dt>Copies</dt><dd>{copies.toLocaleString()}</dd></div>
                   <div><dt>Paper deduction</dt><dd>{paperDeduction.toLocaleString()} {paperPlan?.inventoryItemUnit ?? "sheets"}</dd></div>
-                  <div><dt>Paper</dt><dd>{mediaSize}</dd></div>
+                  <div><dt>Paper</dt><dd>{mediaSizeLabel}</dd></div>
                   <div><dt>Output</dt><dd>Auto · {automaticColorMode}</dd></div>
                   <div><dt>Detected layout</dt><dd>{selectedFile?.detectedOrientation ?? "Mixed / unknown"}</dd></div>
                   <div><dt>Source pages</dt><dd>{selectedFile?.detectedColorPages ?? 0} color · {selectedFile?.detectedBwPages ?? pageCount} B&W</dd></div>
@@ -394,12 +397,14 @@ export function PrintCenterPage() {
                   )}
                 </div>
                 <div className="print-controls__grid">
+                  <label className={`form-field${isPhotoPrint ? " print-media-field" : ""}`}><span>Media type</span><select value={mediaType} onChange={(event) => setMediaType(event.target.value as PrintMediaType)}>{PRINT_MEDIA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><small>{isPhotoPrint ? "Match this to the paper loaded in the printer." : "Automatic keeps the installed driver's current media profile."}</small></label>
                   <label className="form-field"><span>Orientation</span><select value={orientation} onChange={(event) => setOrientation(event.target.value as typeof orientation)}><option value="auto">Auto per page</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select><small>Auto follows each analyzed page.</small></label>
                   <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="auto">Automatic · preserve size</option><option value="fit">Fit printable area</option><option value="actual_size">Actual size · allow clipping</option><option value="fill">Fill paper · crop edges</option></select><small>Automatic keeps original dimensions and only shrinks when required.</small></label>
                   <label className="form-field"><span>Print quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="auto">Automatic · driver default</option><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select><small>Automatic leaves the installed driver's quality unchanged.</small></label>
-                  <label className="print-toggle"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Force borderless output</strong><small>Off fits within printer margins; on requires supported media for {mediaSize}.</small></span></label>
+                  <label className="print-toggle"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Force borderless output</strong><small>Off fits within printer margins; on requires supported media for {mediaSizeLabel}.</small></span></label>
                   <label className="print-toggle"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate copies</strong><small>{copies < 2 ? "Available when printing multiple copies." : "Print one complete document before the next copy."}</small></span></label>
                 </div>
+                {isPhotoPrint && <p className="print-controls__photo-profile"><span className="numeric">PHOTO PRINT PROFILE</span><strong>High quality · fill and crop · borderless</strong><small>Photo-safe defaults are active. Use Fit to retain the full image or disable borderless when the loaded size does not support it.</small></p>}
                 <p className="print-controls__driver-note"><strong>Automatic document profile:</strong> analysis preserves source color and orientation. Original dimensions and document margins stay intact; the page shrinks only when the driver's physical printable area requires it.</p>
                 <p className="print-controls__driver-note"><strong>Canon-specific paper type, tray, and color correction:</strong> use Canon print settings. Automatic quality preserves the installed driver's configured default.</p>
               </fieldset>
@@ -443,7 +448,7 @@ export function PrintCenterPage() {
             <div className="print-history-list">
               {stagedOrder.printAttempts.map((attempt) => (
                 <div key={attempt.id}>
-                  <div><strong>{attempt.printerName}</strong><span>{attempt.duplexPass === "front" ? "Front-side pass · " : attempt.duplexPass === "back" ? "Back-side pass · " : ""}{attempt.filename || "Print-ready file"} · {attempt.copies} {attempt.copies === 1 ? "copy" : "copies"} · {attempt.mediaSize} · {attempt.orientation === "auto" ? "auto orientation" : attempt.orientation} · {attempt.quality}</span><small>{attempt.errorMessage || `Submitted ${formatDate(attempt.submittedAt)}`}</small></div>
+                  <div><strong>{attempt.printerName}</strong><span>{attempt.duplexPass === "front" ? "Front-side pass · " : attempt.duplexPass === "back" ? "Back-side pass · " : ""}{attempt.filename || "Print-ready file"} · {attempt.copies} {attempt.copies === 1 ? "copy" : "copies"} · {paperSizeDisplay(attempt.mediaSize, attempt.mediaWidthMm, attempt.mediaHeightMm)} · {printMediaLabel(attempt.mediaType)} · {attempt.orientation === "auto" ? "auto orientation" : attempt.orientation} · {attempt.quality}</span><small>{attempt.errorMessage || `Submitted ${formatDate(attempt.submittedAt)}`}</small></div>
                   <StatusPill label={attempt.result === "succeeded" ? "Submitted" : attempt.result} tone={attempt.result === "succeeded" ? "success" : attempt.result === "failed" ? "danger" : "info"} />
                 </div>
               ))}

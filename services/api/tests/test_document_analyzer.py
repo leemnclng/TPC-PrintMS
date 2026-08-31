@@ -141,7 +141,7 @@ def test_analyzer_api_and_owner_pricing_rules(tmp_path) -> None:
     rules_response = client.get("/document-analyzer/pricing-rules", headers=headers)
     assert rules_response.status_code == 200
     rules = rules_response.json()
-    assert len(rules) == 6
+    assert len(rules) == 8
     assert {rule["pricingScope"] for rule in rules} == {"printing", "photocopy"}
     a4_color = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored" and rule["pricingScope"] == "printing")
     assert a4_color["pricePerPage"] == 0

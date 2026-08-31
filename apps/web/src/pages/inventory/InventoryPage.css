@@ -201,6 +201,22 @@
   color: var(--color-ink-soft);
 }
 
+.inventory-register__cost-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.inventory-register__cost strong {
+  color: var(--color-ink);
+}
+
+.inventory-register__cost span {
+  color: var(--color-ink-faint);
+  font-size: var(--text-xs);
+}
+
 .inventory-register__actions {
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -235,11 +251,13 @@
   .inventory-register {
     border: 1px solid var(--color-hairline);
     border-radius: var(--radius-md);
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
     background: var(--color-paper-2);
   }
 
   .inventory-register table {
+    min-width: 68rem;
     border: 0;
   }
 

@@ -7,6 +7,8 @@ import { PageHeader } from "../../components/PageHeader/PageHeader";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../lib/apiClient";
+import { formatCurrency } from "../../lib/format";
+import { paperSizeDisplay } from "../../lib/paperSizes";
 import type { InventoryItem, InventoryMovement } from "../../types/domain";
 import { DeleteInventoryItemModal } from "./DeleteInventoryItemModal";
 import { InventoryItemModal } from "./InventoryItemModal";
@@ -24,6 +26,19 @@ function stockState(item: InventoryItem) {
   if (item.quantityOnHand <= 0) return { label: "Out of stock", tone: "danger" as const };
   if (item.quantityOnHand <= item.reorderLevel) return { label: "Reorder", tone: "warning" as const };
   return { label: "In stock", tone: "success" as const };
+}
+
+function purchaseCost(item: InventoryItem) {
+  if (item.purchasePrice == null) return <div className="inventory-register__cost-detail"><span>Not set</span></div>;
+  if (item.purchasePriceBasis === "ream" && item.sheetsPerReam) {
+    return (
+      <div className="inventory-register__cost-detail">
+        <strong>{formatCurrency(item.purchasePrice)} / ream</strong>
+        <span>{formatCurrency(item.purchasePrice / item.sheetsPerReam)} / sheet · {item.sheetsPerReam} sheets</span>
+      </div>
+    );
+  }
+  return <div className="inventory-register__cost-detail"><strong>{formatCurrency(item.purchasePrice)} / {item.unit}</strong></div>;
 }
 
 export function InventoryPage() {
@@ -156,6 +171,7 @@ export function InventoryPage() {
                     <th>Category</th>
                     <th className="numeric">On hand</th>
                     <th className="numeric">Reorder at</th>
+                    <th className="numeric">Purchase cost</th>
                     <th className="numeric">Products</th>
                     <th>Status</th>
                     <th>Actions</th>
@@ -174,12 +190,15 @@ export function InventoryPage() {
                         </td>
                         <td data-label="Category">
                           {item.category}
-                          {item.paperSize ? <span className="inventory-register__paper-size"> · {item.paperSize}</span> : null}
+                          {item.paperSize ? <span className="inventory-register__paper-size"> · {paperSizeDisplay(item.paperSize, item.paperWidthMm, item.paperHeightMm)}</span> : null}
                         </td>
                         <td data-label="On hand" className="numeric inventory-register__quantity">
                           <strong>{formatQuantity(item.quantityOnHand)}</strong> <span>{item.unit}</span>
                         </td>
                         <td data-label="Reorder at" className="numeric">{formatQuantity(item.reorderLevel)} {item.unit}</td>
+                        <td data-label="Purchase cost" className="numeric inventory-register__cost">
+                          {purchaseCost(item)}
+                        </td>
                         <td data-label="Products" className="numeric">{item.linkedProductCount}</td>
                         <td data-label="Status"><StatusPill label={status.label} tone={status.tone} /></td>
                         <td className="inventory-register__actions">

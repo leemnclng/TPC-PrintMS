@@ -21,6 +21,76 @@
   gap: var(--space-4);
 }
 
+.inventory-modal__cost {
+  display: grid;
+  grid-template-columns: minmax(0, .85fr) minmax(12rem, 1.15fr);
+  gap: var(--space-4);
+  border-left: 3px solid var(--color-accent);
+  padding: var(--space-4);
+  background: var(--color-accent-softer);
+}
+
+.inventory-modal__cost > div > span {
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  letter-spacing: .05em;
+}
+
+.inventory-modal__cost p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+}
+
+.inventory-modal__cost-fields {
+  display: grid;
+  grid-template-columns: minmax(8rem, .85fr) minmax(12rem, 1.15fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.inventory-modal__ream-size {
+  grid-column: 1 / -1;
+  max-width: 14rem;
+}
+
+.inventory-modal__money-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  min-height: var(--control-height);
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+}
+
+.inventory-modal__money-input:focus-within {
+  border-color: var(--color-accent);
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.inventory-modal__money-input > span {
+  padding-inline-start: var(--space-3);
+  color: var(--color-ink-soft);
+  font-family: var(--font-mono);
+}
+
+.inventory-modal__money-input input {
+  width: 100%;
+  min-width: 0;
+  min-height: calc(var(--control-height) - 2px);
+  border: 0;
+  outline: 0;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  color: var(--color-ink);
+}
+
+.form-field--error .inventory-modal__money-input {
+  border-color: var(--color-danger);
+}
+
 .inventory-modal__check {
   display: flex;
   min-height: var(--control-height);
@@ -28,6 +98,78 @@
   gap: var(--space-2);
   color: var(--color-ink);
   font-size: var(--text-sm);
+}
+
+.inventory-modal__paper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, .7fr);
+  align-items: start;
+  gap: var(--space-3);
+  border: 1px solid var(--color-hairline);
+  padding: var(--space-4);
+  background: var(--color-paper-2);
+}
+
+.inventory-modal__paper > .form-field {
+  min-width: 0;
+}
+
+.inventory-modal__paper-measurement {
+  display: grid;
+  align-content: center;
+  min-height: var(--control-height);
+  border-left: 2px solid var(--color-accent);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-accent-softer);
+}
+
+.inventory-modal__paper-measurement > span {
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  letter-spacing: .05em;
+}
+
+.inventory-modal__paper-measurement > strong {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.inventory-modal__paper-measurement > small {
+  color: var(--color-ink-soft);
+}
+
+.inventory-modal__paper-measurements {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.inventory-modal__dimension-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+}
+
+.inventory-modal__dimension-input:focus-within {
+  border-color: var(--color-accent);
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.inventory-modal__dimension-input input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+}
+
+.inventory-modal__dimension-input span {
+  padding-inline-end: var(--space-3);
+  color: var(--color-ink-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 
 .inventory-modal__check input {
@@ -67,5 +209,24 @@
 
   .inventory-modal__actions {
     padding-inline: var(--space-6);
+  }
+}
+
+@media (max-width: 39.99rem) {
+  .inventory-modal__cost {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventory-modal__cost-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventory-modal__ream-size {
+    grid-column: auto;
+    max-width: none;
+  }
+
+  .inventory-modal__paper {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

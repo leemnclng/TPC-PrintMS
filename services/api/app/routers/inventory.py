@@ -19,9 +19,16 @@ from ..schemas.inventory import (
     InventoryItemRead,
     InventoryItemUpdate,
     InventoryMovementRead,
+    PaperSizeDefinitionRead,
+)
+from ..services.paper_sizes import (
+    PAPER_SIZE_DEFINITIONS,
+    canonical_paper_dimensions,
 )
 
 router = APIRouter(tags=["inventory"], dependencies=[Depends(require_token)])
+
+INVENTORY_UNITS = {"sheet", "ream", "bottle", "cartridge", "roll", "pack", "piece"}
 
 
 def _item_to_read(item: InventoryItem) -> InventoryItemRead:
@@ -32,9 +39,14 @@ def _item_to_read(item: InventoryItem) -> InventoryItemRead:
         unit=item.unit,
         quantity_on_hand=item.quantity_on_hand,
         reorder_level=item.reorder_level,
+        purchase_price=item.purchase_price,
+        purchase_price_basis=item.purchase_price_basis,
+        sheets_per_ream=item.sheets_per_ream,
         notes=item.notes,
         is_active=item.is_active,
         paper_size=item.paper_size,
+        paper_width_mm=item.paper_width_mm,
+        paper_height_mm=item.paper_height_mm,
         linked_product_count=len(item.product_assignments),
         created_at=item.created_at,
         updated_at=item.updated_at,
@@ -60,10 +72,30 @@ def _movement_to_read(movement: InventoryMovement) -> InventoryMovementRead:
 def _clean_item_data(data: dict) -> dict:
     data["name"] = data["name"].strip()
     data["category"] = data["category"].strip()
-    data["unit"] = data["unit"].strip()
+    data["unit"] = data["unit"].strip().lower()
     data["notes"] = data["notes"].strip() if data.get("notes") else None
     if not data["name"] or not data["category"] or not data["unit"]:
         raise HTTPException(status_code=422, detail="Name, category, and unit are required.")
+    if data["unit"] not in INVENTORY_UNITS:
+        raise HTTPException(
+            status_code=422,
+            detail="Unit must be Sheet, Ream, Bottle, Cartridge, Roll, Pack, or Piece.",
+        )
+    paper_size = data.get("paper_size")
+    if paper_size is None:
+        data["paper_width_mm"] = None
+        data["paper_height_mm"] = None
+    else:
+        try:
+            width_mm, height_mm = canonical_paper_dimensions(
+                paper_size,
+                data.get("paper_width_mm"),
+                data.get("paper_height_mm"),
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        data["paper_width_mm"] = width_mm
+        data["paper_height_mm"] = height_mm
     return data
 
 
@@ -75,19 +107,18 @@ def _ensure_unique_name(name: str, db: Session, exclude_id: str | None = None) -
         raise HTTPException(status_code=409, detail="An inventory item with this name already exists.")
 
 
-def _ensure_unique_paper_size(paper_size, db: Session, exclude_id: str | None = None) -> None:
-    if not paper_size:
-        return
-    query = db.query(InventoryItem).filter(
-        InventoryItem.paper_size == paper_size, InventoryItem.is_active.is_(True)
-    )
-    if exclude_id:
-        query = query.filter(InventoryItem.id != exclude_id)
-    if query.first():
-        raise HTTPException(
-            status_code=409,
-            detail=f"An active {paper_size.value} paper item already exists. Deactivate it first.",
+@router.get("/paper-sizes", response_model=list[PaperSizeDefinitionRead])
+def list_paper_sizes() -> list[PaperSizeDefinitionRead]:
+    return [
+        PaperSizeDefinitionRead(
+            key=definition.key,
+            label=definition.label,
+            width_mm=definition.width_mm,
+            height_mm=definition.height_mm,
+            group=definition.group,
         )
+        for definition in PAPER_SIZE_DEFINITIONS
+    ]
 
 
 @router.get("/inventory-items", response_model=list[InventoryItemRead])
@@ -101,7 +132,6 @@ def create_inventory_item(payload: InventoryItemCreate, db: Session = Depends(ge
     data = _clean_item_data(payload.model_dump())
     opening_quantity = data.pop("opening_quantity")
     _ensure_unique_name(data["name"], db)
-    _ensure_unique_paper_size(data["paper_size"], db)
 
     item = InventoryItem(**data, quantity_on_hand=opening_quantity)
     db.add(item)
@@ -138,7 +168,6 @@ def update_inventory_item(
         raise HTTPException(status_code=404, detail="Inventory item not found.")
     data = _clean_item_data(payload.model_dump())
     _ensure_unique_name(data["name"], db, exclude_id=item_id)
-    _ensure_unique_paper_size(data["paper_size"], db, exclude_id=item_id)
     for field, value in data.items():
         setattr(item, field, value)
     db.commit()

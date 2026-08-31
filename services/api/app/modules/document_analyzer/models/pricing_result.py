@@ -55,6 +55,8 @@ class PricingRuleRead(CamelModel):
     inventory_item_id: str
     inventory_item_name: str
     paper_size: InventoryPaperSize
+    paper_width_mm: float | None = None
+    paper_height_mm: float | None = None
     print_type: str
     pricing_scope: Literal["printing", "photocopy"]
     price_per_page: float = Field(ge=0)

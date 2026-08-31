@@ -343,7 +343,7 @@ export function ProductCreateModal({
                   />
                 ) : (
                   <div className="product-create-form__variant-empty">
-                    <span>Tag an inventory item as A4, Letter, or Legal paper stock before pricing by size.</span>
+                    <span>Tag an inventory material with a supported Canon paper size before pricing by size.</span>
                     <LinkButton to="/inventory" variant="secondary" size="sm" onClick={onClose}>Open inventory</LinkButton>
                   </div>
                 )}

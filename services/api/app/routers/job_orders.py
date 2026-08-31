@@ -22,6 +22,7 @@ from ..db.models import (
     Customer,
     InventoryMovement,
     InventoryMovementKind,
+    InventoryPaperSize,
     JobFile,
     JobOrder,
     JobOrderNumberSequence,
@@ -65,6 +66,7 @@ from ..schemas.job_orders import (
     TransactionCreate,
 )
 from ..services.printing.adapter import PrintSubmissionError, get_printer_adapter
+from ..services.paper_sizes import paper_size_definition
 from ..services.product_pricing import (
     has_scan_pricing_configured,
     price_per_page_for_material,
@@ -123,6 +125,8 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                         "planned_quantity": plan.planned_quantity,
                         "consumed_quantity": plan.consumed_quantity,
                         "paper_size": plan.inventory_item.paper_size,
+                        "paper_width_mm": plan.inventory_item.paper_width_mm,
+                        "paper_height_mm": plan.inventory_item.paper_height_mm,
                     }
                     for plan in item.material_plans
                 ],
@@ -180,6 +184,9 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "copies": attempt.copies,
                 "color_mode": attempt.color_mode,
                 "media_size": attempt.media_size,
+                "media_width_mm": attempt.media_width_mm,
+                "media_height_mm": attempt.media_height_mm,
+                "media_type": attempt.media_type,
                 "orientation": attempt.orientation,
                 "scaling": attempt.scaling,
                 "quality": attempt.quality,
@@ -1447,6 +1454,17 @@ async def submit_print_attempt(
     ):
         raise HTTPException(status_code=404, detail="Print-ready job file not found.")
     copies, color_mode, media_size = _automatic_print_settings(item, job_file)
+    paper_plan = next(
+        (plan for plan in item.material_plans if plan.inventory_item.paper_size is not None),
+        None,
+    )
+    if paper_plan is None:
+        raise HTTPException(status_code=422, detail="Select a configured paper material before printing.")
+    paper_definition = paper_size_definition(paper_plan.inventory_item.paper_size)
+    media_width_mm = paper_plan.inventory_item.paper_width_mm or paper_definition.width_mm
+    media_height_mm = paper_plan.inventory_item.paper_height_mm or paper_definition.height_mm
+    if media_width_mm is None or media_height_mm is None:
+        raise HTTPException(status_code=422, detail="The selected paper material has no usable dimensions.")
     manual_duplex = item.requires_manual_duplex and (job_file.detected_page_count or item.pages_per_copy) > 1
     if manual_duplex and settings.resolved_printer_platform != "windows":
         raise HTTPException(
@@ -1487,10 +1505,13 @@ async def submit_print_attempt(
             )
         # Both sides must use an identical physical profile to stay aligned.
         payload.orientation = successful_front.orientation
+        payload.media_type = successful_front.media_type
         payload.scaling = successful_front.scaling
         payload.quality = successful_front.quality
         payload.borderless = successful_front.borderless
         payload.collate = successful_front.collate
+        media_width_mm = successful_front.media_width_mm or media_width_mm
+        media_height_mm = successful_front.media_height_mm or media_height_mm
 
     files_root = (settings.resolved_data_dir / "files").resolve()
     stored_path = (settings.resolved_data_dir / job_file.stored_path).resolve()
@@ -1507,6 +1528,9 @@ async def submit_print_attempt(
         copies=copies,
         color_mode=color_mode,
         media_size=media_size,
+        media_width_mm=media_width_mm,
+        media_height_mm=media_height_mm,
+        media_type=payload.media_type,
         orientation=payload.orientation,
         scaling=payload.scaling,
         quality=payload.quality,
@@ -1524,18 +1548,21 @@ async def submit_print_attempt(
     try:
         submission = await run_in_threadpool(
             adapter.submit_file,
-            printer.system_name,
-            stored_path,
-            copies,
-            color_mode,
-            media_size,
-            payload.orientation,
-            payload.scaling,
-            payload.quality,
-            payload.borderless,
-            payload.collate,
-            attempt.id,
-            duplex_pass,
+            printer_name=printer.system_name,
+            file_path=stored_path,
+            copies=copies,
+            color_mode=color_mode,
+            media_size=media_size,
+            media_type=payload.media_type,
+            media_width_mm=media_width_mm,
+            media_height_mm=media_height_mm,
+            orientation=payload.orientation,
+            scaling=payload.scaling,
+            quality=payload.quality,
+            borderless=payload.borderless,
+            collate=payload.collate,
+            tracking_id=attempt.id,
+            duplex_pass=duplex_pass,
         )
     except PrintSubmissionError as error:
         attempt.result = PrintResult.failed
@@ -1691,13 +1718,15 @@ def _automatic_print_settings(item: JobOrderItem | JobOrder, job_file: JobFile) 
         None,
     )
     detected_paper = job_file.detected_paper_size
-    media_size = configured_paper or (
-        detected_paper if detected_paper in {"A4", "Letter", "Legal"} else None
-    )
-    if media_size not in {"A4", "Letter", "Legal"}:
+    try:
+        detected_inventory_size = InventoryPaperSize(detected_paper).value if detected_paper else None
+    except ValueError:
+        detected_inventory_size = None
+    media_size = configured_paper or detected_inventory_size
+    if media_size is None:
         raise HTTPException(
             status_code=422,
-            detail="The analyzer could not match this file to an A4, Letter, or Legal material.",
+            detail="Select a configured paper material before printing this file.",
         )
     return copies, color_mode, media_size
 

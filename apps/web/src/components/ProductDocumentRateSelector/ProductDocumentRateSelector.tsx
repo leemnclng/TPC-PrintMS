@@ -1,9 +1,8 @@
 import { formatCurrency } from "../../lib/format";
-import type { DocumentPricingRule, InventoryPaperSize, ProductOperationKind, ProductPrintType } from "../../types/domain";
+import { comparePaperSizes, paperSizeDisplay } from "../../lib/paperSizes";
+import type { DocumentPricingRule, ProductOperationKind, ProductPrintType } from "../../types/domain";
 import type { MaterialSelection } from "../MaterialMultiSelect/MaterialMultiSelect";
 import "./ProductDocumentRateSelector.css";
-
-const PAPER_ORDER: InventoryPaperSize[] = ["A4", "Letter", "Legal"];
 
 export interface ProductDocumentRateSelection {
   pricingRuleId: string;
@@ -39,7 +38,7 @@ export function ProductDocumentRateSelector({
         rule.isActive || materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId)
       ))
     .sort((left, right) =>
-      PAPER_ORDER.indexOf(left.paperSize) - PAPER_ORDER.indexOf(right.paperSize) ||
+      comparePaperSizes(left.paperSize, right.paperSize) ||
       left.inventoryItemName.localeCompare(right.inventoryItemName));
 
   function toggleMaterial(rule: DocumentPricingRule, selected: boolean) {
@@ -90,7 +89,7 @@ export function ProductDocumentRateSelector({
               <span>
                 <strong>{rule.inventoryItemName}</strong>
                 <small id={messageId}>
-                  {rule.paperSize} · {rule.isActive
+                  {paperSizeDisplay(rule.paperSize, rule.paperWidthMm, rule.paperHeightMm)} · {rule.isActive
                     ? usesMaterial ? "Assigned to this product" : "Not used by this product"
                     : "Pricing inactive"}
                 </small>

@@ -30,6 +30,7 @@ export function formatDateTime(iso: string | null | undefined): string {
 export function formatProductPrintType(printType: ProductPrintType): string {
   if (printType === "black_and_white") return "B&W (Black and white)";
   if (printType === "semi_colored") return "Semi-colored";
+  if (printType === "photo_print") return "Photo Print";
   if (printType === "colored") return "Colored";
   return printType
     .split("_")

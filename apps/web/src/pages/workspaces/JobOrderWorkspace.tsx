@@ -13,6 +13,7 @@ import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../lib/apiClient";
 import { formatCurrency, formatDate, formatDateTime } from "../../lib/format";
+import { printMediaLabel } from "../../lib/printProfiles";
 import { jobOrderStatusMeta } from "../../types/statusMeta";
 import type { DocumentPricingRule, InventoryItem, InventoryMovement, JobFile, JobOrder, JobOrderItem, Product, ScanPricingTier, Service } from "../../types/domain";
 import { JobMaterialUsageModal } from "../jobOrders/JobMaterialUsageModal";
@@ -259,7 +260,7 @@ export function JobOrderWorkspace() {
           </section>
           <section>
             <header><h3>Print attempts</h3></header>
-            {order.printAttempts.length ? order.printAttempts.map((attempt) => <div className="job-audit-row" key={attempt.id}><span><strong>{attempt.printerName}</strong><small>{attempt.duplexPass === "front" ? "Front-side pass · " : attempt.duplexPass === "back" ? "Back-side pass · " : ""}{attempt.mediaSize} · {attempt.orientation} · {attempt.quality}{attempt.errorMessage ? ` · ${attempt.errorMessage}` : ""}</small></span><StatusPill label={attempt.result === "succeeded" ? "Submitted" : attempt.result} tone={attempt.result === "succeeded" ? "success" : attempt.result === "failed" ? "danger" : "info"} /></div>) : <p>No print attempts recorded.</p>}
+            {order.printAttempts.length ? order.printAttempts.map((attempt) => <div className="job-audit-row" key={attempt.id}><span><strong>{attempt.printerName}</strong><small>{attempt.duplexPass === "front" ? "Front-side pass · " : attempt.duplexPass === "back" ? "Back-side pass · " : ""}{attempt.mediaSize} · {printMediaLabel(attempt.mediaType)} · {attempt.orientation} · {attempt.quality}{attempt.errorMessage ? ` · ${attempt.errorMessage}` : ""}</small></span><StatusPill label={attempt.result === "succeeded" ? "Submitted" : attempt.result} tone={attempt.result === "succeeded" ? "success" : attempt.result === "failed" ? "danger" : "info"} /></div>) : <p>No print attempts recorded.</p>}
           </section>
           <section>
             <header><h3>Materials</h3>{canRecordFallbackUsage && <Button size="sm" variant="secondary" onClick={() => setUsageOpen(true)}>Record remaining</Button>}</header>

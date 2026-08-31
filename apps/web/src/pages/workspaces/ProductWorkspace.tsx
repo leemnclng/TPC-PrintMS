@@ -368,7 +368,7 @@ export function ProductWorkspace() {
                   />
                 ) : (
                   <div className="workspace-materials__empty">
-                    <span>Tag an inventory item as A4, Letter, or Legal paper stock before pricing by size.</span>
+                    <span>Tag an inventory material with a supported Canon paper size before pricing by size.</span>
                     <LinkButton to="/inventory" variant="secondary" size="sm">Open inventory</LinkButton>
                   </div>
                 )}

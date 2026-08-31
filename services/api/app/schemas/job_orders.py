@@ -100,6 +100,8 @@ class JobOrderMaterialPlanRead(CamelModel):
     planned_quantity: float
     consumed_quantity: float
     paper_size: InventoryPaperSize | None
+    paper_width_mm: float | None
+    paper_height_mm: float | None
 
 
 class JobOrderItemStatusEventRead(CamelModel):
@@ -185,7 +187,25 @@ class PrintSubmissionCreate(CamelModel):
     # the transaction and color is resolved from the analyzed source file.
     copies: int | None = Field(default=None, ge=1, le=99)
     color_mode: Literal["color", "grayscale"] | None = None
-    media_size: Literal["A4", "Letter", "Legal"] | None = None
+    media_size: InventoryPaperSize | None = None
+    media_type: Literal[
+        "auto",
+        "plain",
+        "photo_plus_glossy_ii",
+        "photo_pro_luster",
+        "photo_plus_semi_gloss",
+        "glossy_photo",
+        "matte_photo",
+        "envelope",
+        "ink_jet_hagaki_a",
+        "ink_jet_hagaki",
+        "hagaki_k_a",
+        "hagaki_k",
+        "hagaki_a",
+        "hagaki",
+        "inkjet_greeting_card",
+        "card_stock",
+    ] = "auto"
     orientation: Literal["auto", "portrait", "landscape"] = "auto"
     scaling: Literal["auto", "fit", "fill", "actual_size"] = "auto"
     quality: Literal["auto", "draft", "standard", "high"] = "auto"
@@ -204,6 +224,9 @@ class PrintAttemptRead(CamelModel):
     copies: int
     color_mode: str
     media_size: str
+    media_width_mm: float | None
+    media_height_mm: float | None
+    media_type: str
     orientation: str
     scaling: str
     quality: str

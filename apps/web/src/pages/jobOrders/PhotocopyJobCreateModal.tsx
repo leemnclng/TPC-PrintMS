@@ -4,6 +4,7 @@ import { Modal } from "../../components/Modal/Modal";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatCurrency, formatProductPrintType } from "../../lib/format";
 import { computeSelectedMaterialPrice } from "../../lib/productPricing";
+import { paperSizeDisplay } from "../../lib/paperSizes";
 import type { Customer, DocumentPricingRule, InventoryItem, JobOrder, Product, Service } from "../../types/domain";
 import "../workspaceForm.css";
 import "./PhotocopyJobCreateModal.css";
@@ -125,7 +126,7 @@ export function PhotocopyJobCreateModal({ open, service, customers, products, in
                   </div>
                 ) : selectedProduct ? (
                   <>
-                    <label className="form-field"><span>Paper used</span><select value={form.paperInventoryItemId} onChange={(event) => setForm((current) => ({ ...current, paperInventoryItemId: event.target.value }))} aria-invalid={submitted && !selectedPaper}><option value="">Select paper</option>{papers.map((paper) => <option key={paper.id} value={paper.id}>{paper.paperSize} · {paper.name} · {paper.quantityOnHand} {paper.unit} available</option>)}</select></label>
+                    <label className="form-field"><span>Paper used</span><select value={form.paperInventoryItemId} onChange={(event) => setForm((current) => ({ ...current, paperInventoryItemId: event.target.value }))} aria-invalid={submitted && !selectedPaper}><option value="">Select paper</option>{papers.map((paper) => <option key={paper.id} value={paper.id}>{paperSizeDisplay(paper.paperSize, paper.paperWidthMm, paper.paperHeightMm)} · {paper.name} · {paper.quantityOnHand} {paper.unit} available</option>)}</select></label>
                     {papers.length === 0 ? <p className="workspace-form__error">This product has no active paper configured.</p> : null}
                     {selectedPaper && baseRate === null ? <p className="workspace-form__error">Set a custom B&amp;W photocopy rate for {selectedPaper.name} on this product.</p> : null}
                     <div className="photocopy-job-form__numbers"><label className="form-field"><span>Pages per copy</span><input type="number" min="1" max="100000" value={form.pagesPerCopy} onChange={(event) => setForm((current) => ({ ...current, pagesPerCopy: Number(event.target.value) }))} aria-invalid={submitted && form.pagesPerCopy < 1} /></label><label className="form-field"><span>Copies</span><input type="number" min="1" max="10000" value={form.copies} onChange={(event) => setForm((current) => ({ ...current, copies: Number(event.target.value) }))} aria-invalid={submitted && form.copies < 1} /></label></div>

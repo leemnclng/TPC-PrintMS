@@ -9,12 +9,12 @@ import { StatusPill } from "../components/StatusPill/StatusPill";
 import { useResource } from "../hooks/useResource";
 import { api } from "../lib/apiClient";
 import { formatCurrency } from "../lib/format";
+import { comparePaperSizes, paperSizeDisplay } from "../lib/paperSizes";
 import { hasCustomPricing, productUsesPaperSize, resolveProductPricePoints } from "../lib/pricingView";
 import type { DocumentPricingRule, InventoryPaperSize, PrintTypeDefinition, Product, ScanPricingTier, Service } from "../types/domain";
 import "./PricingCenterPage.css";
 
 type PriceFilter = "all" | "custom" | "global" | "missing";
-const PAPER_SIZES: InventoryPaperSize[] = ["A4", "Letter", "Legal"];
 const GLOBAL_SCOPES = [
   { key: "printing" as const, label: "Printing" },
   { key: "photocopy" as const, label: "Scan or Photocopy" },
@@ -84,6 +84,9 @@ export function PricingCenterPage() {
   }, [data, filter, query]);
 
   const customProducts = data?.products.filter(hasCustomPricing).length ?? 0;
+  const configuredPaperSizes = useMemo(() => Array.from(new Set(data?.rules.map((rule) => rule.paperSize) ?? []))
+    .sort(comparePaperSizes), [data]);
+  const pricingColumnCount = configuredPaperSizes.length + 5;
   const customEntries = data?.products.reduce((total, product) => total + product.documentRates.length + product.variants.length + (product.standalonePricePerPage == null ? 0 : 1), 0) ?? 0;
   const missingProducts = data?.products.filter((product) => {
     const points = resolveProductPricePoints(product, data.rules, data.scanTiers);
@@ -123,8 +126,10 @@ export function PricingCenterPage() {
                     id: rule.inventoryItemId,
                     name: rule.inventoryItemName,
                     paperSize: rule.paperSize,
-                  }])).values()).sort((left, right) => PAPER_SIZES.indexOf(left.paperSize) - PAPER_SIZES.indexOf(right.paperSize) || left.name.localeCompare(right.name));
-                  return <section key={scope.key}><header><span>BASE MATRIX</span><h3>{scope.label}</h3>{scope.key === "photocopy" ? <small>Photocopy output; Scan stays paper-free.</small> : <small>Uploaded documents sent to print.</small>}</header><div className="pricing-global-matrix" role="region" aria-label={`${scope.label} global price matrix`} tabIndex={0}><table><thead><tr><th>Material</th>{data.printTypes.map((type) => <th key={type.key}>{type.label}</th>)}</tr></thead><tbody>{materials.map((material) => <tr key={material.id}><th scope="row"><strong>{material.name}</strong><small>{material.paperSize}</small></th>{data.printTypes.map((type) => {
+                    paperWidthMm: rule.paperWidthMm,
+                    paperHeightMm: rule.paperHeightMm,
+                  }])).values()).sort((left, right) => comparePaperSizes(left.paperSize, right.paperSize) || left.name.localeCompare(right.name));
+                  return <section key={scope.key}><header><span>BASE MATRIX</span><h3>{scope.label}</h3>{scope.key === "photocopy" ? <small>Photocopy output; Scan stays paper-free.</small> : <small>Uploaded documents sent to print.</small>}</header><div className="pricing-global-matrix" role="region" aria-label={`${scope.label} global price matrix`} tabIndex={0}><table><thead><tr><th>Material</th>{data.printTypes.map((type) => <th key={type.key}>{type.label}</th>)}</tr></thead><tbody>{materials.map((material) => <tr key={material.id}><th scope="row"><strong>{material.name}</strong><small>{paperSizeDisplay(material.paperSize, material.paperWidthMm, material.paperHeightMm)}</small></th>{data.printTypes.map((type) => {
                     const rule = scopedRules.find((candidate) => candidate.inventoryItemId === material.id && candidate.printType === type.key);
                     return <td className={rule && !rule.isActive ? "is-inactive" : ""} key={type.key}>{rule ? <><strong>{formatCurrency(rule.pricePerPage)}</strong><small>{rule.isActive ? "per page" : "Inactive"}</small></> : "—"}</td>;
                   })}</tr>)}</tbody></table></div></section>;
@@ -144,16 +149,16 @@ export function PricingCenterPage() {
               <div className="pricing-service-table" role="region" aria-label="Services and product pricing" tabIndex={0}>
                 <table>
                   <caption>Existing Printing Services entries with their per-product pricing</caption>
-                  <thead><tr><th>Product</th><th>Process</th>{PAPER_SIZES.map((paperSize) => <th key={paperSize}>{paperSize}<small>per page</small></th>)}<th>Extras</th><th>Status</th><th aria-label="Open" /></tr></thead>
+                  <thead><tr><th>Product</th><th>Process</th>{configuredPaperSizes.map((paperSize) => <th key={paperSize}>{paperSize}<small>per page</small></th>)}<th>Extras</th><th>Status</th><th aria-label="Open" /></tr></thead>
                   {serviceGroups.map(({ service, rows: serviceRows }) => {
                     return (
                       <tbody key={service.id}>
-                        <tr className="pricing-service-table__group"><th colSpan={8} scope="rowgroup"><div><span><strong>{service.name}</strong><StatusPill label={workflowLabel(service)} tone={service.category === "custom" ? "neutral" : "info"} /></span><small>{serviceRows.length} {serviceRows.length === 1 ? "product" : "products"}</small><Link to={`/product-catalog/${service.id}`}>Open service</Link></div></th></tr>
-                        {!serviceRows.length ? <tr><td className="pricing-service-table__empty" colSpan={8}>No products configured for this service.</td></tr> : serviceRows.map(({ product }) => (
+                        <tr className="pricing-service-table__group"><th colSpan={pricingColumnCount} scope="rowgroup"><div><span><strong>{service.name}</strong><StatusPill label={workflowLabel(service)} tone={service.category === "custom" ? "neutral" : "info"} /></span><small>{serviceRows.length} {serviceRows.length === 1 ? "product" : "products"}</small><Link to={`/product-catalog/${service.id}`}>Open service</Link></div></th></tr>
+                        {!serviceRows.length ? <tr><td className="pricing-service-table__empty" colSpan={pricingColumnCount}>No products configured for this service.</td></tr> : serviceRows.map(({ product }) => (
                           <tr key={product.id}>
                             <th className="pricing-service-table__product" scope="row"><strong>{product.name}</strong>{product.description ? <small>{product.description}</small> : null}</th>
                             <td><span className="pricing-service-table__type"><strong>{product.operationKind === "scan" ? "Scan" : product.operationKind === "photocopy" ? "Photocopy" : "Print"}</strong><small>{product.printTypeLabel}</small></span></td>
-                            {PAPER_SIZES.map((paperSize) => <PaperPriceCell product={product} paperSize={paperSize} rules={data.rules} key={paperSize} />)}
+                            {configuredPaperSizes.map((paperSize) => <PaperPriceCell product={product} paperSize={paperSize} rules={data.rules} key={paperSize} />)}
                             <td><AdditionalPricing product={product} scanTiers={data.scanTiers} /></td>
                             <td><StatusPill label={service.isActive && product.isActive ? "Active" : "Inactive"} tone={service.isActive && product.isActive ? "success" : "neutral"} /></td>
                             <td><Link className="pricing-row-link" to={`/product-catalog/${service.id}/products/${product.id}`} aria-label={`Open ${product.name}`}>Open</Link></td>

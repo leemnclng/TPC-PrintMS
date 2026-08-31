@@ -5,6 +5,7 @@ import { LinkButton } from "../../components/Button/LinkButton";
 import { Modal } from "../../components/Modal/Modal";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatCurrency, formatFileSize, formatProductPrintType } from "../../lib/format";
+import { paperSizeDisplay } from "../../lib/paperSizes";
 import type {
   Customer,
   DocumentAnalysisResponse,
@@ -452,7 +453,7 @@ function ConfigureStep(props: ConfigureStepProps) {
 
         {selectedProduct && (
           <div className="transaction-options">
-            <label className="form-field"><span>Print paper</span><select value={form.paperInventoryItemId} onChange={(event) => { setForm((current) => ({ ...current, paperInventoryItemId: event.target.value })); invalidateAnalysis(); }} aria-invalid={submitted && !form.paperInventoryItemId}><option value="">Select paper</option>{paperAssignments.map((item) => <option key={item.id} value={item.id}>{item.paperSize} · {item.name}</option>)}</select><small>This controls pricing, inventory deduction, and printer setup.</small></label>
+            <label className="form-field"><span>Print paper</span><select value={form.paperInventoryItemId} onChange={(event) => { setForm((current) => ({ ...current, paperInventoryItemId: event.target.value })); invalidateAnalysis(); }} aria-invalid={submitted && !form.paperInventoryItemId}><option value="">Select paper</option>{paperAssignments.map((item) => <option key={item.id} value={item.id}>{paperSizeDisplay(item.paperSize, item.paperWidthMm, item.paperHeightMm)} · {item.name}</option>)}</select><small>This controls pricing, inventory deduction, and printer setup.</small></label>
             <label className="form-field"><span>Variant <small>(optional)</small></span><select value={form.variantId} onChange={(event) => { setForm((current) => ({ ...current, variantId: event.target.value })); invalidateAnalysis(); }} disabled={selectedProduct.variants.length === 0}><option value="">No variant</option>{selectedProduct.variants.map((variant) => <option key={variant.variantId} value={variant.variantId}>{variant.label}{variant.requiresManualDuplex ? " · supervised duplex" : ""} · {variant.priceAdjustment >= 0 ? "+" : ""}{formatCurrency(variant.priceAdjustment)} / page</option>)}</select></label>
             <label className="form-field"><span>Copies</span><input type="number" min={1} value={form.copies} onChange={(event) => { setForm((current) => ({ ...current, copies: Number(event.target.value) })); invalidateAnalysis(); }} aria-invalid={submitted && form.copies < 1} /></label>
           </div>

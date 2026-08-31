@@ -76,10 +76,14 @@ export interface PrintTypeDefinition {
   updatedAt: string;
 }
 
-/** The only paper sizes the shop stocks and prices by — a fixed subset of
- *  `DocumentPaperSize`, which stays the full detection outcome (a scanned
- *  file can still measure as A3/Custom/Unknown, it just won't price). */
-export type InventoryPaperSize = "A4" | "Letter" | "Legal";
+export type InventoryPaperSize =
+  | "Letter" | "Legal" | "Executive" | "A6" | "A5" | "A4" | "B5"
+  | "B-Oficio" | "M-Oficio" | "Foolscap/F4/Oficio2" | "Legal (India)"
+  | '4"x6"' | '5"x7"' | '7"x10"' | '8"x10"' | "L" | "2L"
+  | 'Square 3.5"x3.5"' | 'Square 5"x5"' | "Hagaki" | "Hagaki 2"
+  | "Envelope #10" | "Envelope DL" | "Nagagata 3" | "Nagagata 4"
+  | "Yougata 4" | "Yougata 6" | "Envelope C5" | "Envelope Monarch"
+  | "Card 55x91mm" | "Custom";
 
 export interface ProductDocumentRate {
   id: string;
@@ -141,8 +145,13 @@ export interface InventoryItem {
   unit: string;
   quantityOnHand: number;
   reorderLevel: number;
+  purchasePrice?: number | null;
+  purchasePriceBasis: "unit" | "ream";
+  sheetsPerReam?: number | null;
   notes?: string | null;
   paperSize?: InventoryPaperSize | null;
+  paperWidthMm?: number | null;
+  paperHeightMm?: number | null;
   linkedProductCount: number;
   isActive: boolean;
   createdAt: string;
@@ -228,6 +237,8 @@ export interface JobOrderMaterialPlan {
   plannedQuantity: number;
   consumedQuantity: number;
   paperSize?: InventoryPaperSize | null;
+  paperWidthMm?: number | null;
+  paperHeightMm?: number | null;
 }
 
 export interface JobOrderItem {
@@ -307,6 +318,9 @@ export interface PrintJob {
   copies: number;
   colorMode: "color" | "grayscale";
   mediaSize: string;
+  mediaWidthMm?: number | null;
+  mediaHeightMm?: number | null;
+  mediaType: string;
   orientation: "auto" | "portrait" | "landscape";
   scaling: "auto" | "fit" | "fill" | "actual_size";
   quality: "auto" | "draft" | "standard" | "high";
@@ -411,7 +425,7 @@ export interface HealthStatus {
 }
 
 export type DocumentFileType = "pdf" | "image" | "docx" | "xlsx" | "pptx";
-export type DocumentPaperSize = "A3" | "A4" | "Letter" | "Legal" | "Custom" | "Unknown";
+export type DocumentPaperSize = InventoryPaperSize | "A3" | "Unknown";
 export type DocumentOrientation = "portrait" | "landscape" | "square" | "mixed" | "unknown";
 
 export interface DocumentPageMargins {
@@ -498,6 +512,8 @@ export interface DocumentPricingRule {
   inventoryItemId: string;
   inventoryItemName: string;
   paperSize: InventoryPaperSize;
+  paperWidthMm?: number | null;
+  paperHeightMm?: number | null;
   printType: ProductPrintType;
   pricingScope: "printing" | "photocopy";
   pricePerPage: number;

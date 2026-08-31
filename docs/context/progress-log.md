@@ -538,3 +538,39 @@ Chronological notes about app progress.
 - Summary: Replaced product deactivation/removal ambiguity with recoverable deletion.
 - Completed: Products disappear from catalogues and transaction choices immediately, remain visible only in a service-level Recently deleted pane, and can be restored to their prior activity state for five days. Expired unused rows are physically purged; referenced rows become hidden non-restorable audit tombstones after their editable configuration is removed.
 - Verified: Alembic resolves the new recycle-bin migration as head; all 35 API tests, renderer build/lint, desktop build, and diff validation pass.
+
+## 2026-08-31 (job analysis preview and required-field guidance)
+
+- Summary: Restored document proofing inside the current multi-product job-order intake and clarified what blocks checkout.
+- Completed: Every analyzed Printing line now retains its own continuous PDF or image preview with loading and unsupported-format states. Transaction name, product, physical paper, customer document, quantities, custom price, and the analysis action use dynamic required/pending styling while optional controls remain neutral.
+- Verified: Renderer production build, TypeScript compilation, ESLint, and diff validation pass.
+
+## 2026-08-31 (inventory purchase cost)
+
+- Summary: Added a current purchase-cost reference to every inventory material.
+- Completed: Material registration and editing accept an optional PHP purchase price per stored unit, validate non-negative values, and preserve unknown legacy costs as blank. The material register displays the saved amount beside its unit without changing customer-facing pricing.
+- Verified: Fresh SQLite migration reaches `d6f3a82c19e4`; all 35 API tests, renderer build/lint, desktop TypeScript build, and diff validation pass.
+
+## 2026-08-31 (paper purchase-cost basis)
+
+- Summary: Made paper purchase cost usable with supplier prices quoted by sheet or by ream.
+- Completed: Sheet-counted materials now offer Per sheet and Whole ream. Ream pricing records its sheet count, defaults new entries to 500, calculates an immediate per-sheet equivalent, and shows both values in the Inventory register. Existing per-unit costs retain their meaning through migration.
+- Verified: Fresh SQLite migration reaches `e7a4c91d26f8`, upgrade preserves existing per-unit cost values, all 35 API tests pass, and renderer build/lint plus desktop TypeScript build pass.
+
+## 2026-08-31 (printing-focused inventory units)
+
+- Summary: Replaced free-text inventory measurements with a focused printing-material vocabulary.
+- Completed: Material create/edit now offers Sheet, Ream, Bottle, Cartridge, Roll, Pack, and Piece. The API canonicalizes these values and rejects unsupported input such as milliliter. Legacy unsupported records remain readable and request a supported replacement when edited.
+- Verified: API tests, renderer production build/lint, desktop TypeScript build, and diff validation pass.
+
+## 2026-08-31 (Photo Print output profile)
+
+- Summary: Added Photo Print as a built-in priced output type with Canon-style media controls.
+- Completed: Photo Print participates in the existing product/material pricing matrix. Job and Print Center setup now offer Canon paper names, apply high-quality/fill/borderless photo defaults, persist the selected media in history, preserve it across supervised duplex passes, send exact standard IPP media types through CUPS, and reduce supported photo papers to Windows' standard glossy-media driver hint.
+- Verified: Fresh SQLite migration reaches `f84b21d6c903`; all 36 API tests, renderer/desktop typechecks, renderer production build/lint, desktop build, and diff validation pass. Physical Canon media-profile behavior remains to be validated on the Windows workstation.
+
+## 2026-08-31 (measured Canon paper catalogue)
+
+- Summary: Replaced the three-value paper tag with measured Canon G4070 media profiles.
+- Completed: Material create/edit groups 31 document, photo, envelope, card, and custom sizes and shows the canonical millimeter measurement for every named profile. Custom media validates Canon's 55 × 89 mm through 216 × 1200 mm range. Measurements now flow through inventory, analyzer best-fit, pricing displays, job paper selection, print history, and Windows/CUPS print submission. Multiple materials may share a size so bond, glossy, and other stocks remain separate pricing rows.
+- Verified: Fresh migration coverage runs through the backup/restore test; 37 API tests, renderer/desktop typechecks, renderer production build/lint, desktop build, Python compilation, and diff validation pass.
