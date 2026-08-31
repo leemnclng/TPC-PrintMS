@@ -53,12 +53,17 @@ def _profile_payload(profile: BusinessProfile | None) -> dict[str, Any] | None:
     }
 
 
-def _replace_with_retry(source: Path, destination: Path, *, attempts: int = 5, delay_seconds: float = 0.1) -> None:
+def _replace_with_retry(source: Path, destination: Path, *, attempts: int = 8, delay_seconds: float = 0.25) -> None:
     """`os.replace()` can raise a transient `PermissionError` on Windows when
-    the destination is briefly held open by antivirus scanning or the search
-    indexer — POSIX rename has no such restriction, which is why this failure
-    shows up only on Windows. A short retry-with-backoff clears it rather
-    than treating a passing lock as a real, unrecoverable failure."""
+    the destination (or, per testing, sometimes the containing folder) is
+    briefly held by antivirus scanning, the search indexer, or a cloud-sync
+    client (OneDrive and similar can hold a lock for a few seconds while
+    uploading, longer than a lighter retry schedule covers) — POSIX rename
+    has no such restriction, which is why this failure shows up only on
+    Windows. A retry-with-backoff (up to ~9s total) clears it rather than
+    treating a passing lock as a real, unrecoverable failure; this only runs
+    on manual/background actions (startup, profile save, backup), never on a
+    latency-sensitive request."""
     for attempt in range(attempts):
         try:
             os.replace(source, destination)
@@ -175,7 +180,7 @@ def create_backup(*, prefix: str = "printing-ms") -> Path:
                 "checksums": checksums,
             }
             archive.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
-        os.replace(staged_archive, destination)
+        _replace_with_retry(staged_archive, destination)
         return destination
 
 

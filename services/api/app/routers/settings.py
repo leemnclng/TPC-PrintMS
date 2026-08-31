@@ -84,6 +84,11 @@ def download_backup() -> FileResponse:
     try:
         archive = create_backup()
     except (OSError, sqlite3.DatabaseError) as error:
+        # The user-facing message stays generic on purpose (no raw paths/
+        # tracebacks), but the real cause — which specific step and OS error —
+        # only exists here. Logging it is what makes this diagnosable instead
+        # of a guessing game next time it happens.
+        logger.exception("The backup could not be created in %s.", settings.resolved_data_dir)
         raise HTTPException(status_code=500, detail="The backup could not be created in the environment folder.") from error
     return FileResponse(archive, media_type="application/zip", filename=archive.name)
 
@@ -106,6 +111,7 @@ def restore_environment_backup(file: UploadFile = File(...)) -> dict:
     except BackupValidationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except (OSError, sqlite3.DatabaseError) as error:
+        logger.exception("The backup could not be restored in %s.", settings.resolved_data_dir)
         raise HTTPException(status_code=500, detail="The backup could not be restored safely.") from error
     finally:
         file.file.close()

@@ -153,77 +153,101 @@ else {
     }
 }
 $script:pageIndex = 0
+# A PowerShell scriptblock hooked to a .NET event (add_QueryPageSettings /
+# add_PrintPage below) does not propagate a thrown error's message through
+# Print() the normal way — the caller only ever sees a generic
+# "Exception calling "Print" with "0" argument(s)" with the real detail
+# (e.g. the borderless-not-supported message below) lost. Both handlers
+# catch their own errors, record the message here, and cancel the job;
+# Print() is then checked for this afterward and re-thrown as a plain
+# PowerShell error, which keeps the real message intact.
+$script:printFailure = $null
 
 $document.add_QueryPageSettings({
     param($sender, $eventArgs)
-    $probe = [System.Drawing.Image]::FromFile($printPaths[$script:pageIndex])
     try {
-        $eventArgs.PageSettings.Landscape = if ($Orientation -eq "auto") { $probe.Width -gt $probe.Height } else { $Orientation -eq "landscape" }
-        $eventArgs.PageSettings.Color = ($ColorMode -eq "color")
-        $eventArgs.PageSettings.PaperSize = $paperSize
-        if ($null -ne $printerResolution) {
-            $eventArgs.PageSettings.PrinterResolution = $printerResolution
+        $probe = [System.Drawing.Image]::FromFile($printPaths[$script:pageIndex])
+        try {
+            $eventArgs.PageSettings.Landscape = if ($Orientation -eq "auto") { $probe.Width -gt $probe.Height } else { $Orientation -eq "landscape" }
+            $eventArgs.PageSettings.Color = ($ColorMode -eq "color")
+            $eventArgs.PageSettings.PaperSize = $paperSize
+            if ($null -ne $printerResolution) {
+                $eventArgs.PageSettings.PrinterResolution = $printerResolution
+            }
+        }
+        finally {
+            $probe.Dispose()
         }
     }
-    finally {
-        $probe.Dispose()
+    catch {
+        $script:printFailure = $_.Exception.Message
+        $eventArgs.Cancel = $true
     }
 })
 
 $document.add_PrintPage({
     param($sender, $eventArgs)
-    $image = [System.Drawing.Image]::FromFile($printPaths[$script:pageIndex])
     try {
-        # Graphics (0,0) is already the physical printable-area origin when
-        # OriginAtMargins is false. Adding HardMarginX/Y here applied the Canon
-        # margin twice and also assumed the opposite margins were symmetrical.
-        $printableArea = $eventArgs.PageSettings.PrintableArea
-        if ($useBorderless -and ($printableArea.X -gt 0.5 -or $printableArea.Y -gt 0.5)) {
-            throw "The selected printer driver does not expose borderless printing for $MediaSize. Open its Windows printing preferences and choose a supported borderless paper type."
-        }
-        $originX = [single]0
-        $originY = [single]0
-        $availableWidth = [Math]::Max(1, [single]$printableArea.Width)
-        $availableHeight = [Math]::Max(1, [single]$printableArea.Height)
-        $actualWidth = [single](100 * $image.Width / [Math]::Max(1, $image.HorizontalResolution))
-        $actualHeight = [single](100 * $image.Height / [Math]::Max(1, $image.VerticalResolution))
-        if ($Scaling -eq "actual_size" -or ($Scaling -eq "auto" -and $actualWidth -le $availableWidth -and $actualHeight -le $availableHeight)) {
-            $drawWidth = $actualWidth
-            $drawHeight = $actualHeight
-        }
-        elseif ($Scaling -eq "auto") {
-            $shrinkScale = [Math]::Min($availableWidth / $actualWidth, $availableHeight / $actualHeight)
-            $drawWidth = [single]($actualWidth * $shrinkScale)
-            $drawHeight = [single]($actualHeight * $shrinkScale)
-        }
-        else {
-            $fitScale = [Math]::Min($availableWidth / $image.Width, $availableHeight / $image.Height)
-            $fillScale = [Math]::Max($availableWidth / $image.Width, $availableHeight / $image.Height)
-            $scale = if ($Scaling -eq "fill") { $fillScale } else { $fitScale }
-            $drawWidth = [single]($image.Width * $scale)
-            $drawHeight = [single]($image.Height * $scale)
-        }
-        $left = [single]($originX + (($availableWidth - $drawWidth) / 2))
-        $top = [single]($originY + (($availableHeight - $drawHeight) / 2))
-        $target = [System.Drawing.RectangleF]::new($left, $top, $drawWidth, $drawHeight)
+        $image = [System.Drawing.Image]::FromFile($printPaths[$script:pageIndex])
+        try {
+            # Graphics (0,0) is already the physical printable-area origin when
+            # OriginAtMargins is false. Adding HardMarginX/Y here applied the Canon
+            # margin twice and also assumed the opposite margins were symmetrical.
+            $printableArea = $eventArgs.PageSettings.PrintableArea
+            if ($useBorderless -and ($printableArea.X -gt 0.5 -or $printableArea.Y -gt 0.5)) {
+                throw "The selected printer driver does not expose borderless printing for $MediaSize. Open its Windows printing preferences and choose a supported borderless paper type."
+            }
+            $originX = [single]0
+            $originY = [single]0
+            $availableWidth = [Math]::Max(1, [single]$printableArea.Width)
+            $availableHeight = [Math]::Max(1, [single]$printableArea.Height)
+            $actualWidth = [single](100 * $image.Width / [Math]::Max(1, $image.HorizontalResolution))
+            $actualHeight = [single](100 * $image.Height / [Math]::Max(1, $image.VerticalResolution))
+            if ($Scaling -eq "actual_size" -or ($Scaling -eq "auto" -and $actualWidth -le $availableWidth -and $actualHeight -le $availableHeight)) {
+                $drawWidth = $actualWidth
+                $drawHeight = $actualHeight
+            }
+            elseif ($Scaling -eq "auto") {
+                $shrinkScale = [Math]::Min($availableWidth / $actualWidth, $availableHeight / $actualHeight)
+                $drawWidth = [single]($actualWidth * $shrinkScale)
+                $drawHeight = [single]($actualHeight * $shrinkScale)
+            }
+            else {
+                $fitScale = [Math]::Min($availableWidth / $image.Width, $availableHeight / $image.Height)
+                $fillScale = [Math]::Max($availableWidth / $image.Width, $availableHeight / $image.Height)
+                $scale = if ($Scaling -eq "fill") { $fillScale } else { $fitScale }
+                $drawWidth = [single]($image.Width * $scale)
+                $drawHeight = [single]($image.Height * $scale)
+            }
+            $left = [single]($originX + (($availableWidth - $drawWidth) / 2))
+            $top = [single]($originY + (($availableHeight - $drawHeight) / 2))
+            $target = [System.Drawing.RectangleF]::new($left, $top, $drawWidth, $drawHeight)
 
-        $eventArgs.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $eventArgs.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-        if ($Scaling -eq "fill") {
-            $eventArgs.Graphics.SetClip([System.Drawing.RectangleF]::new($originX, $originY, $availableWidth, $availableHeight))
+            $eventArgs.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $eventArgs.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            if ($Scaling -eq "fill") {
+                $eventArgs.Graphics.SetClip([System.Drawing.RectangleF]::new($originX, $originY, $availableWidth, $availableHeight))
+            }
+            $eventArgs.Graphics.DrawImage($image, $target)
         }
-        $eventArgs.Graphics.DrawImage($image, $target)
-    }
-    finally {
-        $image.Dispose()
-    }
+        finally {
+            $image.Dispose()
+        }
 
-    $script:pageIndex++
-    $eventArgs.HasMorePages = ($script:pageIndex -lt $printPaths.Count)
+        $script:pageIndex++
+        $eventArgs.HasMorePages = ($script:pageIndex -lt $printPaths.Count)
+    }
+    catch {
+        $script:printFailure = $_.Exception.Message
+        $eventArgs.Cancel = $true
+    }
 })
 
 try {
     $document.Print()
+    if ($null -ne $script:printFailure) {
+        throw $script:printFailure
+    }
 }
 finally {
     $document.Dispose()
