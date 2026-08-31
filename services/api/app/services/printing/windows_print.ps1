@@ -232,6 +232,7 @@ $document.add_QueryPageSettings({
 
 $document.add_PrintPage({
     param($sender, $eventArgs)
+    $rotatedBitmap = $null
     try {
         $image = Get-PrintPageImage -Index $script:pageIndex
         $printableArea = $eventArgs.PageSettings.PrintableArea
@@ -258,28 +259,42 @@ $document.add_PrintPage({
         }
 
         # $pageWidth/$pageHeight above are always the physical sheet's own
-        # portrait-canonical dimensions (see the note on PaperSize) — for a
-        # landscape page, rotate the drawing surface itself onto that still-
-        # portrait page rather than asking PageSettings.Landscape to do it.
-        # This is the standard recipe for drawing landscape content onto a
-        # portrait GDI+ surface: shift the origin to the far edge, then
-        # rotate 90 degrees, so the full rotated rectangle lands back within
-        # the original page bounds.
+        # portrait-canonical dimensions (see the note on PaperSize). For a
+        # landscape page, the content is rotated into a separate in-memory
+        # bitmap first and that is what gets drawn — rotating the *printer's*
+        # own Graphics object directly with RotateTransform, combined with
+        # high-quality interpolation, is a known GDI+ printing bug that
+        # throws a misleading "Out of memory" from DrawImage on some drivers.
+        # A plain (already-rotated-if-needed) bitmap drawn without any
+        # rotation on the printer surface is the same operation every
+        # non-landscape page here already relies on successfully.
         $isLandscapePage = if ($Orientation -eq "auto") { $image.Width -gt $image.Height } else { $Orientation -eq "landscape" }
         if ($isLandscapePage) {
-            $eventArgs.Graphics.TranslateTransform($pageWidth, 0)
-            $eventArgs.Graphics.RotateTransform(90)
+            $rotatedBitmap = [System.Drawing.Bitmap]::new($image.Height, $image.Width)
+            $rotatedBitmap.SetResolution($image.VerticalResolution, $image.HorizontalResolution)
+            $rotationGraphics = [System.Drawing.Graphics]::FromImage($rotatedBitmap)
+            try {
+                $rotationGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                $rotationGraphics.TranslateTransform($rotatedBitmap.Width, 0)
+                $rotationGraphics.RotateTransform(90)
+                $rotationGraphics.DrawImage($image, [System.Drawing.RectangleF]::new(0, 0, $image.Width, $image.Height))
+            }
+            finally {
+                $rotationGraphics.Dispose()
+            }
+            $drawImage = $rotatedBitmap
             $availableWidth = $pageHeight
             $availableHeight = $pageWidth
         }
         else {
+            $drawImage = $image
             $availableWidth = $pageWidth
             $availableHeight = $pageHeight
         }
         $originX = [single]0
         $originY = [single]0
-        $actualWidth = [single](100 * $image.Width / [Math]::Max(1, $image.HorizontalResolution))
-        $actualHeight = [single](100 * $image.Height / [Math]::Max(1, $image.VerticalResolution))
+        $actualWidth = [single](100 * $drawImage.Width / [Math]::Max(1, $drawImage.HorizontalResolution))
+        $actualHeight = [single](100 * $drawImage.Height / [Math]::Max(1, $drawImage.VerticalResolution))
         if ($Scaling -eq "actual_size" -or ($Scaling -eq "auto" -and $actualWidth -le $availableWidth -and $actualHeight -le $availableHeight)) {
             $drawWidth = $actualWidth
             $drawHeight = $actualHeight
@@ -290,11 +305,11 @@ $document.add_PrintPage({
             $drawHeight = [single]($actualHeight * $shrinkScale)
         }
         else {
-            $fitScale = [Math]::Min($availableWidth / $image.Width, $availableHeight / $image.Height)
-            $fillScale = [Math]::Max($availableWidth / $image.Width, $availableHeight / $image.Height)
+            $fitScale = [Math]::Min($availableWidth / $drawImage.Width, $availableHeight / $drawImage.Height)
+            $fillScale = [Math]::Max($availableWidth / $drawImage.Width, $availableHeight / $drawImage.Height)
             $scale = if ($Scaling -eq "fill") { $fillScale } else { $fitScale }
-            $drawWidth = [single]($image.Width * $scale)
-            $drawHeight = [single]($image.Height * $scale)
+            $drawWidth = [single]($drawImage.Width * $scale)
+            $drawHeight = [single]($drawImage.Height * $scale)
         }
         $left = [single]($originX + (($availableWidth - $drawWidth) / 2))
         $top = [single]($originY + (($availableHeight - $drawHeight) / 2))
@@ -305,7 +320,7 @@ $document.add_PrintPage({
         if ($Scaling -eq "fill") {
             $eventArgs.Graphics.SetClip([System.Drawing.RectangleF]::new($originX, $originY, $availableWidth, $availableHeight))
         }
-        $eventArgs.Graphics.DrawImage($image, $target)
+        $eventArgs.Graphics.DrawImage($drawImage, $target)
 
         $script:pageIndex++
         $eventArgs.HasMorePages = ($script:pageIndex -lt $printPaths.Count)
@@ -313,6 +328,9 @@ $document.add_PrintPage({
     catch {
         $script:printFailure = $_.Exception.Message
         $eventArgs.Cancel = $true
+    }
+    finally {
+        if ($rotatedBitmap) { $rotatedBitmap.Dispose() }
     }
 })
 

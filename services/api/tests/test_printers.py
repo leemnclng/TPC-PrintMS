@@ -194,6 +194,22 @@ def test_windows_print_geometry_uses_printable_area_or_full_borderless_sheet() -
     assert "DMMEDIA_GLOSSY" in script
 
 
+def test_windows_print_rotates_the_image_not_the_printer_graphics_for_landscape() -> None:
+    script = (Path(__file__).parents[1] / "app" / "services" / "printing" / "windows_print.ps1").read_text()
+
+    # Rotating the printer's own Graphics object with RotateTransform,
+    # combined with high-quality interpolation, is a documented GDI+
+    # printing bug that throws a misleading "Out of memory" from DrawImage
+    # on some drivers. Landscape content must be rotated into a separate
+    # in-memory bitmap instead, and the printer's own Graphics object must
+    # never be rotated at all.
+    assert "$eventArgs.Graphics.RotateTransform" not in script
+    assert "[System.Drawing.Bitmap]::new($image.Height, $image.Width)" in script
+    assert "[System.Drawing.Graphics]::FromImage($rotatedBitmap)" in script
+    assert "$rotationGraphics.RotateTransform(90)" in script
+    assert "$eventArgs.Graphics.DrawImage($drawImage, $target)" in script
+
+
 def test_spooler_monitor_persists_external_jobs_and_links_internal_attempts(tmp_path) -> None:
     engine = create_engine(
         f"sqlite:///{tmp_path / 'spooler.db'}",
