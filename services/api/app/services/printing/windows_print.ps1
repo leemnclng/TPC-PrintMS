@@ -107,14 +107,32 @@ if ($MediaType -ne "auto") {
 $targetWidth = [int][Math]::Round($MediaWidthMm * 100 / 25.4)
 $targetHeight = [int][Math]::Round($MediaHeightMm * 100 / 25.4)
 $normalizedMediaName = ($MediaSize -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
-$paperSize = $document.PrinterSettings.PaperSizes |
-    Where-Object {
-        $paperName = ($_.PaperName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
-        $_.Kind.ToString() -eq $MediaSize -or
-        $paperName -eq $normalizedMediaName -or
-        ([Math]::Abs($_.Width - $targetWidth) -le 2 -and [Math]::Abs($_.Height - $targetHeight) -le 2)
-    } |
-    Select-Object -First 1
+
+function Find-MatchingPaperSize {
+    param([bool]$RequireBorderlessName)
+    $document.PrinterSettings.PaperSizes |
+        Where-Object {
+            $paperName = ($_.PaperName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+            $nameMatch = $_.Kind.ToString() -eq $MediaSize -or $paperName -eq $normalizedMediaName
+            $dimensionMatch = [Math]::Abs($_.Width - $targetWidth) -le 2 -and [Math]::Abs($_.Height - $targetHeight) -le 2
+            if ($RequireBorderlessName) { $paperName.Contains("borderless") -and ($nameMatch -or $dimensionMatch) }
+            else { $nameMatch -or $dimensionMatch }
+        } |
+        Select-Object -First 1
+}
+
+$paperSize = $null
+if ($useBorderless) {
+    # Many inkjet drivers (Canon included) only expose true edge-to-edge
+    # output through a paper entry explicitly named for it (e.g.
+    # "4x6 (Borderless)"), distinct from a plain, margined entry of the exact
+    # same dimensions. Matching on dimensions alone can silently pick the
+    # margined one even when a borderless one also exists.
+    $paperSize = Find-MatchingPaperSize -RequireBorderlessName $true
+}
+if ($null -eq $paperSize) {
+    $paperSize = Find-MatchingPaperSize -RequireBorderlessName $false
+}
 if ($null -eq $paperSize) {
     # Canon and other drivers do not expose every regional/photo name through
     # PaperSizes even when they accept the dimensions. Use a per-job custom
