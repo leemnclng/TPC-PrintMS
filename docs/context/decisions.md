@@ -642,3 +642,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Create the Windows Desktop shortcut against `cmd.exe /d /c` with an explicitly quoted `run.bat` path, and make Electron's shutdown path idempotently stop its managed backend before exiting. On Windows, terminate the complete owned backend process tree because Node's emulated signals address only the immediate process.
 - Rationale: Pointing a shortcut directly at a batch file depends on Windows file association and quoting behavior, while stopping only the immediate Python process can leave helper processes or the development terminal alive.
 - Impact: Re-running the shortcut script repairs/replaces the link and supports repository paths containing spaces. Closing the final Windows app window or stopping its terminal ends the backend, Electron, Vite orchestration, and the shortcut-opened terminal together.
+
+### Export Requirements Without Creating a Second Dependency Source
+
+- Decision: Keep backend dependency declarations in `pyproject.toml`, exact resolution in `uv.lock`, and commit a pip-compatible `requirements.txt` export containing locked runtime and development/test packages.
+- Rationale: A requirements file makes manual Windows `.venv` setup familiar, but independently maintained version declarations would drift from the environment Electron and CI use.
+- Impact: Owners may install the complete backend environment with `uv pip install -r requirements.txt`; dependency changes must be locked first and then re-exported using the command recorded in the file header.

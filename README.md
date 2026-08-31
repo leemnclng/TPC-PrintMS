@@ -62,6 +62,18 @@ resolves its own Python environment on first use — the first launch will be
 slower while `uv` fetches the interpreter and dependencies). You do not need
 to start the backend separately.
 
+For a manual pip-compatible backend setup, install the pinned runtime and test
+dependencies into the project virtual environment:
+
+```powershell
+cd services\api
+uv venv .venv
+uv pip install --python .venv\Scripts\python.exe -r requirements.txt
+```
+
+`pyproject.toml` and `uv.lock` remain the dependency sources of truth;
+`requirements.txt` is their installation export.
+
 The backend reads its runtime stage and SQLite location from
 `services/api/.env`. Start from the checked-in example:
 

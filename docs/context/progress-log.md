@@ -2,10 +2,10 @@
 
 Chronological notes about app progress.
 
-## 2026-09-01 (desktop startup and shutdown reliability)
+## 2026-09-01 (desktop startup, shutdown, and backend setup reliability)
 
 - Summary: Removed the recurring startup race and avoidable Windows backend launch work, repaired the development Desktop shortcut, and made the launcher one owned lifecycle.
-- Completed: Windows development starts FastAPI directly through the project virtual environment. The renderer awaits the real startup promise and can retry a failed child. Informational maintenance runs off the readiness path. Shortcut creation validates its paths and invokes the quoted launcher through `cmd.exe /d /c`. Final-window close and terminal signals follow one guarded shutdown path and terminate the full backend process tree before Electron exits.
+- Completed: Windows development starts FastAPI directly through the project virtual environment. The renderer awaits the real startup promise and can retry a failed child. Informational maintenance runs off the readiness path. Shortcut creation validates its paths and invokes the quoted launcher through `cmd.exe /d /c`. Final-window close and terminal signals follow one guarded shutdown path and terminate the full backend process tree before Electron exits. A locked `requirements.txt` now supports manual runtime and test dependency installation into `.venv`.
 - Verified: Isolated fresh and migrated API launches reach the readiness contract; all 44 API tests, full renderer/desktop TypeScript checks, desktop production compilation, and diff validation pass. Shortcut COM creation and process-tree teardown still require final confirmation on the Windows workstation.
 
 ## 2026-08-31 (stage switching, custom output size, and recovery hardening)

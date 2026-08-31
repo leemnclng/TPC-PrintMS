@@ -9,6 +9,7 @@ Track notable app changes by date.
 - Changed: The non-secret configuration snapshot refresh and already-completed legacy file migration no longer delay normal backend readiness.
 - Fixed: Creating the Windows Desktop shortcut now works reliably with redirected Desktop folders and repository paths containing spaces.
 - Changed: Closing the final Windows app window stops the managed backend before Electron exits; the development launcher and its terminal then close instead of remaining active.
+- Added: The backend now includes a pinned pip-compatible `requirements.txt` for installing all runtime and test dependencies into `.venv`.
 
 ## 2026-08-31 (stage switching, custom output size, and recovery hardening)
 
