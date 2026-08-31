@@ -36,6 +36,9 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
   const [mediaType, setMediaType] = useState<PrintMediaType>("auto");
   const [borderless, setBorderless] = useState(false);
   const [collate, setCollate] = useState(true);
+  const [customSizeEnabled, setCustomSizeEnabled] = useState(false);
+  const [customWidthMm, setCustomWidthMm] = useState("");
+  const [customHeightMm, setCustomHeightMm] = useState("");
   const [workingOrder, setWorkingOrder] = useState(order);
   const [paperReinserted, setPaperReinserted] = useState(false);
   const [discovering, setDiscovering] = useState(false);
@@ -49,10 +52,26 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
   const selectedFile = workingOrder.files.find((file) => file.id === selectedFileId);
   const paperPlan = printItem?.materials.find((material) => material.paperSize);
   const mediaSize = paperPlan?.paperSize ?? selectedFile?.detectedPaperSize ?? "A4";
-  const mediaSizeLabel = paperSizeDisplay(mediaSize, paperPlan?.paperWidthMm, paperPlan?.paperHeightMm);
+  const approvedMediaSizeLabel = paperSizeDisplay(mediaSize, paperPlan?.paperWidthMm, paperPlan?.paperHeightMm);
   const mediaDefinition = paperSizeDefinition(mediaSize);
   const mediaWidthMm = paperPlan?.paperWidthMm ?? mediaDefinition?.widthMm ?? 210;
   const mediaHeightMm = paperPlan?.paperHeightMm ?? mediaDefinition?.heightMm ?? 297;
+  const enteredCustomWidth = Number(customWidthMm);
+  const enteredCustomHeight = Number(customHeightMm);
+  const customShortEdge = enteredCustomWidth;
+  const customLongEdge = enteredCustomHeight;
+  const customSizeError = !customSizeEnabled
+    ? null
+    : !Number.isFinite(enteredCustomWidth) || !Number.isFinite(enteredCustomHeight) || !customWidthMm || !customHeightMm
+      ? "Enter both paper dimensions."
+      : customShortEdge < 55 || customShortEdge > 216 || customLongEdge < 89 || customLongEdge > 1200
+        ? "Use a short edge of 55–216 mm and a long edge of 89–1200 mm."
+        : null;
+  const outputWidthMm = customSizeEnabled && !customSizeError ? customShortEdge : mediaWidthMm;
+  const outputHeightMm = customSizeEnabled && !customSizeError ? customLongEdge : mediaHeightMm;
+  const outputMediaSizeLabel = customSizeEnabled
+    ? paperSizeDisplay("Custom", outputWidthMm, outputHeightMm)
+    : approvedMediaSizeLabel;
   const printReadyFiles = workingOrder.files.filter((file) => file.kind === "print_ready" && (!file.jobOrderItemId || file.jobOrderItemId === item.id));
   const copies = printItem?.copies ?? 1;
   const pages = selectedFile?.detectedPageCount ?? printItem?.pagesPerCopy ?? 1;
@@ -87,6 +106,9 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
     setMediaType(item.printType === "photo_print" ? "photo_plus_glossy_ii" : "auto");
     setBorderless(item.printType === "photo_print" && initialPaperSize !== "Legal");
     setCollate(true);
+    setCustomSizeEnabled(initialPaperSize === "Custom");
+    setCustomWidthMm(String(paperPlan?.paperWidthMm ?? mediaWidthMm));
+    setCustomHeightMm(String(paperPlan?.paperHeightMm ?? mediaHeightMm));
     setPaperReinserted(false);
     setActionError(null);
     const priorFront = order.printAttempts.find(
@@ -101,8 +123,11 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
       setQuality(priorFront.quality);
       setBorderless(priorFront.borderless);
       setCollate(priorFront.collate);
+      setCustomSizeEnabled(priorFront.mediaSize === "Custom");
+      setCustomWidthMm(String(priorFront.mediaWidthMm ?? mediaWidthMm));
+      setCustomHeightMm(String(priorFront.mediaHeightMm ?? mediaHeightMm));
     }
-  }, [initialPaperSize, open, order, item.id, item.printType]);
+  }, [initialPaperSize, mediaHeightMm, mediaWidthMm, open, order, item.id, item.printType, paperPlan?.paperHeightMm, paperPlan?.paperWidthMm]);
 
   useEffect(() => {
     if (!open || !printers?.length || selectedPrinterId) return;
@@ -139,7 +164,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedPrinterId || !selectedFileId || saving) return;
+    if (!selectedPrinterId || !selectedFileId || saving || customSizeError) return;
     setSaving(true);
     setActionError(null);
     try {
@@ -154,6 +179,11 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
         borderless,
         collate,
         duplexPass,
+        ...(customSizeEnabled ? {
+          mediaSize: "Custom",
+          mediaWidthMm: customShortEdge,
+          mediaHeightMm: customLongEdge,
+        } : {}),
       });
       if (updated.status === "queued" && duplexPass === "front") {
         setWorkingOrder(updated);
@@ -199,7 +229,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
               <ManualDuplexReload
                 printer={selectedPrinter}
                 filename={selectedFile?.originalFilename ?? "Print-ready file"}
-                paperSize={mediaSizeLabel}
+                paperSize={outputMediaSizeLabel}
                 copies={copies}
                 sheetsPerCopy={sheetsPerCopy}
                 backPages={backPages}
@@ -225,9 +255,9 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
                   <PrinterOutputPreview
                     orderId={order.id}
                     file={selectedFile}
-                    paperLabel={mediaSizeLabel}
-                    paperWidthMm={mediaWidthMm}
-                    paperHeightMm={mediaHeightMm}
+                    paperLabel={outputMediaSizeLabel}
+                    paperWidthMm={outputWidthMm}
+                    paperHeightMm={outputHeightMm}
                     orientation={orientation}
                     scaling={scaling}
                     borderless={borderless}
@@ -241,7 +271,18 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
 
                     <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{printReadyFiles.map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select><small>{pages} {pages === 1 ? "page" : "pages"} · {automaticColorMode}</small></label>
 
-                    <div className="photo-print-paper"><span>Paper size</span><strong>{mediaSizeLabel}</strong><small>Selected by the approved job; pricing and inventory use this material.</small></div>
+                    <div className="photo-print-paper">
+                      <div className="photo-print-paper__heading"><span>Paper size</span><Button type="button" size="sm" variant="secondary" onClick={() => setCustomSizeEnabled((current) => !current)}>{customSizeEnabled ? "Use job size" : "Custom size"}</Button></div>
+                      <strong>{outputMediaSizeLabel}</strong>
+                      {customSizeEnabled && (
+                        <div className="photo-print-custom-size" role="group" aria-label="Custom output paper dimensions">
+                          <label><span>Short edge</span><span><input type="number" min="55" max="216" step="0.1" inputMode="decimal" value={customWidthMm} onChange={(event) => setCustomWidthMm(event.target.value)} aria-invalid={Boolean(customSizeError)} aria-describedby="photo-custom-size-help" /> mm</span></label>
+                          <span aria-hidden="true">×</span>
+                          <label><span>Long edge</span><span><input type="number" min="89" max="1200" step="0.1" inputMode="decimal" value={customHeightMm} onChange={(event) => setCustomHeightMm(event.target.value)} aria-invalid={Boolean(customSizeError)} aria-describedby="photo-custom-size-help" /> mm</span></label>
+                        </div>
+                      )}
+                      <small id="photo-custom-size-help" className={customSizeError ? "is-error" : undefined}>{customSizeError ?? (customSizeEnabled ? `Driver override only. Pricing and inventory remain ${approvedMediaSizeLabel}.` : "Selected by the approved job; pricing and inventory use this material.")}</small>
+                    </div>
 
                     <fieldset className="photo-print-orientation">
                       <legend>Orientation</legend>
@@ -268,7 +309,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
                 <>
                   <div className="job-print-proof">
                     <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{printReadyFiles.map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
-                    <dl><div><dt>Pages</dt><dd>{pages}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Paper</dt><dd>{mediaSizeLabel}</dd></div><div><dt>Output</dt><dd>Auto · {automaticColorMode}</dd></div></dl>
+                    <dl><div><dt>Pages</dt><dd>{pages}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Paper</dt><dd>{approvedMediaSizeLabel}</dd></div><div><dt>Output</dt><dd>Auto · {automaticColorMode}</dd></div></dl>
                   </div>
                   <div className="job-print-settings">
                     <label className="form-field"><span>Media type</span><select value={mediaType} onChange={(event) => setMediaType(event.target.value as PrintMediaType)}>{PRINT_MEDIA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><small>Automatic keeps the installed driver's current media profile.</small></label>
@@ -290,7 +331,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
           </div>
           <footer className="job-order-form__actions">
             <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-            <Button type="submit" variant="primary" loading={saving} disabled={!selectedPrinterId || !selectedFileId || (duplexPass === "back" && !paperReinserted)}>{duplexPass === "front" ? "Print front sides" : duplexPass === "back" ? "Print back sides and deduct materials" : "Print and deduct materials"}</Button>
+            <Button type="submit" variant="primary" loading={saving} disabled={!selectedPrinterId || !selectedFileId || Boolean(customSizeError) || (duplexPass === "back" && !paperReinserted)}>{duplexPass === "front" ? "Print front sides" : duplexPass === "back" ? "Print back sides and deduct materials" : "Print and deduct materials"}</Button>
           </footer>
         </form>
       )}

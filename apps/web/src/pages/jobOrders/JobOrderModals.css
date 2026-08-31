@@ -157,6 +157,16 @@
 .photo-print-paper small { color: var(--color-ink-faint); font-size: var(--text-xs); }
 .photo-print-paper > span { font-size: var(--text-sm); font-weight: 600; }
 .photo-print-paper strong { font-family: var(--font-mono); font-size: var(--text-sm); }
+.photo-print-paper__heading { display: flex; min-height: var(--control-height); align-items: center; justify-content: space-between; gap: var(--space-2); }
+.photo-print-paper__heading > span { font-size: var(--text-sm); font-weight: 600; }
+.photo-print-custom-size { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: var(--space-2); border-left: 2px solid var(--color-accent); padding: var(--space-2) 0 var(--space-2) var(--space-3); background: var(--color-accent-softer); }
+.photo-print-custom-size > span { padding-bottom: .7rem; color: var(--color-ink-faint); }
+.photo-print-custom-size label { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); color: var(--color-ink-soft); font-size: var(--text-xs); }
+.photo-print-custom-size label > span:last-child { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-1); }
+.photo-print-custom-size input { min-width: 0; width: 100%; height: var(--control-height); border: 1px solid var(--color-hairline-strong); padding: 0 var(--space-2); background: var(--color-paper); color: var(--color-ink); font: inherit; }
+.photo-print-custom-size input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.photo-print-custom-size input[aria-invalid="true"] { border-color: var(--color-danger); }
+.photo-print-paper small.is-error { color: var(--color-danger); }
 
 .photo-print-orientation {
   display: grid;

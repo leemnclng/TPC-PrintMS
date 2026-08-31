@@ -191,6 +191,8 @@ class PrintSubmissionCreate(CamelModel):
     copies: int | None = Field(default=None, ge=1, le=99)
     color_mode: Literal["color", "grayscale"] | None = None
     media_size: InventoryPaperSize | None = None
+    media_width_mm: float | None = Field(default=None, ge=55, le=216)
+    media_height_mm: float | None = Field(default=None, ge=55, le=1200)
     media_type: Literal[
         "auto",
         "plain",

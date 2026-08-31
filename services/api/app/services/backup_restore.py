@@ -13,6 +13,7 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
+from uuid import uuid4
 
 from ..core.config import settings
 from ..db.models import BusinessProfile
@@ -70,10 +71,73 @@ def _replace_with_retry(source: Path, destination: Path, *, attempts: int = 8, d
             return
         except OSError as error:
             if attempt == attempts - 1:
-                source.unlink(missing_ok=True)
                 logger.warning("Could not replace %s after %d attempts: %s", destination, attempts, error)
                 raise
             time.sleep(delay_seconds * (attempt + 1))
+
+
+def _publish_backup_archive(
+    source: Path,
+    destination: Path,
+    *,
+    attempts: int = 8,
+    delay_seconds: float = 0.25,
+) -> None:
+    """Publish a completed ZIP without depending solely on Windows rename.
+
+    Antivirus and sync tools can deny ``os.replace`` for a newly completed
+    archive even though ordinary file creation in the same folder works. The
+    archive name is unique, so a complete copy with flush/fsync is a safe
+    fallback; partial destinations are removed before retrying.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _replace_with_retry(source, destination, attempts=2, delay_seconds=delay_seconds)
+        return
+    except OSError:
+        logger.info("Falling back to streamed backup publication for %s.", destination)
+    for attempt in range(attempts):
+        destination.unlink(missing_ok=True)
+        try:
+            with source.open("rb") as input_file, destination.open("xb") as output_file:
+                shutil.copyfileobj(input_file, output_file, length=1024 * 1024)
+                output_file.flush()
+                os.fsync(output_file.fileno())
+            if _sha256(destination) != _sha256(source):
+                raise OSError("The published backup did not match its completed archive.")
+            source.unlink(missing_ok=True)
+            return
+        except OSError:
+            destination.unlink(missing_ok=True)
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay_seconds * (attempt + 1))
+
+
+def _rename_directory_with_retry(
+    source: Path,
+    destination: Path,
+    *,
+    attempts: int = 12,
+    delay_seconds: float = 0.5,
+) -> None:
+    for attempt in range(attempts):
+        try:
+            source.rename(destination)
+            return
+        except OSError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay_seconds * (attempt + 1))
+
+
+def _remove_tree_best_effort(path: Path) -> None:
+    if not path.exists():
+        return
+    try:
+        shutil.rmtree(path, ignore_errors=False)
+    except OSError:
+        logger.warning("Deferred cleanup of restore workspace %s because Windows still holds a file.", path)
 
 
 def write_environment_config(profile: BusinessProfile | None) -> Path:
@@ -180,7 +244,7 @@ def create_backup(*, prefix: str = "printing-ms") -> Path:
                 "checksums": checksums,
             }
             archive.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
-        _replace_with_retry(staged_archive, destination)
+        _publish_backup_archive(staged_archive, destination)
         return destination
 
 
@@ -310,10 +374,9 @@ def restore_backup(archive_path: Path) -> dict[str, Any]:
 
         safety_backup = create_backup(prefix="pre-restore")
         incoming_files = temporary_root / "files"
-        staged_files = settings.resolved_data_dir / ".restore-incoming"
-        previous_files = settings.resolved_data_dir / ".restore-previous"
-        shutil.rmtree(staged_files, ignore_errors=True)
-        shutil.rmtree(previous_files, ignore_errors=True)
+        restore_id = uuid4().hex
+        staged_files = settings.resolved_data_dir / f".restore-incoming-{restore_id}"
+        previous_files = settings.resolved_data_dir / f".restore-previous-{restore_id}"
         if incoming_files.exists():
             shutil.copytree(incoming_files, staged_files)
         else:
@@ -325,9 +388,9 @@ def restore_backup(archive_path: Path) -> dict[str, Any]:
         previous_files_moved = False
         try:
             if settings.resolved_managed_files_dir.exists():
-                settings.resolved_managed_files_dir.rename(previous_files)
+                _rename_directory_with_retry(settings.resolved_managed_files_dir, previous_files)
                 previous_files_moved = True
-            staged_files.rename(settings.resolved_managed_files_dir)
+            _rename_directory_with_retry(staged_files, settings.resolved_managed_files_dir)
             files_swapped = True
 
             engine.dispose()
@@ -349,9 +412,9 @@ def restore_backup(archive_path: Path) -> dict[str, Any]:
         except Exception:
             engine.dispose()
             if files_swapped:
-                shutil.rmtree(settings.resolved_managed_files_dir, ignore_errors=True)
+                _remove_tree_best_effort(settings.resolved_managed_files_dir)
             if previous_files_moved and previous_files.exists():
-                previous_files.rename(settings.resolved_managed_files_dir)
+                _rename_directory_with_retry(previous_files, settings.resolved_managed_files_dir)
             try:
                 rollback_database = temporary_root / "pre-restore-database.sqlite3"
                 with zipfile.ZipFile(safety_backup) as safety_archive, safety_archive.open("database.sqlite3") as source:
@@ -366,8 +429,8 @@ def restore_backup(archive_path: Path) -> dict[str, Any]:
                 pass
             raise
         finally:
-            shutil.rmtree(staged_files, ignore_errors=True)
-        shutil.rmtree(previous_files, ignore_errors=True)
+            _remove_tree_best_effort(staged_files)
+        _remove_tree_best_effort(previous_files)
 
         return {
             "stage": settings.stage,

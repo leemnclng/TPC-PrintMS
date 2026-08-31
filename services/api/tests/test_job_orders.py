@@ -793,6 +793,19 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert after_failure["items"][0]["materials"][0]["consumedQuantity"] == 0
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 100
 
+    incomplete_custom_size = client.post(
+        f"/job-orders/{order['id']}/print-attempts",
+        headers=headers,
+        json={
+            "printerId": printer_id,
+            "jobFileId": order["files"][0]["id"],
+            "mediaSize": "Custom",
+            "mediaWidthMm": 102,
+        },
+    )
+    assert incomplete_custom_size.status_code == 422
+    assert "both width and height" in incomplete_custom_size.json()["detail"]
+
     stub_adapter.fail = False
     printed = client.post(
         f"/job-orders/{order['id']}/print-attempts",
@@ -804,6 +817,9 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
             "scaling": "fill",
             "quality": "high",
             "mediaType": "photo_plus_glossy_ii",
+            "mediaSize": "Custom",
+            "mediaWidthMm": 102,
+            "mediaHeightMm": 152,
             "borderless": False,
             "collate": False,
         },
@@ -815,7 +831,9 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert printed.json()["printAttempts"][0]["externalJobId"] == "Canon-42"
     assert printed.json()["printAttempts"][0]["copies"] == 2
     assert printed.json()["printAttempts"][0]["colorMode"] == "color"
-    assert printed.json()["printAttempts"][0]["mediaSize"] == "Letter"
+    assert printed.json()["printAttempts"][0]["mediaSize"] == "Custom"
+    assert printed.json()["printAttempts"][0]["mediaWidthMm"] == 102
+    assert printed.json()["printAttempts"][0]["mediaHeightMm"] == 152
     assert printed.json()["printAttempts"][0]["mediaType"] == "photo_plus_glossy_ii"
     assert printed.json()["printAttempts"][0]["orientation"] == "landscape"
     assert printed.json()["printAttempts"][0]["scaling"] == "fill"
@@ -828,8 +846,8 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert stub_adapter.calls[-1][1]["quality"] == "high"
     assert stub_adapter.calls[-1][1]["borderless"] is False
     assert stub_adapter.calls[-1][1]["collate"] is False
-    assert stub_adapter.calls[-1][1]["media_width_mm"] == 215.9
-    assert stub_adapter.calls[-1][1]["media_height_mm"] == 279.4
+    assert stub_adapter.calls[-1][1]["media_width_mm"] == 102
+    assert stub_adapter.calls[-1][1]["media_height_mm"] == 152
     assert stub_adapter.calls[-1][1]["tracking_id"] == printed.json()["printAttempts"][0]["id"]
     assert printed.json()["items"][0]["materials"][0]["consumedQuantity"] == 2
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 98

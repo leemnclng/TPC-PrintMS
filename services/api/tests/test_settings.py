@@ -18,6 +18,8 @@ from app.db.session import get_db
 from app.routers import settings as settings_router
 from app.services.backup_restore import (
     BackupValidationError,
+    _publish_backup_archive,
+    _rename_directory_with_retry,
     _replace_with_retry,
     create_backup,
     environment_summaries,
@@ -168,7 +170,7 @@ def test_replace_with_retry_recovers_from_a_transient_lock(tmp_path, monkeypatch
     assert calls["count"] == 3
 
 
-def test_replace_with_retry_raises_and_cleans_up_after_exhausting_attempts(tmp_path, monkeypatch) -> None:
+def test_replace_with_retry_raises_and_retains_source_after_exhausting_attempts(tmp_path, monkeypatch) -> None:
     source = tmp_path / "source.tmp"
     destination = tmp_path / "destination.json"
     source.write_text("new")
@@ -181,7 +183,43 @@ def test_replace_with_retry_raises_and_cleans_up_after_exhausting_attempts(tmp_p
 
     with pytest.raises(PermissionError):
         _replace_with_retry(source, destination, attempts=3, delay_seconds=0)
+    assert source.exists()
+
+
+def test_backup_publication_falls_back_to_a_verified_copy_when_rename_is_blocked(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "staged.zip"
+    destination = tmp_path / "backups" / "published.zip"
+    source.write_bytes(b"completed archive")
+
+    monkeypatch.setattr("app.services.backup_restore.os.replace", lambda *_: (_ for _ in ()).throw(PermissionError("locked")))
+    monkeypatch.setattr("app.services.backup_restore.time.sleep", lambda _: None)
+
+    _publish_backup_archive(source, destination, attempts=2, delay_seconds=0)
+
+    assert destination.read_bytes() == b"completed archive"
     assert not source.exists()
+
+
+def test_restore_directory_swap_retries_a_transient_windows_lock(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "incoming"
+    destination = tmp_path / "files"
+    source.mkdir()
+    real_rename = Path.rename
+    calls = {"count": 0}
+
+    def flaky_rename(path: Path, target: Path):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise PermissionError("simulated preview lock")
+        return real_rename(path, target)
+
+    monkeypatch.setattr(Path, "rename", flaky_rename)
+    monkeypatch.setattr("app.services.backup_restore.time.sleep", lambda _: None)
+
+    _rename_directory_with_retry(source, destination, attempts=4, delay_seconds=0)
+
+    assert destination.is_dir()
+    assert calls["count"] == 3
 
 
 def test_restore_rejects_unsafe_archive_paths(tmp_path, monkeypatch) -> None:

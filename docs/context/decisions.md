@@ -616,3 +616,15 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: On Windows, prefer a matching borderless paper entry, request zero margins, translate GDI output to the physical sheet origin, and render against full page bounds. Do not reject the job solely because .NET reports a non-zero `PrintableArea`.
 - Rationale: Canon can store its usable borderless capability in private DEVMODE data while the public .NET printing surface continues to report hard margins. That report produced a false failure before the installed driver could process a supported 4×6 profile.
 - Impact: Supported Canon photo jobs reach the queue with borderless intent. An unsupported driver may clip to its printable region, so physical output and future live capability discovery remain the authoritative validation.
+
+### Keep Per-Attempt Output Geometry Separate From Commercial Paper
+
+- Decision: Allow Photo Print to override the submitted driver paper dimensions for one print attempt, within the supported custom-media range, without rewriting the job line's approved inventory material.
+- Rationale: Owners need to resize special photo output at production time, but silently changing the material would invalidate the accepted price and stock plan.
+- Impact: The live proof and print history show the custom dimensions; pricing and deduction retain the original material. Different physical stock must be selected on the transaction rather than represented through this output-only override.
+
+### Prefer Recoverable Windows Backup Publication
+
+- Decision: Build a complete backup in staging, try atomic publication, then fall back to a flushed checksum-verified copy when Windows blocks rename. Retry restore directory swaps with unique workspaces and reload the renderer after success.
+- Rationale: Antivirus, indexing, and sync tools can transiently deny rename while ordinary writes remain available; a generic failure discarded an otherwise complete backup and left restored UI state stale.
+- Impact: Backups remain in the required stage folder, partial fallback files are removed, restore lock failures are actionable, and restored database/files become visible across the app immediately.

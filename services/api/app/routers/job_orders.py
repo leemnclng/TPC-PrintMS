@@ -66,7 +66,7 @@ from ..schemas.job_orders import (
     TransactionCreate,
 )
 from ..services.printing.adapter import PrintSubmissionError, get_printer_adapter
-from ..services.paper_sizes import paper_size_definition
+from ..services.paper_sizes import canonical_paper_dimensions, paper_size_definition
 from ..services.product_pricing import (
     has_scan_pricing_configured,
     price_per_page_for_material,
@@ -1510,6 +1510,16 @@ async def submit_print_attempt(
     media_height_mm = paper_plan.inventory_item.paper_height_mm or paper_definition.height_mm
     if media_width_mm is None or media_height_mm is None:
         raise HTTPException(status_code=422, detail="The selected paper material has no usable dimensions.")
+    if payload.media_width_mm is not None or payload.media_height_mm is not None:
+        try:
+            media_width_mm, media_height_mm = canonical_paper_dimensions(
+                InventoryPaperSize.custom,
+                payload.media_width_mm,
+                payload.media_height_mm,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        media_size = InventoryPaperSize.custom
     manual_duplex = item.requires_manual_duplex and (job_file.detected_page_count or item.pages_per_copy) > 1
     if manual_duplex and settings.resolved_printer_platform != "windows":
         raise HTTPException(
@@ -1555,6 +1565,7 @@ async def submit_print_attempt(
         payload.quality = successful_front.quality
         payload.borderless = successful_front.borderless
         payload.collate = successful_front.collate
+        media_size = successful_front.media_size
         media_width_mm = successful_front.media_width_mm or media_width_mm
         media_height_mm = successful_front.media_height_mm or media_height_mm
 

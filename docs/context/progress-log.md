@@ -2,6 +2,12 @@
 
 Chronological notes about app progress.
 
+## 2026-08-31 (stage switching, custom output size, and recovery hardening)
+
+- Summary: Hardened environment transitions and Windows data recovery, and added per-attempt custom photo output dimensions.
+- Completed: Stage switching now allows 120 seconds for migrations/startup and rejects early backend exits cleanly. Photo Print accepts validated 55 × 89 mm through 216 × 1200 mm output overrides with a live proof while retaining the approved material for pricing and inventory. Backup publication falls back from blocked Windows rename to a flushed checksum-verified copy; restore retries folder swaps and reloads the complete renderer state with a retained success result.
+- Verified: All 44 API tests, renderer lint/build/typecheck, desktop build/typecheck, and diff validation pass.
+
 ## 2026-08-31 (Windows photo borderless handoff)
 
 - Summary: Removed the false Canon borderless rejection from Photo Print submission.

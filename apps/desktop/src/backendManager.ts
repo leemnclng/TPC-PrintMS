@@ -16,7 +16,8 @@ export interface BackendConfig {
   token: string;
 }
 
-const STARTUP_TIMEOUT_MS = 15_000;
+const STARTUP_TIMEOUT_MS = 30_000;
+const STAGE_SWITCH_TIMEOUT_MS = 120_000;
 
 export const KNOWN_STAGES = ["development", "test", "production"] as const;
 export type EnvironmentStage = (typeof KNOWN_STAGES)[number];
@@ -27,7 +28,7 @@ export class BackendManager {
   private shuttingDown = false;
   private stage: EnvironmentStage | null = null;
 
-  async start(stage?: EnvironmentStage): Promise<BackendConfig> {
+  async start(stage?: EnvironmentStage, startupTimeoutMs = STARTUP_TIMEOUT_MS): Promise<BackendConfig> {
     if (app.isPackaged) {
       // Bundling the backend into a signed, platform-specific executable is
       // Phase 7 scope (see docs/context/build-plan.md). This scaffold only
@@ -39,7 +40,7 @@ export class BackendManager {
           "(\"Bundled FastAPI lifecycle and local communication need validation\").",
       );
     }
-    return this.startFromSource(stage);
+    return this.startFromSource(stage, startupTimeoutMs);
   }
 
   /** Stops the current backend (if any) and starts a fresh one bound to a
@@ -51,14 +52,14 @@ export class BackendManager {
     await this.stop();
     this.shuttingDown = false;
     this.config = null;
-    return this.start(stage);
+    return this.start(stage, STAGE_SWITCH_TIMEOUT_MS);
   }
 
   getStage(): EnvironmentStage | null {
     return this.stage;
   }
 
-  private startFromSource(stage?: EnvironmentStage): Promise<BackendConfig> {
+  private startFromSource(stage?: EnvironmentStage, startupTimeoutMs = STARTUP_TIMEOUT_MS): Promise<BackendConfig> {
     const backendDir = path.resolve(__dirname, "..", "..", "..", "services", "api");
     const env = { ...process.env };
     if (stage) env.PRINT_MS_STAGE = stage;
@@ -71,9 +72,21 @@ export class BackendManager {
       });
       this.child = child;
 
-      const timeout = setTimeout(() => {
-        reject(new Error(`Backend did not report readiness within ${STARTUP_TIMEOUT_MS}ms.`));
-      }, STARTUP_TIMEOUT_MS);
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout>;
+      const rejectStartup = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        if (this.child === child) {
+          child.kill("SIGTERM");
+          this.child = null;
+        }
+        reject(error);
+      };
+      timeout = setTimeout(() => {
+        rejectStartup(new Error(`Backend did not report readiness within ${Math.round(startupTimeoutMs / 1000)} seconds.`));
+      }, startupTimeoutMs);
 
       let port: number | null = null;
       let token: string | null = null;
@@ -85,7 +98,8 @@ export class BackendManager {
         if (portMatch) port = Number(portMatch[1]);
         if (tokenMatch) token = tokenMatch[1];
 
-        if (port !== null && token !== null && !this.config) {
+        if (port !== null && token !== null && !this.config && !settled) {
+          settled = true;
           clearTimeout(timeout);
           this.config = { baseUrl: `http://127.0.0.1:${port}`, token };
           resolve(this.config);
@@ -99,6 +113,9 @@ export class BackendManager {
 
       child.on("exit", (code, signal) => {
         clearTimeout(timeout);
+        if (!settled && !this.shuttingDown) {
+          rejectStartup(new Error(`Backend exited before it became ready (code=${code}, signal=${signal}).`));
+        }
         if (!this.shuttingDown) {
           console.error(`[backend] exited unexpectedly (code=${code}, signal=${signal}).`);
         }
@@ -106,8 +123,7 @@ export class BackendManager {
       });
 
       child.on("error", (err) => {
-        clearTimeout(timeout);
-        reject(err);
+        rejectStartup(err);
       });
     });
   }

@@ -2,6 +2,13 @@
 
 Track notable app changes by date.
 
+## 2026-08-31 (stage switching, custom output size, and recovery hardening)
+
+- Changed: Desktop environment switching waits up to two minutes for the replacement backend and reports an early startup exit instead of timing out ambiguously.
+- Added: Photo Print paper size can use a validated custom short/long edge; its proof and saved print attempt update immediately without changing approved pricing or inventory material.
+- Fixed: Windows backup creation can publish through a verified streamed-copy fallback when antivirus or sync software blocks archive rename.
+- Fixed: Restore retries transient managed-folder locks and reloads all app data after success while preserving the safety-backup confirmation.
+
 ## 2026-08-31 (Windows photo borderless handoff)
 
 - Fixed: Photo Print no longer fails before submission merely because the Canon driver's public printable-area report contains margins.

@@ -19,7 +19,12 @@ export function BackupRestorePanel({ onRestored }: BackupRestorePanelProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(() => {
+    const restoredMessage = window.sessionStorage.getItem("printing-ms-restore-message");
+    if (!restoredMessage) return null;
+    window.sessionStorage.removeItem("printing-ms-restore-message");
+    return { tone: "success", text: restoredMessage };
+  });
 
   async function createBackup() {
     setCreating(true);
@@ -77,6 +82,11 @@ export function BackupRestorePanel({ onRestored }: BackupRestorePanelProps) {
       if (inputRef.current) inputRef.current.value = "";
       reload();
       onRestored();
+      window.sessionStorage.setItem(
+        "printing-ms-restore-message",
+        `${result.message} Safety backup: ${result.safetyBackupFilename}`,
+      );
+      window.location.reload();
     } catch (err) {
       setMessage({ tone: "error", text: err instanceof ApiError ? err.message : "The backup could not be restored." });
     } finally {

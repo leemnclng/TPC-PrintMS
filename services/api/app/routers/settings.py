@@ -83,6 +83,12 @@ def list_environments() -> list[dict]:
 def download_backup() -> FileResponse:
     try:
         archive = create_backup()
+    except PermissionError as error:
+        logger.exception("Windows denied backup access in %s.", settings.resolved_data_dir)
+        raise HTTPException(
+            status_code=423,
+            detail="Windows is holding the environment folder. Close any open backup ZIP or file preview, then retry.",
+        ) from error
     except (OSError, sqlite3.DatabaseError) as error:
         # The user-facing message stays generic on purpose (no raw paths/
         # tracebacks), but the real cause — which specific step and OS error —
@@ -110,6 +116,12 @@ def restore_environment_backup(file: UploadFile = File(...)) -> dict:
         return restore_backup(temporary_path)
     except BackupValidationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except PermissionError as error:
+        logger.exception("Windows denied restore access in %s.", settings.resolved_data_dir)
+        raise HTTPException(
+            status_code=423,
+            detail="Windows is holding a managed database or document. Close open previews, then retry the restore.",
+        ) from error
     except (OSError, sqlite3.DatabaseError) as error:
         logger.exception("The backup could not be restored in %s.", settings.resolved_data_dir)
         raise HTTPException(status_code=500, detail="The backup could not be restored safely.") from error
