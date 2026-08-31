@@ -2,6 +2,14 @@
 
 Track notable app changes by date.
 
+## 2026-09-01 (desktop backend startup reliability)
+
+- Fixed: App startup no longer converts a backend launch failure into repeated `Backend has not started yet` IPC errors.
+- Changed: Windows source builds use `.venv\Scripts\python.exe` directly when available, avoiding repeated `uv run` resolution overhead.
+- Changed: The non-secret configuration snapshot refresh and already-completed legacy file migration no longer delay normal backend readiness.
+- Fixed: Creating the Windows Desktop shortcut now works reliably with redirected Desktop folders and repository paths containing spaces.
+- Changed: Closing the final Windows app window stops the managed backend before Electron exits; the development launcher and its terminal then close instead of remaining active.
+
 ## 2026-08-31 (stage switching, custom output size, and recovery hardening)
 
 - Changed: Desktop environment switching waits up to two minutes for the replacement backend and reports an early startup exit instead of timing out ambiguously.

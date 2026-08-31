@@ -628,3 +628,17 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Build a complete backup in staging, try atomic publication, then fall back to a flushed checksum-verified copy when Windows blocks rename. Retry restore directory swaps with unique workspaces and reload the renderer after success.
 - Rationale: Antivirus, indexing, and sync tools can transiently deny rename while ordinary writes remain available; a generic failure discarded an otherwise complete backup and left restored UI state stale.
 - Impact: Backups remain in the required stage folder, partial fallback files are removed, restore lock failures are actionable, and restored database/files become visible across the app immediately.
+
+## 2026-09-01
+
+### Keep Informational Maintenance Off the Startup Readiness Path
+
+- Decision: Complete database migrations, seeding, and expired-product finalization before announcing readiness, but defer the non-secret `config.json` mirror and skip legacy file-tree discovery after its successful one-time marker. On Windows source builds, invoke the existing virtual-environment Python directly and retain `uv run` only as a fallback.
+- Rationale: Configuration mirroring can spend seconds retrying Windows file locks, repeated legacy scans grow with retained files, and `uv` environment resolution is redundant once `.venv` exists. None is required before the API can safely serve data.
+- Impact: Normal launches reach the renderer sooner. The readiness promise still blocks requests until schema-critical work finishes, reports its original failure, and allows a later request to retry a failed backend process.
+
+### Make the Development Launcher and Backend One Lifecycle
+
+- Decision: Create the Windows Desktop shortcut against `cmd.exe /d /c` with an explicitly quoted `run.bat` path, and make Electron's shutdown path idempotently stop its managed backend before exiting. On Windows, terminate the complete owned backend process tree because Node's emulated signals address only the immediate process.
+- Rationale: Pointing a shortcut directly at a batch file depends on Windows file association and quoting behavior, while stopping only the immediate Python process can leave helper processes or the development terminal alive.
+- Impact: Re-running the shortcut script repairs/replaces the link and supports repository paths containing spaces. Closing the final Windows app window or stopping its terminal ends the backend, Electron, Vite orchestration, and the shortcut-opened terminal together.

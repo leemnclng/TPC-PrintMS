@@ -14,6 +14,18 @@ application installer and the printer/scanner driver are separate packages.
    use `scripts\run.bat`. A production installer must bundle its runtime and must
    not require these developer tools.
 
+To create or repair the development desktop shortcut, run this once from the
+repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\create-desktop-shortcut.ps1
+```
+
+It replaces `Printing-MS.lnk` on the current user's Windows Desktop and works
+with repository paths containing spaces. Closing the final Printing-MS window
+stops its managed backend and returns the launcher command, which also closes a
+shortcut-opened terminal.
+
 Always obtain the Canon package from Canon's support page for the exact model
 and Windows version. Do not redistribute a vendor driver inside the Printing-MS
 installer unless its license explicitly permits it.
@@ -72,4 +84,3 @@ model-specific package and approve vendor installation prompts.
 | Network scanner is absent | Scan-from-PC device is not selected | Configure IJ Network Scanner Selector EX2 |
 | Scanner appears offline | Device, USB, network, firewall, or driver communication failure | Confirm power/connection, close other scan apps, then refresh |
 | Scanner is visible but acquisition fails | Device is busy or reports paper, cover, or feeder state | Follow the Printing-MS readiness message and retry |
-

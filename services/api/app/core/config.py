@@ -118,6 +118,9 @@ class Settings(BaseSettings):
 
     def migrate_legacy_files_if_needed(self) -> int:
         """Copy retained files from the former shared roots without deleting them."""
+        marker = self.resolved_data_dir / ".legacy-storage-migrated-v1"
+        if marker.is_file():
+            return 0
         copied = 0
 
         def copy_missing(source_root: Path, destination_root: Path) -> None:
@@ -138,6 +141,7 @@ class Settings(BaseSettings):
         scan_bucket = "prod" if self.stage == "production" else "nonprod"
         copy_missing(PACKAGE_ROOT / ".data" / scan_bucket / "scan", self.resolved_scan_output_dir)
         copy_missing(self.resolved_data_root / "backups", self.resolved_backup_dir)
+        marker.write_text("Legacy storage migration completed.\n", encoding="utf-8")
         return copied
 
     @property

@@ -1,13 +1,47 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { execFile } from "node:child_process";
 import path from "node:path";
-import { BackendManager, KNOWN_STAGES } from "./backendManager";
+import { BackendConfig, BackendManager, KNOWN_STAGES } from "./backendManager";
 import { acquireScannerPage, inspectScannerDevices } from "./scannerAcquisition";
 
 const backend = new BackendManager();
-let backendReady: Promise<void> | null = null;
+let backendReady: Promise<BackendConfig> | null = null;
 let mainWindow: BrowserWindow | null = null;
+let shutdownPromise: Promise<void> | null = null;
 const appIconPath = path.join(__dirname, "..", "build", "icon.png");
+
+function shutdownAndExit(exitCode = 0): Promise<void> {
+  if (shutdownPromise) return shutdownPromise;
+
+  shutdownPromise = (async () => {
+    try {
+      await backend.stop();
+    } catch (error) {
+      console.error("[main] failed to stop the backend cleanly:", error);
+    } finally {
+      app.exit(exitCode);
+    }
+  })();
+  return shutdownPromise;
+}
+
+function trackBackendStart(startup: Promise<BackendConfig>): Promise<BackendConfig> {
+  backendReady = startup;
+  void startup.catch((error) => {
+    if (backendReady === startup) backendReady = null;
+    console.error("[main] backend failed to start:", error);
+  });
+  return startup;
+}
+
+async function ensureBackendReady(): Promise<BackendConfig> {
+  if (backendReady) {
+    const config = await backendReady;
+    if (backend.isReady()) return config;
+    backendReady = null;
+  }
+  return trackBackendStart(backend.start());
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -41,8 +75,7 @@ function createWindow(): void {
 }
 
 ipcMain.handle("paper-club:get-api-config", async () => {
-  if (backendReady) await backendReady;
-  return backend.getConfig();
+  return ensureBackendReady();
 });
 
 ipcMain.handle("paper-club:open-printer-settings", async () => {
@@ -81,10 +114,7 @@ ipcMain.handle("paper-club:switch-environment", async (_event, stage: unknown) =
   // Reassign backendReady itself (not just await the old one) so a request
   // that arrives mid-switch — namely the renderer's post-reload
   // getApiConfig() call — waits on this restart instead of the prior one.
-  const restart = backend.switchStage(stage as (typeof KNOWN_STAGES)[number]).then(() => undefined);
-  backendReady = restart;
-  await restart;
-  return backend.getConfig();
+  return trackBackendStart(backend.switchStage(stage as (typeof KNOWN_STAGES)[number]));
 });
 
 ipcMain.handle("paper-club:inspect-scanners", async () => inspectScannerDevices());
@@ -95,16 +125,10 @@ app.whenReady().then(async () => {
     app.dock.setIcon(appIconPath);
   }
 
-  backendReady = backend
-    .start()
-    .then(() => undefined)
-    .catch((err) => {
-      console.error("[main] backend failed to start:", err);
-      // Surfaced to the renderer as a persistent "backend offline" state via
-      // the sidebar's health polling rather than a native error dialog —
-      // the app shell still renders so the user isn't staring at a blank
-      // window.
-    });
+  // Start immediately, while retaining the rejected promise so renderer
+  // requests receive the real launch error. A later request may retry after
+  // the failed child has been cleared by trackBackendStart().
+  void trackBackendStart(backend.start());
 
   createWindow();
 
@@ -114,11 +138,14 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform !== "darwin") void shutdownAndExit();
 });
 
-app.on("before-quit", async (event) => {
+app.on("before-quit", (event) => {
+  if (shutdownPromise) return;
   event.preventDefault();
-  await backend.stop();
-  app.exit(0);
+  void shutdownAndExit();
 });
+
+process.once("SIGINT", () => void shutdownAndExit(130));
+process.once("SIGTERM", () => void shutdownAndExit(143));

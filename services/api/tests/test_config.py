@@ -84,6 +84,12 @@ def test_legacy_database_and_files_are_copied_forward(monkeypatch, tmp_path: Pat
     assert legacy_database.exists()
     assert legacy_file.exists()
 
+    late_legacy_file = tmp_path / "files" / "job-2" / "late.pdf"
+    late_legacy_file.parent.mkdir(parents=True)
+    late_legacy_file.write_bytes(b"created after migration")
+    assert configured.migrate_legacy_files_if_needed() == 0
+    assert not (configured.resolved_managed_files_dir / "job-2" / "late.pdf").exists()
+
 
 def test_printer_platform_auto_detection_and_environment_override(monkeypatch) -> None:
     monkeypatch.setattr("app.core.config.sys.platform", "win32")

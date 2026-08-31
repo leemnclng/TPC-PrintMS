@@ -1,4 +1,5 @@
-import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { app } from "electron";
@@ -18,6 +19,8 @@ export interface BackendConfig {
 
 const STARTUP_TIMEOUT_MS = 30_000;
 const STAGE_SWITCH_TIMEOUT_MS = 120_000;
+const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 3_000;
+const FORCED_SHUTDOWN_TIMEOUT_MS = 2_000;
 
 export const KNOWN_STAGES = ["development", "test", "production"] as const;
 export type EnvironmentStage = (typeof KNOWN_STAGES)[number];
@@ -63,12 +66,25 @@ export class BackendManager {
     const backendDir = path.resolve(__dirname, "..", "..", "..", "services", "api");
     const env = { ...process.env };
     if (stage) env.PRINT_MS_STAGE = stage;
+    env.PYTHONUNBUFFERED = "1";
     this.stage = stage ?? (env.PRINT_MS_STAGE as EnvironmentStage | undefined) ?? "development";
+    const virtualEnvironmentPython = path.join(
+      backendDir,
+      ".venv",
+      process.platform === "win32" ? "Scripts" : "bin",
+      process.platform === "win32" ? "python.exe" : "python",
+    );
+    const useDirectVirtualEnvironment = process.platform === "win32" && existsSync(virtualEnvironmentPython);
+    const command = useDirectVirtualEnvironment ? virtualEnvironmentPython : "uv";
+    const args = useDirectVirtualEnvironment ? ["-m", "app.main"] : ["run", "python", "-m", "app.main"];
+    const startedAt = Date.now();
+    console.log(`[backend] starting ${this.stage} with ${command === "uv" ? "uv fallback" : "the project virtual environment"}.`);
 
     return new Promise((resolve, reject) => {
-      const child = spawn("uv", ["run", "python", "-m", "app.main"], {
+      const child = spawn(command, args, {
         cwd: backendDir,
         env,
+        windowsHide: true,
       });
       this.child = child;
 
@@ -102,6 +118,7 @@ export class BackendManager {
           settled = true;
           clearTimeout(timeout);
           this.config = { baseUrl: `http://127.0.0.1:${port}`, token };
+          console.log(`[backend] ready in ${Date.now() - startedAt}ms.`);
           resolve(this.config);
         }
         console.log(`[backend] ${line}`);
@@ -119,7 +136,10 @@ export class BackendManager {
         if (!this.shuttingDown) {
           console.error(`[backend] exited unexpectedly (code=${code}, signal=${signal}).`);
         }
-        this.child = null;
+        if (this.child === child) {
+          this.child = null;
+          this.config = null;
+        }
       });
 
       child.on("error", (err) => {
@@ -133,19 +153,67 @@ export class BackendManager {
     return this.config;
   }
 
+  isReady(): boolean {
+    return this.child !== null && this.child.exitCode === null && this.config !== null;
+  }
+
   async stop(): Promise<void> {
-    if (!this.child) return;
+    const child = this.child;
+    if (!child) return;
     this.shuttingDown = true;
-    this.child.kill("SIGTERM");
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        this.child?.kill("SIGKILL");
-        resolve();
-      }, 3000);
-      this.child?.once("exit", () => {
+
+    if (child.exitCode === null && child.signalCode === null) {
+      if (process.platform === "win32" && child.pid) {
+        // Node emulates POSIX signals on Windows by terminating only the
+        // immediate process. Kill the owned tree instead so the backend's
+        // PowerShell spooler observer cannot survive Electron.
+        await this.terminateWindowsProcessTree(child);
+        await this.waitForExit(child, FORCED_SHUTDOWN_TIMEOUT_MS);
+      } else {
+        child.kill("SIGTERM");
+        const exitedGracefully = await this.waitForExit(child, GRACEFUL_SHUTDOWN_TIMEOUT_MS);
+        if (!exitedGracefully) {
+          child.kill("SIGKILL");
+          await this.waitForExit(child, FORCED_SHUTDOWN_TIMEOUT_MS);
+        }
+      }
+    }
+
+    if (this.child === child) {
+      this.child = null;
+      this.config = null;
+    }
+  }
+
+  private waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
+    if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+
+    return new Promise((resolve) => {
+      const onExit = () => {
         clearTimeout(timer);
-        resolve();
-      });
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        child.off("exit", onExit);
+        resolve(false);
+      }, timeoutMs);
+      child.once("exit", onExit);
+    });
+  }
+
+  private terminateWindowsProcessTree(child: ChildProcessWithoutNullStreams): Promise<void> {
+    return new Promise((resolve) => {
+      execFile(
+        "taskkill.exe",
+        ["/PID", String(child.pid), "/T", "/F"],
+        { windowsHide: true },
+        (error) => {
+          if (error && child.exitCode === null && child.signalCode === null) {
+            console.error(`[backend] failed to terminate process tree ${child.pid}:`, error);
+          }
+          resolve();
+        },
+      );
     });
   }
 }

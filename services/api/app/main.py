@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import socket
 from contextlib import asynccontextmanager
@@ -43,13 +44,17 @@ async def lifespan(_: FastAPI):
     with SessionLocal() as db:
         seed_business_profile(db)
         finalize_expired_product_deletions(db)
+        profile = db.query(BusinessProfile).first()
+
+    async def refresh_environment_snapshot() -> None:
         try:
-            write_environment_config(db.query(BusinessProfile).first())
+            await asyncio.to_thread(write_environment_config, profile)
         except OSError:
-            # This mirror is informational only (see backup_restore.py) — a
-            # locked config.json (observed on Windows: antivirus/indexer
-            # briefly holding the file) must not block the app from starting.
-            logger.warning("Could not write the environment config snapshot at startup.", exc_info=True)
+            logger.warning("Could not refresh the environment config snapshot after startup.", exc_info=True)
+
+    # The JSON mirror is informational and Windows may retry a locked file for
+    # several seconds. Run it after readiness so it cannot delay the UI.
+    config_snapshot_task = asyncio.create_task(refresh_environment_snapshot())
 
     if settings.resolved_printer_platform == "windows":
         spooler_monitor.start()
@@ -70,6 +75,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        await config_snapshot_task
         spooler_monitor.stop()
 
 

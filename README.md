@@ -40,6 +40,10 @@ The Paper Club logo, that launches `scripts\run.bat`:
 powershell -ExecutionPolicy Bypass -File scripts\create-desktop-shortcut.ps1
 ```
 
+Re-running the command safely replaces the existing shortcut. The shortcut
+uses Windows' command processor explicitly, so repository paths containing
+spaces work and its terminal closes when the Electron window closes.
+
 This still runs the app from source (it needs Node.js and `uv` on the
 machine, same as `run.bat` above) — it's a shortcut to the dev launcher, not
 a standalone installer. A fully bundled, no-prerequisites Windows installer
