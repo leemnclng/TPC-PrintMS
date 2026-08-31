@@ -269,6 +269,7 @@
 .analyzer-preview__viewport--pdf {
   place-items: stretch;
   padding: 0;
+  background: var(--color-paper-3);
 }
 
 .analyzer-preview__engine-loading {
@@ -276,7 +277,8 @@
   width: 100%;
   height: 100%;
   place-items: center;
-  color: var(--color-paper-3);
+  background: var(--color-paper-3);
+  color: var(--color-ink-soft);
   font: var(--text-sm) var(--font-mono);
 }
 

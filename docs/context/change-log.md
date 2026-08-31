@@ -4,6 +4,8 @@ Track notable app changes by date.
 
 ## 2026-09-01 (desktop backend startup reliability)
 
+- Fixed: Multi-page PDF previews no longer retain a full-resolution canvas for every visited page, reducing the temporary black-screen repaint seen during document analysis.
+- Changed: Continuous preview now renders only the visible/nearby pages, frees distant raster buffers, caps per-page resolution, and uses a light preparation surface.
 - Fixed: Windows now defaults to software rendering after the observed GPU-process crash caused a black-to-white application window.
 - Added: GPU and renderer failures are saved to `desktop.log`; one automatic recovery is attempted before the app presents Try again or Close app.
 - Added: The backend now writes rotating, stage-specific diagnostics with timed imports, migrations, seeding, spooler startup, slow/failed requests, shutdown, and complete crash tracebacks.

@@ -47,6 +47,8 @@ def configure_backend_logging(log_path: Path, level_name: str) -> Path:
     original_excepthook = sys.__excepthook__
 
     def log_uncaught(error_type: type[BaseException], error: BaseException, traceback: object) -> None:
+        if issubclass(error_type, (KeyboardInterrupt, SystemExit)):
+            return
         logging.getLogger("app.crash").critical(
             "Uncaught backend exception",
             exc_info=(error_type, error, traceback),

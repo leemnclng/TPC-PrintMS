@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+import time
 import zipfile
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from app.db.migrations import run_migrations
 from app.db.models import BusinessProfile
 from app.db.session import get_db
 from app.routers import settings as settings_router
+from app.services import storage_cleanup
 from app.services.backup_restore import (
     BackupValidationError,
     _publish_backup_archive,
@@ -237,3 +239,112 @@ def test_restore_rejects_unsafe_archive_paths(tmp_path, monkeypatch) -> None:
     with pytest.raises(BackupValidationError, match="unsafe file path"):
         restore_backup(unsafe_archive)
     assert not (tmp_path.parent / "outside.txt").exists()
+
+
+def test_storage_cleanup_reports_and_removes_only_migrated_legacy_leftovers(tmp_path, monkeypatch) -> None:
+    # PACKAGE_ROOT is a fixed constant computed from this source checkout —
+    # it can't be reached through settings, so it's patched directly on the
+    # module under test rather than left pointed at the real repo's own
+    # .data folder (which must never be touched by a test run).
+    monkeypatch.setattr(storage_cleanup, "PACKAGE_ROOT", tmp_path)
+    monkeypatch.setattr(settings, "stage", "development")
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    legacy_root = tmp_path
+
+    content = b"A" * 10  # fixed size per file — makes totals easy to check
+
+    # Both real stages have already finished migrating.
+    for stage in ("development", "production"):
+        stage_dir = legacy_root / stage
+        (stage_dir / "files").mkdir(parents=True)
+        (stage_dir / "backups").mkdir(parents=True)
+        (stage_dir / storage_cleanup._LEGACY_MARKER_NAME).write_text("done")
+
+    # A real, current file the active stage actually owns — must survive.
+    current_file = legacy_root / "development" / "files" / "kept.txt"
+    current_file.write_bytes(content)
+
+    # Legacy, pre-redesign leftovers directly under the root.
+    (legacy_root / "files" / "old-job").mkdir(parents=True)
+    (legacy_root / "files" / "old-job" / "document.pdf").write_bytes(content)
+    (legacy_root / "printing-ms-dev.db").write_bytes(content)
+    (legacy_root / "printing-ms-dev.db.bak-123").write_bytes(content)
+    scan_bucket = tmp_path / ".data" / "nonprod" / "scan"
+    scan_bucket.mkdir(parents=True)
+    (scan_bucket / "old-scan.png").write_bytes(content)
+
+    # An abandoned temp folder, old enough to count as orphaned.
+    abandoned = legacy_root / "development" / "tmpabandoned"
+    abandoned.mkdir(parents=True)
+    (abandoned / "database.sqlite3").write_bytes(content)
+    old_time = time.time() - (2 * storage_cleanup._ABANDONED_TEMP_AGE_SECONDS)
+    os.utime(abandoned, (old_time, old_time))
+
+    # A temp folder from a backup that's genuinely still running — must survive.
+    active = legacy_root / "development" / "tmpactive"
+    active.mkdir(parents=True)
+    (active / "database.sqlite3").write_bytes(content)
+
+    report = storage_cleanup.storage_cleanup_report()
+    by_key = {item["key"]: item for item in report}
+    assert set(by_key) == {"legacy_storage", "abandoned_temp"}
+    assert by_key["legacy_storage"]["itemCount"] == 4
+    assert by_key["legacy_storage"]["sizeBytes"] == 4 * len(content)
+    assert by_key["abandoned_temp"]["itemCount"] == 1
+    assert by_key["abandoned_temp"]["sizeBytes"] == len(content)
+
+    result = storage_cleanup.run_storage_cleanup()
+    assert result["freedBytes"] == 5 * len(content)
+    assert {item["key"] for item in result["removed"]} == {"legacy_storage", "abandoned_temp"}
+
+    assert not (legacy_root / "files").exists()
+    assert not (legacy_root / "printing-ms-dev.db").exists()
+    assert not (legacy_root / "printing-ms-dev.db.bak-123").exists()
+    assert not scan_bucket.exists()
+    assert not abandoned.exists()
+    assert current_file.read_bytes() == content
+    assert active.is_dir()
+    assert storage_cleanup.storage_cleanup_report() == []
+
+
+def test_storage_cleanup_skips_legacy_leftovers_until_every_real_stage_has_migrated(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_cleanup, "PACKAGE_ROOT", tmp_path)
+    monkeypatch.setattr(settings, "stage", "development")
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+
+    # development has migrated, but production — which has also been used —
+    # has not, so the shared legacy source might still be needed by it.
+    (tmp_path / "development").mkdir()
+    (tmp_path / "development" / storage_cleanup._LEGACY_MARKER_NAME).write_text("done")
+    (tmp_path / "production").mkdir()
+    (tmp_path / "files").mkdir()
+    (tmp_path / "files" / "still-needed.txt").write_bytes(b"not migrated everywhere yet")
+
+    report = storage_cleanup.storage_cleanup_report()
+    assert not any(item["key"] == "legacy_storage" for item in report)
+
+
+def test_storage_cleanup_endpoints_report_then_remove(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_cleanup, "PACKAGE_ROOT", tmp_path)
+    monkeypatch.setattr(settings, "stage", "development")
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    (tmp_path / "development").mkdir()
+    (tmp_path / "development" / storage_cleanup._LEGACY_MARKER_NAME).write_text("done")
+    (tmp_path / "files").mkdir()
+    (tmp_path / "files" / "old.txt").write_bytes(b"leftover")
+
+    app = FastAPI()
+    app.include_router(settings_router.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    listed = client.get("/settings/storage-cleanup", headers=headers)
+    assert listed.status_code == 200
+    assert listed.json()[0]["key"] == "legacy_storage"
+    assert listed.json()[0]["itemCount"] == 1
+
+    cleaned = client.post("/settings/storage-cleanup", headers=headers)
+    assert cleaned.status_code == 200
+    assert cleaned.json()["freedBytes"] == len(b"leftover")
+    assert not (tmp_path / "files").exists()
+    assert client.get("/settings/storage-cleanup", headers=headers).json() == []

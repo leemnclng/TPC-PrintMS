@@ -5,7 +5,7 @@
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
-  background: var(--color-ink);
+  background: var(--color-paper-3);
 }
 
 .pdf-viewer__toolbar {
@@ -87,9 +87,9 @@
   overflow: auto;
   padding: var(--space-5);
   background:
-    radial-gradient(circle at 50% 0, color-mix(in oklab, var(--color-paper), transparent 93%), transparent 34%),
-    repeating-linear-gradient(0deg, color-mix(in oklab, var(--color-paper), transparent 97%) 0 1px, transparent 1px 8px),
-    var(--color-ink);
+    radial-gradient(circle at 50% 0, color-mix(in oklab, var(--color-ink), transparent 96%), transparent 34%),
+    repeating-linear-gradient(0deg, color-mix(in oklab, var(--color-ink), transparent 97%) 0 1px, transparent 1px 8px),
+    var(--color-paper-3);
   text-align: center;
   overscroll-behavior: contain;
 }
@@ -113,7 +113,7 @@
 }
 
 .pdf-viewer__page-label {
-  color: color-mix(in oklab, var(--color-paper), transparent 32%);
+  color: var(--color-ink-soft);
   font-size: var(--text-xs);
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -180,8 +180,8 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-6);
-  background: color-mix(in oklab, var(--color-ink), transparent 8%);
-  color: var(--color-paper);
+  background: color-mix(in oklab, var(--color-paper-3), white 24%);
+  color: var(--color-ink);
   font-size: var(--text-sm);
   text-align: center;
 }
@@ -189,7 +189,7 @@
 .pdf-viewer__status > span {
   width: 2rem;
   height: 2rem;
-  border: 2px solid color-mix(in oklab, var(--color-paper), transparent 70%);
+  border: 2px solid color-mix(in oklab, var(--color-ink), transparent 82%);
   border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: pdf-viewer-spin .75s linear infinite;
@@ -203,7 +203,7 @@
 .pdf-viewer__error p {
   max-width: 32rem;
   margin: 0;
-  color: color-mix(in oklab, var(--color-paper), transparent 24%);
+  color: var(--color-ink-soft);
 }
 
 .pdf-viewer__error > div {

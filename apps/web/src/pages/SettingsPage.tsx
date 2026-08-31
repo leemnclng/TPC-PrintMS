@@ -12,6 +12,7 @@ import { api, ApiError } from "../lib/apiClient";
 import type { BusinessProfile } from "../types/domain";
 import { BackupRestorePanel } from "./settings/BackupRestorePanel";
 import { EnvironmentSwitcherPanel } from "./settings/EnvironmentSwitcherPanel";
+import { StorageCleanupPanel } from "./settings/StorageCleanupPanel";
 import "./SettingsPage.css";
 
 export function SettingsPage() {
@@ -138,6 +139,8 @@ export function SettingsPage() {
       <BackupRestorePanel onRestored={reload} />
 
       <EnvironmentSwitcherPanel />
+
+      <StorageCleanupPanel />
 
       <Card>
         <CardHeader title="Diagnostics" />

@@ -307,6 +307,16 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
                 </div>
               ) : (
                 <>
+                  <PrinterOutputPreview
+                    orderId={order.id}
+                    file={selectedFile}
+                    paperLabel={approvedMediaSizeLabel}
+                    paperWidthMm={mediaWidthMm}
+                    paperHeightMm={mediaHeightMm}
+                    orientation={orientation}
+                    scaling={scaling}
+                    borderless={borderless}
+                  />
                   <div className="job-print-proof">
                     <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{printReadyFiles.map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
                     <dl><div><dt>Pages</dt><dd>{pages}</dd></div><div><dt>Copies</dt><dd>{copies}</dd></div><div><dt>Paper</dt><dd>{approvedMediaSizeLabel}</dd></div><div><dt>Output</dt><dd>Auto · {automaticColorMode}</dd></div></dl>

@@ -666,3 +666,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Configure logging before heavyweight application imports and write timestamped startup phases, slow/failed requests, background-thread exceptions, shutdown, and fatal process tracebacks to a rotating log under the active stage's data folder. Keep `INFO` as the default and enable request-completion detail with `PRINT_MS_LOG_LEVEL=DEBUG`.
 - Rationale: Terminal-only output disappears after launcher shutdown and cannot distinguish slow dependency imports, migrations, seeding, spooler startup, or an API stall.
 - Impact: Development, test, and production diagnostics remain isolated with their data. Logs are capped at five 5 MiB files and contain runtime paths and versions but never the per-launch authentication token.
+
+### Bound Continuous PDF Rasterization
+
+- Decision: Keep every PDF page represented in the continuous scroll layout, but rasterize only pages within 600 pixels of the viewport. Release distant canvas buffers to 1 × 1 pixels and cap active pages at three million pixels with a maximum 1.5× device output scale.
+- Rationale: PDF.js canvases can consume tens of megabytes per page and trigger long software-rendered repaints when several pages remain allocated. The owner still needs all pages reachable through one continuous viewer.
+- Impact: Nearby pages appear as the owner scrolls, distant pages retain stable light placeholders and page labels, zoom remains available, and memory/graphics load stays bounded by the small active-page window rather than total document length.

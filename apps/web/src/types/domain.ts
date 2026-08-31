@@ -424,6 +424,26 @@ export interface EnvironmentSummary {
   lastBackupAt: string | null;
 }
 
+export interface StorageCleanupCandidate {
+  key: string;
+  label: string;
+  description: string;
+  itemCount: number;
+  sizeBytes: number;
+}
+
+export interface StorageCleanupRemoved {
+  key: string;
+  label: string;
+  itemCount: number;
+  sizeBytes: number;
+}
+
+export interface StorageCleanupResult {
+  removed: StorageCleanupRemoved[];
+  freedBytes: number;
+}
+
 export interface HealthStatus {
   status: "ok";
   stage: "development" | "production" | "test";

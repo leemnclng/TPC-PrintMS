@@ -14,6 +14,14 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 const MIN_SCALE = 0.35;
 const MAX_SCALE = 3;
 const SCALE_STEP = 0.2;
+const MAX_OUTPUT_SCALE = 1.5;
+const MAX_RENDERED_PAGE_PIXELS = 3_000_000;
+const NEARBY_PAGE_MARGIN_PX = 600;
+
+interface PageDimensions {
+  width: number;
+  height: number;
+}
 
 interface Props {
   file: File;
@@ -28,6 +36,7 @@ export function PdfViewer({ file, filename, downloadUrl }: Props) {
   const [fitScale, setFitScale] = useState(1);
   const [fitToWidth, setFitToWidth] = useState(true);
   const [rotation, setRotation] = useState(0);
+  const [referencePageDimensions, setReferencePageDimensions] = useState<PageDimensions | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadVersion, setLoadVersion] = useState(0);
@@ -67,6 +76,7 @@ export function PdfViewer({ file, filename, downloadUrl }: Props) {
     const page = await document.getPage(1);
     const baseViewport = page.getViewport({ scale: 1, rotation });
     const availableWidth = Math.max(viewportRef.current.clientWidth - 48, 160);
+    setReferencePageDimensions({ width: baseViewport.width, height: baseViewport.height });
     setFitScale(clamp(availableWidth / baseViewport.width, MIN_SCALE, MAX_SCALE));
   }, [document, rotation]);
 
@@ -137,6 +147,7 @@ export function PdfViewer({ file, filename, downloadUrl }: Props) {
                 scale={scale}
                 rotation={rotation}
                 scrollRoot={viewportRef}
+                estimatedDimensions={referencePageDimensions}
               />
             ))}
           </div>
@@ -168,34 +179,59 @@ function PdfPage({
   scale,
   rotation,
   scrollRoot,
+  estimatedDimensions,
 }: {
   document: PDFDocumentProxy;
   pageNumber: number;
   scale: number;
   rotation: number;
   scrollRoot: RefObject<HTMLDivElement>;
+  estimatedDimensions: PageDimensions | null;
 }) {
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [visible, setVisible] = useState(pageNumber <= 2);
+  const [nearViewport, setNearViewport] = useState(false);
   const [rendering, setRendering] = useState(false);
+  const [rendered, setRendered] = useState(false);
   const [error, setError] = useState(false);
   const [renderVersion, setRenderVersion] = useState(0);
+  const [measuredPage, setMeasuredPage] = useState<(PageDimensions & { rotation: number }) | null>(null);
+
+  const activeDimensions = measuredPage?.rotation === rotation ? measuredPage : estimatedDimensions;
+  const displayedWidth = activeDimensions ? Math.max(activeDimensions.width * scale, 160) : undefined;
+  const displayedHeight = activeDimensions ? Math.max(activeDimensions.height * scale, 200) : undefined;
+  const canvasStyle = displayedWidth && displayedHeight
+    ? { width: `${Math.floor(displayedWidth)}px`, height: `${Math.floor(displayedHeight)}px` }
+    : undefined;
+  const shellStyle = displayedWidth && displayedHeight
+    ? { width: `${Math.floor(displayedWidth)}px`, minWidth: 0, minHeight: `${Math.floor(displayedHeight)}px` }
+    : undefined;
 
   useEffect(() => {
     if (!shellRef.current) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) setVisible(true);
+        setNearViewport(entries.some((entry) => entry.isIntersecting));
       },
-      { root: scrollRoot.current, rootMargin: "1000px 0px" },
+      { root: scrollRoot.current, rootMargin: `${NEARBY_PAGE_MARGIN_PX}px 0px` },
     );
     observer.observe(shellRef.current);
     return () => observer.disconnect();
   }, [scrollRoot]);
 
   useEffect(() => {
-    if (!visible || !canvasRef.current) return;
+    if (!canvasRef.current) return;
+    if (!nearViewport) {
+      // Width/height attributes own the canvas pixel buffer. Shrinking them
+      // releases raster memory while the CSS-sized shell preserves scroll
+      // position and page geometry.
+      canvasRef.current.width = 1;
+      canvasRef.current.height = 1;
+      setRendering(false);
+      setRendered(false);
+      setError(false);
+      return;
+    }
     let renderTask: RenderTask | null = null;
     let disposed = false;
 
@@ -206,12 +242,19 @@ function PdfPage({
         const page = await document.getPage(pageNumber);
         if (disposed || !canvasRef.current) return;
         const viewport = page.getViewport({ scale, rotation });
-        const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+        setMeasuredPage({
+          rotation,
+          width: viewport.width / scale,
+          height: viewport.height / scale,
+        });
+        const cssPixelCount = Math.max(viewport.width * viewport.height, 1);
+        const resolutionBudgetScale = Math.sqrt(MAX_RENDERED_PAGE_PIXELS / cssPixelCount);
+        const outputScale = Math.min(window.devicePixelRatio || 1, MAX_OUTPUT_SCALE, resolutionBudgetScale);
         const canvas = canvasRef.current;
         const context = canvas.getContext("2d", { alpha: false });
         if (!context) throw new Error("Canvas is unavailable.");
-        canvas.width = Math.floor(viewport.width * outputScale);
-        canvas.height = Math.floor(viewport.height * outputScale);
+        canvas.width = Math.max(1, Math.floor(viewport.width * outputScale));
+        canvas.height = Math.max(1, Math.floor(viewport.height * outputScale));
         canvas.style.width = `${Math.floor(viewport.width)}px`;
         canvas.style.height = `${Math.floor(viewport.height)}px`;
         renderTask = page.render({
@@ -220,8 +263,10 @@ function PdfPage({
           transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
         });
         await renderTask.promise;
+        if (!disposed) setRendered(true);
       } catch (caught) {
         if (!disposed && !(caught instanceof Error && caught.name === "RenderingCancelledException")) {
+          setRendered(false);
           setError(true);
         }
       } finally {
@@ -234,14 +279,18 @@ function PdfPage({
       disposed = true;
       renderTask?.cancel();
     };
-  }, [document, pageNumber, renderVersion, rotation, scale, visible]);
+  }, [document, nearViewport, pageNumber, renderVersion, rotation, scale]);
 
   return (
     <section ref={shellRef} className="pdf-viewer__page-sheet" aria-label={`Page ${pageNumber}`}>
       <span className="pdf-viewer__page-label numeric">Page {pageNumber}</span>
-      <div className="pdf-viewer__canvas-shell">
-        <canvas ref={canvasRef} aria-label={`Rendered page ${pageNumber}`} />
-        {!visible || rendering ? <span className="pdf-viewer__page-status">{visible ? "Rendering" : "Preparing"}</span> : null}
+      <div className="pdf-viewer__canvas-shell" style={shellStyle}>
+        <canvas ref={canvasRef} style={canvasStyle} aria-label={`Rendered page ${pageNumber}`} />
+        {(!nearViewport || rendering || !rendered) && !error ? (
+          <span className="pdf-viewer__page-status" role="status">
+            {nearViewport ? "Rendering page" : "Scroll nearby to render"}
+          </span>
+        ) : null}
         {error ? (
           <div className="pdf-viewer__page-error" role="alert">
             <span>Page {pageNumber} could not be rendered.</span>

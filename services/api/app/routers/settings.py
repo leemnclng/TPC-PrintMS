@@ -19,6 +19,9 @@ from ..schemas.settings import (
     BusinessProfileUpdate,
     EnvironmentSummaryRead,
     RestoreResultRead,
+    StorageCleanupCandidateRead,
+    StorageCleanupRequest,
+    StorageCleanupResultRead,
     StorageStatusRead,
 )
 from ..services.backup_restore import (
@@ -29,6 +32,7 @@ from ..services.backup_restore import (
     storage_status,
     write_environment_config,
 )
+from ..services.storage_cleanup import run_storage_cleanup, storage_cleanup_report
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_token)])
@@ -77,6 +81,17 @@ def get_storage_status() -> dict:
 @router.get("/environments", response_model=list[EnvironmentSummaryRead])
 def list_environments() -> list[dict]:
     return environment_summaries()
+
+
+@router.get("/storage-cleanup", response_model=list[StorageCleanupCandidateRead])
+def get_storage_cleanup_candidates() -> list[dict]:
+    return storage_cleanup_report()
+
+
+@router.post("/storage-cleanup", response_model=StorageCleanupResultRead)
+def clean_up_storage(payload: StorageCleanupRequest | None = None) -> dict:
+    keys = set(payload.keys) if payload and payload.keys is not None else None
+    return run_storage_cleanup(keys)
 
 
 @router.get("/backup")

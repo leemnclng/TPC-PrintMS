@@ -67,3 +67,27 @@ class RestoreResultRead(CamelModel):
     managed_file_count: int
     safety_backup_filename: str
     message: str
+
+
+class StorageCleanupCandidateRead(CamelModel):
+    key: str
+    label: str
+    description: str
+    item_count: int
+    size_bytes: int
+
+
+class StorageCleanupRequest(CamelModel):
+    keys: list[str] | None = None
+
+
+class StorageCleanupRemovedRead(CamelModel):
+    key: str
+    label: str
+    item_count: int
+    size_bytes: int
+
+
+class StorageCleanupResultRead(CamelModel):
+    removed: list[StorageCleanupRemovedRead]
+    freed_bytes: int

@@ -341,6 +341,11 @@
 .job-operation-card__process > div > span { color: var(--color-accent); font-size: var(--text-xs); }
 .job-operation-card__process > footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-2); }
 
+.job-print-spooler-hint { border-left: 2px solid; padding-left: var(--space-3); }
+.job-print-spooler-hint.is-active { border-color: var(--color-accent); }
+.job-print-spooler-hint.is-released { border-color: var(--color-success); }
+.job-print-spooler-hint.is-attention { border-color: var(--color-danger); color: var(--color-danger); }
+
 @keyframes job-process-reveal {
   from { opacity: 0; transform: translateY(-.35rem); }
   to { opacity: 1; transform: translateY(0); }

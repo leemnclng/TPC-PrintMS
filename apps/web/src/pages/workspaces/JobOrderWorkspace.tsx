@@ -34,6 +34,20 @@ const PAYMENT_METHOD_LABELS = {
   other: "Other",
 };
 
+// Mirrors GlobalPrintActivity's wording for the same underlying spooler
+// states, minus the states that only apply to the global cross-job view
+// (ready/awaiting_reinsert/awaiting_scan) — this is scoped to one item's own
+// print attempts.
+const SPOOLER_STATUS_COPY: Record<string, string> = {
+  submitted: "Submitted to printer",
+  queued: "Waiting in printer queue",
+  spooling: "Preparing pages",
+  printing: "Still printing",
+  paused: "Printer paused",
+  error: "Print needs attention",
+  released: "Finished — the job left the printer queue",
+};
+
 const NEXT_STEP_COPY: Record<string, string> = {
   queued: "Work through each product below. Every line keeps its own operation and progress.",
   printing: "One or more products are in production. Other lines can continue independently.",
@@ -129,7 +143,11 @@ export function JobOrderWorkspace() {
   }
 
   function toggleItemProcess(itemId: string) {
-    setExpandedItemId((current) => current === itemId ? null : itemId);
+    const opening = expandedItemId !== itemId;
+    // Refresh on open so a "still printing" line shows the freshest spooler
+    // snapshot rather than whatever was last fetched, possibly minutes ago.
+    if (opening && order.items.find((candidate) => candidate.id === itemId)?.status === "printing") reload();
+    setExpandedItemId(opening ? itemId : null);
   }
 
   return (
@@ -183,6 +201,9 @@ export function JobOrderWorkspace() {
             const sourceFile = itemFiles.find((file) => file.kind === "print_ready");
             const scanOutput = itemFiles.find((file) => file.kind === "scan_output");
             const paper = item.materials.find((material) => material.paperSize);
+            const latestPrintAttempt = order.printAttempts
+              .filter((attempt) => attempt.jobOrderItemId === item.id && attempt.result === "succeeded")
+              .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())[0];
             const statusLabel = item.status === "printing" ? "Printing" : item.status === "ready" ? "Ready" : "Queued";
             const tone = item.status === "ready" ? "success" : item.status === "printing" ? "info" : "warning";
             const isExpanded = expandedItemId === item.id;
@@ -233,7 +254,16 @@ export function JobOrderWorkspace() {
                 </button>
                 {isExpanded ? (
                   <section className="job-operation-card__process" id={processRegionId} aria-label={`${item.productName} process actions`}>
-                    <div><span className="numeric">ACTIVE STEP</span><h4>{processMeta.title}</h4><p>{processMeta.description}</p></div>
+                    <div>
+                      <span className="numeric">ACTIVE STEP</span><h4>{processMeta.title}</h4><p>{processMeta.description}</p>
+                      {item.status === "printing" && latestPrintAttempt ? (
+                        <p className={`job-print-spooler-hint${latestPrintAttempt.spoolerStatus === "released" ? " is-released" : latestPrintAttempt.spoolerStatus === "error" ? " is-attention" : " is-active"}`}>
+                          <strong>Windows spooler:</strong> {SPOOLER_STATUS_COPY[latestPrintAttempt.spoolerStatus]}
+                          {latestPrintAttempt.spoolerTotalPages ? ` · ${latestPrintAttempt.spoolerPagesPrinted ?? 0} of ${latestPrintAttempt.spoolerTotalPages} pages` : ""}
+                          {latestPrintAttempt.spoolerStatus === "released" ? "" : " — reopen this step to refresh before confirming if you're not sure it's actually done."}
+                        </p>
+                      ) : null}
+                    </div>
                     <footer>
                       {!productionLocked && item.status === "queued" && item.operationKind === "printing" ? <Button variant="primary" onClick={() => setPrintItem(item)}>Open print setup</Button> : null}
                       {!productionLocked && item.status === "queued" && item.operationKind === "scan" ? <Button variant="primary" onClick={() => setScanItem(item)}>Start scanning</Button> : null}

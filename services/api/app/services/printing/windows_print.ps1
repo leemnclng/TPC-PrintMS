@@ -144,6 +144,11 @@ $document.DefaultPageSettings.PaperSize = $paperSize
 $document.DefaultPageSettings.Color = ($ColorMode -eq "color")
 $document.DefaultPageSettings.Margins = [System.Drawing.Printing.Margins]::new(0, 0, 0, 0)
 $document.DefaultPageSettings.Landscape = ($Orientation -eq "landscape")
+# For "auto" this is corrected below, once the first page has been decoded —
+# many printer drivers only reliably honor the orientation established by
+# the job's *initial* DEVMODE and ignore a later per-page Landscape flip
+# inside QueryPageSettings, so leaving this at its portrait default for
+# "auto" risks a landscape source printing rotated or clipped.
 $document.OriginAtMargins = $false
 $document.PrintController = New-Object System.Drawing.Printing.StandardPrintController
 $document.PrinterSettings.Copies = 1
@@ -206,6 +211,17 @@ function Get-PrintPageImage {
     $script:cachedStream = $stream
     $script:cachedImageIndex = $Index
     return $image
+}
+
+if ($Orientation -eq "auto") {
+    # See the comment above DefaultPageSettings.Landscape: this sets the
+    # job's initial orientation from the first page's own dimensions, in
+    # addition to (not instead of) the per-page detection in
+    # QueryPageSettings below — the per-page check still matters for a
+    # driver that does support switching mid-job, and for a document whose
+    # later pages differ from its first.
+    $firstPageProbe = Get-PrintPageImage -Index 0
+    $document.DefaultPageSettings.Landscape = $firstPageProbe.Width -gt $firstPageProbe.Height
 }
 
 $document.add_QueryPageSettings({
