@@ -25,6 +25,7 @@ from app.services.printing.adapter import (
     PrintSubmissionError,
     WindowsPrinterAdapter,
     _prepare_windows_print_pass,
+    _save_rendered_page_with_retry,
 )
 from app.services.printing.spooler_monitor import ingest_spooler_event
 
@@ -135,6 +136,31 @@ def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypat
     assert command[command.index("-TrackingId") + 1] == "attempt-123"
     assert len(captured["rendered_pages"]) == 1
     assert submission.external_job_id is None
+
+
+def test_save_rendered_page_recovers_from_a_transient_lock(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    def flaky_save() -> None:
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise PermissionError("simulated Windows file lock")
+
+    monkeypatch.setattr("app.services.printing.adapter.time.sleep", lambda _: None)
+
+    _save_rendered_page_with_retry(flaky_save, attempts=5, delay_seconds=0)
+
+    assert calls["count"] == 3
+
+
+def test_save_rendered_page_raises_after_exhausting_attempts(monkeypatch) -> None:
+    def always_locked() -> None:
+        raise PermissionError("simulated persistent Windows file lock")
+
+    monkeypatch.setattr("app.services.printing.adapter.time.sleep", lambda _: None)
+
+    with pytest.raises(PermissionError):
+        _save_rendered_page_with_retry(always_locked, attempts=3, delay_seconds=0)
 
 
 def test_windows_adapter_rejects_a_format_without_a_local_renderer(tmp_path) -> None:

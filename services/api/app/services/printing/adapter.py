@@ -12,18 +12,23 @@ runtime dependencies of Printing-MS.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import pymupdf
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from ..paper_sizes import cups_media_size, paper_size_definition
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -377,16 +382,18 @@ def _prepare_windows_print_pass(
     sequence = 1
 
     if duplex_pass == "back" and page_count % 2 == 1:
+        blank_path = pass_directory / f"page-{sequence:05d}.png"
         with Image.open(pages[-1]) as source:
             blank = Image.new("RGB", source.size, "white")
             try:
-                blank.save(pass_directory / f"page-{sequence:05d}.png", dpi=(300, 300))
+                _save_rendered_page_with_retry(lambda: blank.save(blank_path, dpi=(300, 300)))
             finally:
                 blank.close()
         sequence += 1
 
     for source_path in selected:
-        shutil.copy2(source_path, pass_directory / f"page-{sequence:05d}.png")
+        destination_path = pass_directory / f"page-{sequence:05d}.png"
+        _save_rendered_page_with_retry(lambda: shutil.copy2(source_path, destination_path))
         sequence += 1
     return pass_directory, sequence - 1
 
@@ -420,11 +427,31 @@ def _render_windows_print_pages(file_path: Path, output_directory: Path, graysca
     )
 
 
+def _save_rendered_page_with_retry(save: Callable[[], None], *, attempts: int = 5, delay_seconds: float = 0.2) -> None:
+    """Antivirus or the search indexer scanning a freshly written page image
+    can transiently lock it on Windows — POSIX has no equivalent restriction,
+    so this is a Windows-only failure mode in practice, and a more likely one
+    for a large rendered page (e.g. a landscape Legal page at 300dpi is a
+    much bigger file than a small photo, giving a scanner more time to grab
+    the lock mid-write). A short retry-with-backoff clears it rather than
+    treating a passing lock as a real, unrecoverable rendering failure."""
+    for attempt in range(attempts):
+        try:
+            save()
+            return
+        except OSError as error:
+            if attempt == attempts - 1:
+                logger.warning("Could not save a rendered print page after %d attempts: %s", attempts, error)
+                raise
+            time.sleep(delay_seconds * (attempt + 1))
+
+
 def _render_pdf_pages(file_path: Path, output_directory: Path, grayscale: bool) -> int:
     try:
         document = pymupdf.open(file_path)
     except Exception as error:
-        raise PrintSubmissionError("The PDF could not be opened for printing.") from error
+        logger.exception("The PDF at %s could not be opened for printing.", file_path)
+        raise PrintSubmissionError(f"The PDF could not be opened for printing ({error}).") from error
 
     try:
         if document.needs_pass:
@@ -434,12 +461,14 @@ def _render_pdf_pages(file_path: Path, output_directory: Path, grayscale: bool) 
         colorspace = pymupdf.csGRAY if grayscale else pymupdf.csRGB
         for page_number, page in enumerate(document, start=1):
             pixmap = page.get_pixmap(dpi=300, colorspace=colorspace, alpha=False, annots=True)
-            pixmap.save(output_directory / f"page-{page_number:05d}.png")
+            page_path = output_directory / f"page-{page_number:05d}.png"
+            _save_rendered_page_with_retry(lambda: pixmap.save(page_path))
         return document.page_count
     except PrintSubmissionError:
         raise
     except Exception as error:
-        raise PrintSubmissionError("The PDF could not be rendered for Windows printing.") from error
+        logger.exception("Page %s of %s could not be rendered for Windows printing.", page_number, file_path)
+        raise PrintSubmissionError(f"The PDF could not be rendered for Windows printing ({error}).") from error
     finally:
         document.close()
 
@@ -453,15 +482,17 @@ def _render_image_pages(file_path: Path, output_directory: Path, grayscale: bool
         for page_index in range(frame_count):
             source.seek(page_index)
             prepared = _prepare_print_image(source.copy(), grayscale)
+            page_path = output_directory / f"page-{page_index + 1:05d}.png"
             try:
-                prepared.save(output_directory / f"page-{page_index + 1:05d}.png", dpi=(300, 300))
+                _save_rendered_page_with_retry(lambda: prepared.save(page_path, dpi=(300, 300)))
             finally:
                 prepared.close()
         return frame_count
     except PrintSubmissionError:
         raise
     except (UnidentifiedImageError, OSError, ValueError) as error:
-        raise PrintSubmissionError("The image could not be opened for printing.") from error
+        logger.exception("The image at %s could not be opened or rendered for printing.", file_path)
+        raise PrintSubmissionError(f"The image could not be opened for printing ({error}).") from error
     finally:
         if "source" in locals():
             source.close()
