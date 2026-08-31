@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 import sqlite3
 import tempfile
@@ -13,15 +14,23 @@ from ..core.config import settings
 from ..core.security import require_token
 from ..db.models import BusinessProfile
 from ..db.session import get_db
-from ..schemas.settings import BusinessProfileRead, BusinessProfileUpdate, RestoreResultRead, StorageStatusRead
+from ..schemas.settings import (
+    BusinessProfileRead,
+    BusinessProfileUpdate,
+    EnvironmentSummaryRead,
+    RestoreResultRead,
+    StorageStatusRead,
+)
 from ..services.backup_restore import (
     BackupValidationError,
     create_backup,
+    environment_summaries,
     restore_backup,
     storage_status,
     write_environment_config,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_token)])
 
 
@@ -49,13 +58,25 @@ def update_business_profile(payload: BusinessProfileUpdate, db: Session = Depend
         setattr(profile, field, value)
     db.commit()
     db.refresh(profile)
-    write_environment_config(profile)
+    try:
+        write_environment_config(profile)
+    except OSError:
+        # The profile is already saved in the database, which is the source
+        # of truth — this mirror is informational, so a locked/unwritable
+        # config.json (see backup_restore._replace_with_retry) shouldn't turn
+        # a successful save into a 500.
+        logger.warning("Could not refresh the environment config snapshot after a profile update.", exc_info=True)
     return profile
 
 
 @router.get("/storage", response_model=StorageStatusRead)
 def get_storage_status() -> dict:
     return storage_status()
+
+
+@router.get("/environments", response_model=list[EnvironmentSummaryRead])
+def list_environments() -> list[dict]:
+    return environment_summaries()
 
 
 @router.get("/backup")

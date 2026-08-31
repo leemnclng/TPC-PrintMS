@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import socket
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -29,6 +30,8 @@ from .services.backup_restore import write_environment_config
 from .services.product_deletion import finalize_expired_product_deletions
 from .services.printing.spooler_monitor import spooler_monitor
 
+logger = logging.getLogger(__name__)
+
 # Set by run() before uvicorn starts, read by lifespan() once startup
 # (migrations + seed) has actually finished — see the note on lifespan below.
 _runtime: dict[str, int] = {}
@@ -40,7 +43,13 @@ async def lifespan(_: FastAPI):
     with SessionLocal() as db:
         seed_business_profile(db)
         finalize_expired_product_deletions(db)
-        write_environment_config(db.query(BusinessProfile).first())
+        try:
+            write_environment_config(db.query(BusinessProfile).first())
+        except OSError:
+            # This mirror is informational only (see backup_restore.py) — a
+            # locked config.json (observed on Windows: antivirus/indexer
+            # briefly holding the file) must not block the app from starting.
+            logger.warning("Could not write the environment config snapshot at startup.", exc_info=True)
 
     if settings.resolved_printer_platform == "windows":
         spooler_monitor.start()

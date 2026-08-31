@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { execFile } from "node:child_process";
 import path from "node:path";
-import { BackendManager } from "./backendManager";
+import { BackendManager, KNOWN_STAGES } from "./backendManager";
 import { acquireScannerPage, inspectScannerDevices } from "./scannerAcquisition";
 
 const backend = new BackendManager();
@@ -72,6 +72,19 @@ ipcMain.handle("paper-club:open-printer-preferences", async (_event, printerName
       (error) => error ? reject(error) : resolve(),
     );
   });
+});
+
+ipcMain.handle("paper-club:switch-environment", async (_event, stage: unknown) => {
+  if (typeof stage !== "string" || !KNOWN_STAGES.includes(stage as (typeof KNOWN_STAGES)[number])) {
+    throw new Error("Unknown environment.");
+  }
+  // Reassign backendReady itself (not just await the old one) so a request
+  // that arrives mid-switch — namely the renderer's post-reload
+  // getApiConfig() call — waits on this restart instead of the prior one.
+  const restart = backend.switchStage(stage as (typeof KNOWN_STAGES)[number]).then(() => undefined);
+  backendReady = restart;
+  await restart;
+  return backend.getConfig();
 });
 
 ipcMain.handle("paper-club:inspect-scanners", async () => inspectScannerDevices());

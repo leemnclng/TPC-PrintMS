@@ -32,6 +32,20 @@ which itself spawns the FastAPI backend via `uv`. One command, frontend and
 backend both running; close the app window (or `Ctrl+C` the terminal) to
 stop everything.
 
+**Windows desktop shortcut:** a `.bat` file can't carry a custom icon on its
+own, so run this once to add a "Printing-MS" shortcut to the Desktop, using
+The Paper Club logo, that launches `scripts\run.bat`:
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\create-desktop-shortcut.ps1
+```
+
+This still runs the app from source (it needs Node.js and `uv` on the
+machine, same as `run.bat` above) — it's a shortcut to the dev launcher, not
+a standalone installer. A fully bundled, no-prerequisites Windows installer
+is tracked in [docs/context/issues-log.md](docs/context/issues-log.md)
+("Packaged (non-dev) builds cannot start the backend yet.").
+
 If you'd rather run the equivalent commands by hand:
 
 ```bash

@@ -412,6 +412,18 @@ export interface RestoreResult {
   message: string;
 }
 
+export interface EnvironmentSummary {
+  stage: "development" | "test" | "production";
+  isActive: boolean;
+  environmentDirectory: string;
+  databasePath: string;
+  hasDatabase: boolean;
+  managedFileCount: number;
+  managedFileBytes: number;
+  backupCount: number;
+  lastBackupAt: string | null;
+}
+
 export interface HealthStatus {
   status: "ok";
   stage: "development" | "production" | "test";

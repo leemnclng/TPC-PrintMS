@@ -8,6 +8,7 @@ import { contextBridge, ipcRenderer } from "electron";
  */
 contextBridge.exposeInMainWorld("paperClub", {
   getApiConfig: () => ipcRenderer.invoke("paper-club:get-api-config"),
+  switchEnvironment: (stage: string) => ipcRenderer.invoke("paper-club:switch-environment", stage),
   openPrinterSettings: () => ipcRenderer.invoke("paper-club:open-printer-settings"),
   openPrinterPreferences: (printerName: string) => ipcRenderer.invoke("paper-club:open-printer-preferences", printerName),
   inspectScanners: () => ipcRenderer.invoke("paper-club:inspect-scanners"),

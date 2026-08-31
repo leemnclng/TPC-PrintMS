@@ -18,12 +18,16 @@ export interface BackendConfig {
 
 const STARTUP_TIMEOUT_MS = 15_000;
 
+export const KNOWN_STAGES = ["development", "test", "production"] as const;
+export type EnvironmentStage = (typeof KNOWN_STAGES)[number];
+
 export class BackendManager {
   private child: ChildProcessWithoutNullStreams | null = null;
   private config: BackendConfig | null = null;
   private shuttingDown = false;
+  private stage: EnvironmentStage | null = null;
 
-  async start(): Promise<BackendConfig> {
+  async start(stage?: EnvironmentStage): Promise<BackendConfig> {
     if (app.isPackaged) {
       // Bundling the backend into a signed, platform-specific executable is
       // Phase 7 scope (see docs/context/build-plan.md). This scaffold only
@@ -35,16 +39,35 @@ export class BackendManager {
           "(\"Bundled FastAPI lifecycle and local communication need validation\").",
       );
     }
-    return this.startFromSource();
+    return this.startFromSource(stage);
   }
 
-  private startFromSource(): Promise<BackendConfig> {
+  /** Stops the current backend (if any) and starts a fresh one bound to a
+   *  different `PRINT_MS_STAGE` — the Settings environment switcher's entry
+   *  point. Switching stage requires a real process restart: the FastAPI
+   *  process resolves its database engine and data paths once at import, so
+   *  there is no supported way to rebind them without a new process. */
+  async switchStage(stage: EnvironmentStage): Promise<BackendConfig> {
+    await this.stop();
+    this.shuttingDown = false;
+    this.config = null;
+    return this.start(stage);
+  }
+
+  getStage(): EnvironmentStage | null {
+    return this.stage;
+  }
+
+  private startFromSource(stage?: EnvironmentStage): Promise<BackendConfig> {
     const backendDir = path.resolve(__dirname, "..", "..", "..", "services", "api");
+    const env = { ...process.env };
+    if (stage) env.PRINT_MS_STAGE = stage;
+    this.stage = stage ?? (env.PRINT_MS_STAGE as EnvironmentStage | undefined) ?? "development";
 
     return new Promise((resolve, reject) => {
       const child = spawn("uv", ["run", "python", "-m", "app.main"], {
         cwd: backendDir,
-        env: { ...process.env },
+        env,
       });
       this.child = child;
 

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sqlite3
 import tempfile
 import threading
+import time
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -20,6 +22,7 @@ ARCHIVE_VERSION = 1
 MAX_ARCHIVE_ENTRIES = 20_000
 MAX_UNCOMPRESSED_BYTES = 10 * 1024 * 1024 * 1024
 
+logger = logging.getLogger(__name__)
 _storage_lock = threading.RLock()
 
 
@@ -50,6 +53,24 @@ def _profile_payload(profile: BusinessProfile | None) -> dict[str, Any] | None:
     }
 
 
+def _replace_with_retry(source: Path, destination: Path, *, attempts: int = 5, delay_seconds: float = 0.1) -> None:
+    """`os.replace()` can raise a transient `PermissionError` on Windows when
+    the destination is briefly held open by antivirus scanning or the search
+    indexer — POSIX rename has no such restriction, which is why this failure
+    shows up only on Windows. A short retry-with-backoff clears it rather
+    than treating a passing lock as a real, unrecoverable failure."""
+    for attempt in range(attempts):
+        try:
+            os.replace(source, destination)
+            return
+        except OSError as error:
+            if attempt == attempts - 1:
+                source.unlink(missing_ok=True)
+                logger.warning("Could not replace %s after %d attempts: %s", destination, attempts, error)
+                raise
+            time.sleep(delay_seconds * (attempt + 1))
+
+
 def write_environment_config(profile: BusinessProfile | None) -> Path:
     """Mirror non-secret runtime and owner configuration into the stage folder."""
     path = settings.resolved_environment_config_path
@@ -71,8 +92,11 @@ def write_environment_config(profile: BusinessProfile | None) -> Path:
         "businessProfile": _profile_payload(profile),
     }
     temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    # Locked against concurrent writers (e.g. a profile save landing mid-backup)
+    # so two callers never race on the same temp file.
+    with _storage_lock:
+        temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        _replace_with_retry(temporary, path)
     return path
 
 
@@ -172,6 +196,31 @@ def storage_status() -> dict[str, Any]:
         "lastBackupAt": _iso(datetime.fromtimestamp(backups[-1].stat().st_mtime, UTC)) if backups else None,
         "configUpdatedAt": _iso(datetime.fromtimestamp(config_path.stat().st_mtime, UTC)) if config_path.exists() else None,
     }
+
+
+def environment_summaries() -> list[dict[str, Any]]:
+    """One entry per managed stage folder — unlike `storage_status()`, which
+    only reports the active stage, this covers every stage so the Settings
+    environment switcher can show what's in each folder before switching."""
+    summaries = []
+    for stage, database_path in settings.resolved_database_paths.items():
+        data_dir = settings.data_dir_for_stage(stage)
+        files_root = data_dir / "files"
+        backups_root = data_dir / "backups"
+        managed_files = [path for path in files_root.rglob("*") if path.is_file()] if files_root.is_dir() else []
+        backups = sorted(backups_root.glob("*.zip"), key=lambda path: path.stat().st_mtime) if backups_root.is_dir() else []
+        summaries.append({
+            "stage": stage,
+            "isActive": stage == settings.stage,
+            "environmentDirectory": str(data_dir),
+            "databasePath": str(database_path),
+            "hasDatabase": database_path.is_file(),
+            "managedFileCount": len(managed_files),
+            "managedFileBytes": sum(path.stat().st_size for path in managed_files),
+            "backupCount": len(backups),
+            "lastBackupAt": _iso(datetime.fromtimestamp(backups[-1].stat().st_mtime, UTC)) if backups else None,
+        })
+    return summaries
 
 
 def _validate_member(info: zipfile.ZipInfo) -> None:

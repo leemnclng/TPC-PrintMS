@@ -164,6 +164,18 @@
 .environment-card dt { color: var(--color-ink-faint); font-size: var(--text-xs); text-transform: uppercase; }
 .environment-card dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; color: var(--color-ink-soft); font-size: var(--text-xs); }
 
+.environment-card__actions { margin-top: var(--space-4); }
+
+.environment-switch-modal { display: flex; width: 100%; flex-direction: column; }
+.environment-switch-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-hairline);
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-paper-2);
+}
+
 .environment-note {
   margin: var(--space-4) 0 0;
   border-left: 2px solid var(--color-warning);

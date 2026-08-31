@@ -49,6 +49,18 @@ class StorageStatusRead(CamelModel):
     config_updated_at: str | None
 
 
+class EnvironmentSummaryRead(CamelModel):
+    stage: str
+    is_active: bool
+    environment_directory: str
+    database_path: str
+    has_database: bool
+    managed_file_count: int
+    managed_file_bytes: int
+    backup_count: int
+    last_backup_at: str | None
+
+
 class RestoreResultRead(CamelModel):
     stage: str
     restored_at: str

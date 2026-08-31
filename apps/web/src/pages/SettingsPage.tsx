@@ -11,14 +11,8 @@ import { useHealth } from "../hooks/useHealth";
 import { api, ApiError } from "../lib/apiClient";
 import type { BusinessProfile } from "../types/domain";
 import { BackupRestorePanel } from "./settings/BackupRestorePanel";
+import { EnvironmentSwitcherPanel } from "./settings/EnvironmentSwitcherPanel";
 import "./SettingsPage.css";
-
-const DATABASE_STAGES = ["development", "test", "production"] as const;
-const DATABASE_STAGE_LABELS: Record<(typeof DATABASE_STAGES)[number], string> = {
-  development: "Development",
-  test: "Test",
-  production: "Production",
-};
 
 export function SettingsPage() {
   const { data, state, error, reload } = useResource(() => api.get<BusinessProfile>("/settings/business-profile"));
@@ -143,40 +137,7 @@ export function SettingsPage() {
 
       <BackupRestorePanel onRestored={reload} />
 
-      <Card className="settings-environments">
-        <CardHeader title="Runtime environments" meta="RESTART TO SWITCH" />
-        <p className="settings-placeholder-text">
-          Each application stage has an independent SQLite database. Set the paths in <span className="numeric">services/api/.env</span>, choose the active stage with <span className="numeric">PRINT_MS_STAGE</span>, then restart the app.
-        </p>
-        {health ? (
-          <div className="environment-grid">
-            {DATABASE_STAGES.map((stage, index) => {
-              const active = health.stage === stage;
-              const path = health.databasePaths?.[stage] ?? (active ? health.databasePath : "Restart to resolve this path");
-              const source = health.databasePathSources?.[stage] ?? "Environment configuration";
-              return (
-                <article className={`environment-card${active ? " is-active" : ""}`} key={stage}>
-                  <header>
-                    <span className="numeric">0{index + 1}</span>
-                    {active && <strong>ACTIVE</strong>}
-                  </header>
-                  <h3>{DATABASE_STAGE_LABELS[stage]}</h3>
-                  <code>PRINT_MS_{stage.toUpperCase()}_DATABASE_PATH</code>
-                  <dl>
-                    <div><dt>SQLite path</dt><dd className="numeric">{path}</dd></div>
-                    <div><dt>Resolved from</dt><dd>{source}</dd></div>
-                  </dl>
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="settings-placeholder-text">Backend is not reachable — environment paths unavailable.</p>
-        )}
-        <p className="environment-note">
-          Changing stages never copies or deletes data. The selected database is opened only during application startup.
-        </p>
-      </Card>
+      <EnvironmentSwitcherPanel />
 
       <Card>
         <CardHeader title="Diagnostics" />

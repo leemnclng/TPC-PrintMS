@@ -32,7 +32,15 @@ if ($imagePaths.Count -eq 0) {
 }
 
 Add-Type -AssemblyName System.Drawing
-Add-Type -TypeDefinition @"
+# -ReferencedAssemblies is required here even though System.Drawing was just
+# loaded above: that load only makes the type available to *this script's*
+# own PowerShell type resolution (used below by `New-Object
+# System.Drawing.Printing.PrintDocument`, etc.). Add-Type -TypeDefinition
+# compiles the C# block below as a separate assembly, and that compilation
+# does not inherit assemblies already loaded into the session — without this,
+# `using System.Drawing.Printing;` fails to resolve with "The type or
+# namespace name 'Printing' does not exist in the namespace 'System.Drawing'".
+Add-Type -ReferencedAssemblies "System.Drawing.dll" -TypeDefinition @"
 using System;
 using System.Drawing.Printing;
 using System.Runtime.InteropServices;
