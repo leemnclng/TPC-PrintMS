@@ -37,14 +37,16 @@
   letter-spacing: .04em;
   text-transform: uppercase;
 }
-.form-field--required.is-awaiting-input > input,
-.form-field--required.is-awaiting-input > select {
+/* Descendant (not direct-child) selectors: the Product field wraps its
+   input inside a ComboBox, one level deeper than a plain <select>. */
+.form-field--required.is-awaiting-input input,
+.form-field--required.is-awaiting-input select {
   border-color: var(--color-warning);
   background: linear-gradient(90deg, var(--color-warning-soft), var(--color-paper) 48%);
   box-shadow: inset 3px 0 var(--color-warning);
 }
-.form-field--required.is-awaiting-input > input:focus,
-.form-field--required.is-awaiting-input > select:focus {
+.form-field--required.is-awaiting-input input:focus,
+.form-field--required.is-awaiting-input select:focus {
   border-color: var(--color-focus);
   box-shadow: inset 3px 0 var(--color-warning), 0 0 0 2px var(--color-focus);
 }
