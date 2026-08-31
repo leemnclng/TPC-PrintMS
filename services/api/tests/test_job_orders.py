@@ -1136,6 +1136,190 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert no_payment_needed.json()["status"] == "paid"
 
 
+def test_transaction_lines_from_observed_prints_are_recorded_ready_and_combined(tmp_path, monkeypatch) -> None:
+    """Ad-hoc recording of work already printed outside Printing-MS (e.g. Canon
+    PRINT): each tagged line starts (and stays) 'ready' instead of 'queued',
+    several separately-tracked prints can combine into one transaction, and
+    each one's material usage is deducted immediately since there is no live
+    submission afterward to trigger the usual post-print deduction."""
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'observed-transaction.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "app-data")
+
+    def override_db():
+        db = test_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(services.router)
+    app.include_router(products.router)
+    app.include_router(inventory.router)
+    app.include_router(variants.router)
+    app.include_router(document_analyzer_router)
+    app.include_router(job_orders.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    paper = _create_material(client, headers, "Letter observed paper", "sheet", 100, paper_size="Letter")
+    rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
+    bw_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "black_and_white" and rule["pricingScope"] == "printing")
+    assert client.put(
+        "/document-analyzer/pricing-rules",
+        headers=headers,
+        json={"rules": [{"id": bw_rule["id"], "pricePerPage": 5, "isActive": True}]},
+    ).status_code == 200
+    service = client.post(
+        "/services",
+        headers=headers,
+        json={"name": "Ad-hoc printing", "category": "printing", "isActive": True},
+    ).json()
+    product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Letter B&W-priced document",
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}],
+        },
+    ).json()
+
+    image_buffer = BytesIO()
+    Image.new("RGB", (850, 1100), (10, 10, 10)).save(image_buffer, format="PNG", dpi=(100, 100))
+    document = image_buffer.getvalue()
+
+    def make_observed(os_job_id: str, document_name: str) -> str:
+        with test_session() as db:
+            observed = ObservedPrintJob(
+                spooler_key=f"Canon G4770 series, {os_job_id}|submitted",
+                os_job_id=os_job_id,
+                printer_name="Canon G4770 series",
+                document_name=document_name,
+                status="released",
+            )
+            db.add(observed)
+            db.commit()
+            return observed.id
+
+    first_id = make_observed("101", "first-canon-print.png")
+    second_id = make_observed("102", "second-canon-print.png")
+
+    response = client.post(
+        "/job-orders/transactions",
+        headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": "Combined ad-hoc reconciliation",
+                "initialServiceId": service["id"],
+                "items": [
+                    {
+                        "clientKey": "first-line",
+                        "productId": product["id"],
+                        "paperInventoryItemId": paper["id"],
+                        "copies": 1,
+                        "observedPrintJobId": first_id,
+                    },
+                    {
+                        "clientKey": "second-line",
+                        "productId": product["id"],
+                        "paperInventoryItemId": paper["id"],
+                        "copies": 1,
+                        "observedPrintJobId": second_id,
+                    },
+                ],
+            }),
+            "file_keys": ["first-line", "second-line"],
+        },
+        files=[
+            ("files", ("first-canon-print.png", document, "image/png")),
+            ("files", ("second-canon-print.png", document, "image/png")),
+        ],
+    )
+    assert response.status_code == 201, response.text
+    order = response.json()
+    assert order["status"] == "ready"
+    assert [item["status"] for item in order["items"]] == ["ready", "ready"]
+    assert order["statusEvents"][0]["note"] == "Transaction created from Windows print(s) already completed outside Printing-MS."
+
+    with test_session() as db:
+        linked_first = db.get(ObservedPrintJob, first_id)
+        linked_second = db.get(ObservedPrintJob, second_id)
+        assert linked_first.review_status == "linked"
+        assert linked_first.linked_job_order_id == order["id"]
+        assert linked_first.linked_job_order_item_id == order["items"][0]["id"]
+        assert linked_second.linked_job_order_item_id == order["items"][1]["id"]
+
+    assert order["items"][0]["materials"][0]["plannedQuantity"] == order["items"][0]["materials"][0]["consumedQuantity"]
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 98
+
+    # An observed print already linked to a job order cannot be recorded again.
+    reuse_response = client.post(
+        "/job-orders/transactions",
+        headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": "Duplicate reconciliation attempt",
+                "initialServiceId": service["id"],
+                "items": [{
+                    "clientKey": "reuse-line",
+                    "productId": product["id"],
+                    "paperInventoryItemId": paper["id"],
+                    "copies": 1,
+                    "observedPrintJobId": first_id,
+                }],
+            }),
+            "file_keys": "reuse-line",
+        },
+        files=[("files", ("reuse.png", document, "image/png"))],
+    )
+    assert reuse_response.status_code == 409
+
+    # The same observed print cannot be recorded twice within one transaction.
+    third_id = make_observed("103", "third-canon-print.png")
+    duplicate_within_transaction = client.post(
+        "/job-orders/transactions",
+        headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": "Duplicate within one transaction",
+                "initialServiceId": service["id"],
+                "items": [
+                    {
+                        "clientKey": "dup-line-1",
+                        "productId": product["id"],
+                        "paperInventoryItemId": paper["id"],
+                        "copies": 1,
+                        "observedPrintJobId": third_id,
+                    },
+                    {
+                        "clientKey": "dup-line-2",
+                        "productId": product["id"],
+                        "paperInventoryItemId": paper["id"],
+                        "copies": 1,
+                        "observedPrintJobId": third_id,
+                    },
+                ],
+            }),
+            "file_keys": ["dup-line-1", "dup-line-2"],
+        },
+        files=[
+            ("files", ("dup1.png", document, "image/png")),
+            ("files", ("dup2.png", document, "image/png")),
+        ],
+    )
+    assert duplicate_within_transaction.status_code == 422
+
+
 def _create_material(
     client: TestClient, headers: dict[str, str], name: str, unit: str, quantity: float, *, paper_size: str | None = None
 ) -> dict:

@@ -423,11 +423,11 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 ### Apply Standard Job Settings Through the Installed Printer Driver
 
-- Status: Refined on 2026-08-29 by “Separate Commercial Print Type From Physical Output.”
+- Status: Refined on 2026-08-29 by “Separate Commercial Print Type From Physical Output” and on 2026-08-31 by “Treat Borderless as a Driver-Finalized Request.”
 
 - Decision: Keep paper, copies, and color mode aligned with the approved transaction, while allowing the owner to choose orientation, scaling, quality, borderless behavior, and collation for each print attempt. Apply those settings through Windows `PrintDocument` or standard CUPS options and retain them in Print History. Open the selected Windows driver's native preferences for Canon-specific media type, tray, and advanced controls.
 - Rationale: Canon and other vendors expose private driver settings that cannot be safely duplicated as fixed app values. The installed OS driver is the supported boundary, while common print-job controls can be applied consistently and audited by Printing-MS.
-- Impact: Canon PRINT remains the setup/maintenance companion. A borderless request fails clearly when the active driver/paper does not expose borderless output, and future capability discovery can narrow options without changing the print-attempt contract.
+- Impact: Canon PRINT remains the setup/maintenance companion. Public Windows margins are not treated as proof that borderless is unsupported; the installed driver receives the request and retains final authority. Future capability discovery can narrow options without changing the print-attempt contract.
 
 ### Keep the Entire Transaction Lifecycle on the Job Order Page
 
@@ -610,3 +610,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Store each paper material with a catalogue key plus millimeter width and height. Named Canon G4070 profiles always use app-owned canonical dimensions; Custom profiles normalize their short and long edges and stay within Canon's documented custom-media range. Permit multiple inventory materials to share one physical size.
 - Rationale: A name without dimensions cannot reliably drive analyzer best-fit or a physical driver request, while editable dimensions beside a named standard can become contradictory. Paper size identifies geometry; the inventory material still identifies stock type, brand, finish, cost, quantity, and pricing row.
 - Impact: Material creation, pricing, job selection, analysis, and printing share one geometry definition. CUPS uses standard PWG media keywords when available and measured custom media otherwise; Windows matches the installed driver's named/dimensioned size or creates a per-job custom `PaperSize`. The installed driver remains the authority on tray and borderless support.
+
+### Treat Borderless as a Driver-Finalized Request
+
+- Decision: On Windows, prefer a matching borderless paper entry, request zero margins, translate GDI output to the physical sheet origin, and render against full page bounds. Do not reject the job solely because .NET reports a non-zero `PrintableArea`.
+- Rationale: Canon can store its usable borderless capability in private DEVMODE data while the public .NET printing surface continues to report hard margins. That report produced a false failure before the installed driver could process a supported 4×6 profile.
+- Impact: Supported Canon photo jobs reach the queue with borderless intent. An unsupported driver may clip to its printable region, so physical output and future live capability discovery remain the authoritative validation.

@@ -151,11 +151,15 @@ def test_windows_adapter_rejects_a_format_without_a_local_renderer(tmp_path) -> 
         )
 
 
-def test_windows_print_geometry_uses_driver_printable_area_once() -> None:
+def test_windows_print_geometry_uses_printable_area_or_full_borderless_sheet() -> None:
     script = (Path(__file__).parents[1] / "app" / "services" / "printing" / "windows_print.ps1").read_text()
 
     assert "$document.OriginAtMargins = $false" in script
     assert "$eventArgs.PageSettings.PrintableArea" in script
+    assert "$eventArgs.Graphics.TranslateTransform(" in script
+    assert "$eventArgs.PageBounds.Width" in script
+    assert "$eventArgs.PageBounds.Height" in script
+    assert "does not expose borderless printing" not in script
     assert "PageBounds.Width - (2 * $originX)" not in script
     assert "PageBounds.Height - (2 * $originY)" not in script
     assert 'ValidateSet("auto", "fit", "fill", "actual_size")' in script

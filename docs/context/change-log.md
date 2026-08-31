@@ -2,6 +2,11 @@
 
 Track notable app changes by date.
 
+## 2026-08-31 (Windows photo borderless handoff)
+
+- Fixed: Photo Print no longer fails before submission merely because the Canon driver's public printable-area report contains margins.
+- Changed: A borderless photo request now uses the full physical page and lets the installed Windows driver finalize its supported 4×6/media profile.
+
 ## 2026-08-30 (colored-only scanner acquisition)
 
 - Changed: Scan setup now shows Document content as a fixed Colored value instead of offering unreliable grayscale and B&W choices.

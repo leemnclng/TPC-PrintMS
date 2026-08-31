@@ -79,6 +79,10 @@ class TransactionItemCreate(CamelModel):
     price_mode: Literal["suggested", "custom"] = "suggested"
     custom_price: float | None = Field(default=None, ge=0)
     other_materials: list[JobOrderMaterialPlanCreate] = Field(default_factory=list)
+    # Set when this line records a Windows print already completed outside
+    # Printing-MS (e.g. Canon PRINT) — per line, not per transaction, so
+    # several already-tracked prints can be recorded together.
+    observed_print_job_id: str | None = None
 
 
 class TransactionCreate(CamelModel):
@@ -87,7 +91,6 @@ class TransactionCreate(CamelModel):
     customer_id: str | None = None
     due_date: datetime | None = None
     notes: str | None = None
-    observed_print_job_id: str | None = None
     items: list[TransactionItemCreate] = Field(min_length=1, max_length=50)
 
 

@@ -609,18 +609,20 @@ def _plan_item_reprocess(item: JobOrderItem) -> int:
     return item.reprocess_count
 
 
+def _aggregate_transaction_status(job_order: JobOrder) -> JobOrderStatus:
+    statuses = {item.status for item in job_order.items}
+    if statuses and statuses == {"ready"}:
+        return JobOrderStatus.ready
+    if "printing" in statuses:
+        return JobOrderStatus.printing
+    return JobOrderStatus.queued
+
+
 def _sync_transaction_status(job_order: JobOrder, note: str) -> None:
     """Mirror production progress onto the transaction without replacing line-item truth."""
     if job_order.status in {JobOrderStatus.paid, JobOrderStatus.completed, JobOrderStatus.cancelled}:
         return
-    statuses = {item.status for item in job_order.items}
-    if statuses and statuses == {"ready"}:
-        target = JobOrderStatus.ready
-    elif "printing" in statuses:
-        target = JobOrderStatus.printing
-    else:
-        target = JobOrderStatus.queued
-    _record_status(job_order, target, note)
+    _record_status(job_order, _aggregate_transaction_status(job_order), note)
 
 
 @router.get("/{job_order_id}/files/{file_id}")
@@ -689,13 +691,25 @@ async def _save_transaction_lines(
             status_code=409,
             detail="Products can only be added before the transaction is paid or completed.",
         )
-    observed_print_job: ObservedPrintJob | None = None
-    if payload.observed_print_job_id:
-        observed_print_job = db.get(ObservedPrintJob, payload.observed_print_job_id)
+    # A line tagged with an observed print job records work already printed
+    # outside Printing-MS (e.g. Canon PRINT) — several such lines can now
+    # combine into one transaction, so this is per-line rather than
+    # transaction-wide. Keyed by client_key, not the observed job's id, since
+    # the same dict is consulted per line below.
+    observed_jobs_by_client_key: dict[str, ObservedPrintJob] = {}
+    seen_observed_ids: set[str] = set()
+    for line in payload.items:
+        if not line.observed_print_job_id:
+            continue
+        if line.observed_print_job_id in seen_observed_ids:
+            raise HTTPException(status_code=422, detail="A Windows print event can only be recorded once in this transaction.")
+        seen_observed_ids.add(line.observed_print_job_id)
+        observed_print_job = db.get(ObservedPrintJob, line.observed_print_job_id)
         if not observed_print_job:
             raise HTTPException(status_code=404, detail="Observed Windows print job not found.")
-        if observed_print_job.linked_job_order_id:
-            raise HTTPException(status_code=409, detail="This Windows print job already has a transaction.")
+        if observed_print_job.linked_job_order_item_id:
+            raise HTTPException(status_code=409, detail="A Windows print event in this transaction already has a job order.")
+        observed_jobs_by_client_key[line.client_key] = observed_print_job
     initial_service = db.get(Service, payload.initial_service_id)
     if not initial_service or not initial_service.is_active:
         raise HTTPException(status_code=422, detail="Select an active initial service.")
@@ -765,6 +779,7 @@ async def _save_transaction_lines(
             notes=payload.notes.strip() if payload.notes else None,
         )
     file_specs: list[tuple[JobOrderItem, str, bytes, object]] = []
+    observed_links: list[tuple[ObservedPrintJob, JobOrderItem]] = []
     any_override = False
     for line in payload.items:
         product = product_by_id[line.product_id]
@@ -835,10 +850,15 @@ async def _save_transaction_lines(
 
         line_total = suggested if line.price_mode == "suggested" else round(line.custom_price or 0, 2)
         any_override = any_override or line.price_mode == "custom"
+        observed_print_job = observed_jobs_by_client_key.get(line.client_key)
+        # Printing already happened outside Printing-MS for this line — there
+        # is no live submission to wait on, so it starts (and effectively
+        # stays) at "ready" rather than going through queued -> printing.
+        initial_status = "ready" if observed_print_job else "queued"
         item = JobOrderItem(
             product_id=product.id,
             operation_kind=product.operation_kind,
-            status="queued",
+            status=initial_status,
             variant_label=variant.label if variant else None,
             pages_per_copy=pages,
             copies=copies,
@@ -847,12 +867,18 @@ async def _save_transaction_lines(
             print_sides=PrintSides.double_sided if line.back_to_back else PrintSides.single_sided,
             requires_manual_duplex=bool(line.back_to_back and pages > 1),
         )
-        item.status_events.append(JobOrderItemStatusEvent(from_status=None, to_status="queued", note="Product added to transaction."))
+        item.status_events.append(JobOrderItemStatusEvent(
+            from_status=None,
+            to_status=initial_status,
+            note="Already printed outside Printing-MS; recorded from a tracked Windows print event." if observed_print_job else "Product added to transaction.",
+        ))
         item.material_plans = [
             JobOrderMaterialPlan(inventory_item_id=material_id, planned_quantity=quantity)
             for material_id, quantity in material_specs
         ]
         job_order.items.append(item)
+        if observed_print_job:
+            observed_links.append((observed_print_job, item))
         job_order.suggested_total = round(job_order.suggested_total + suggested, 2)
         job_order.total = round(job_order.total + line_total, 2)
         if product.operation_kind == "printing":
@@ -868,7 +894,13 @@ async def _save_transaction_lines(
     if existing_job_order:
         _sync_transaction_status(job_order, f"{len(payload.items)} product line(s) added; transaction returned to production.")
     else:
-        job_order.status_events.append(StatusEvent(from_status=None, to_status="queued", note="Transaction created."))
+        job_order.status = _aggregate_transaction_status(job_order)
+        creation_note = (
+            "Transaction created from Windows print(s) already completed outside Printing-MS."
+            if job_order.status == JobOrderStatus.ready
+            else "Transaction created."
+        )
+        job_order.status_events.append(StatusEvent(from_status=None, to_status=job_order.status.value, note=creation_note))
         db.add(job_order)
     db.flush()
     storage_directory = settings.resolved_data_dir / "files" / job_order.id
@@ -898,10 +930,23 @@ async def _save_transaction_lines(
                     analysis_confidence=analysis.confidence,
                 )
             )
-        if observed_print_job:
+        for observed_print_job, item in observed_links:
             observed_print_job.review_status = "linked"
             observed_print_job.reviewed_at = datetime.utcnow()
             observed_print_job.linked_job_order_id = job_order.id
+            observed_print_job.linked_job_order_item_id = item.id
+            # The physical print already happened — there is no live
+            # submission afterward to trigger the usual post-print deduction,
+            # so record the material consumption now instead of leaving it
+            # permanently unaccounted for. Stock is not re-validated first:
+            # the paper/ink is already spent regardless of what the recorded
+            # on-hand count says.
+            _deduct_planned_materials(
+                job_order,
+                _remaining_planned_materials(job_order, item),
+                db,
+                note=f"Recorded for {job_order.number} from a Windows print already completed outside Printing-MS.",
+            )
         db.commit()
         db.refresh(job_order)
     except Exception as error:

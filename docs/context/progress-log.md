@@ -2,6 +2,12 @@
 
 Chronological notes about app progress.
 
+## 2026-08-31 (Windows photo borderless handoff)
+
+- Summary: Removed the false Canon borderless rejection from Photo Print submission.
+- Completed: Windows now treats borderless as a driver-finalized request even when public .NET margins remain non-zero, selects an exposed borderless media entry when available, and renders the proof against the full physical page with a zero-margin request.
+- Verified: All 42 API tests pass. Final edge-to-edge output still requires physical confirmation with the installed Canon media profile.
+
 ## 2026-08-30 (colored-only scanner acquisition)
 
 - Summary: Reduced Windows scan content configuration to the single working Colored mode.

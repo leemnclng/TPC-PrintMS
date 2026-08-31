@@ -173,12 +173,9 @@ else {
 $script:pageIndex = 0
 # A PowerShell scriptblock hooked to a .NET event (add_QueryPageSettings /
 # add_PrintPage below) does not propagate a thrown error's message through
-# Print() the normal way — the caller only ever sees a generic
-# "Exception calling "Print" with "0" argument(s)" with the real detail
-# (e.g. the borderless-not-supported message below) lost. Both handlers
-# catch their own errors, record the message here, and cancel the job;
-# Print() is then checked for this afterward and re-thrown as a plain
-# PowerShell error, which keeps the real message intact.
+# Print() the normal way. Both handlers catch their own errors, record the
+# message here, and cancel the job; Print() is then checked for this afterward
+# and re-thrown as a plain PowerShell error, which keeps the detail intact.
 $script:printFailure = $null
 
 $document.add_QueryPageSettings({
@@ -189,6 +186,7 @@ $document.add_QueryPageSettings({
             $eventArgs.PageSettings.Landscape = if ($Orientation -eq "auto") { $probe.Width -gt $probe.Height } else { $Orientation -eq "landscape" }
             $eventArgs.PageSettings.Color = ($ColorMode -eq "color")
             $eventArgs.PageSettings.PaperSize = $paperSize
+            $eventArgs.PageSettings.Margins = [System.Drawing.Printing.Margins]::new(0, 0, 0, 0)
             if ($null -ne $printerResolution) {
                 $eventArgs.PageSettings.PrinterResolution = $printerResolution
             }
@@ -208,17 +206,32 @@ $document.add_PrintPage({
     try {
         $image = [System.Drawing.Image]::FromFile($printPaths[$script:pageIndex])
         try {
-            # Graphics (0,0) is already the physical printable-area origin when
-            # OriginAtMargins is false. Adding HardMarginX/Y here applied the Canon
-            # margin twice and also assumed the opposite margins were symmetrical.
             $printableArea = $eventArgs.PageSettings.PrintableArea
-            if ($useBorderless -and ($printableArea.X -gt 0.5 -or $printableArea.Y -gt 0.5)) {
-                throw "The selected printer driver does not expose borderless printing for $MediaSize. Open its Windows printing preferences and choose a supported borderless paper type."
+            if ($useBorderless) {
+                # Canon and other inkjet drivers can keep their true borderless
+                # capability in private DEVMODE data while the public .NET
+                # PrintableArea still reports a hard margin. Treat borderless as
+                # a driver-finalized request instead of rejecting that report.
+                # Move the GDI origin to the physical sheet and render against the
+                # full page; an unsupported queue may clip, but it can still accept
+                # and finalize the job using its installed media profile.
+                $eventArgs.Graphics.TranslateTransform(
+                    -[single]$eventArgs.PageSettings.HardMarginX,
+                    -[single]$eventArgs.PageSettings.HardMarginY
+                )
+                $originX = [single]0
+                $originY = [single]0
+                $availableWidth = [Math]::Max(1, [single]$eventArgs.PageBounds.Width)
+                $availableHeight = [Math]::Max(1, [single]$eventArgs.PageBounds.Height)
             }
-            $originX = [single]0
-            $originY = [single]0
-            $availableWidth = [Math]::Max(1, [single]$printableArea.Width)
-            $availableHeight = [Math]::Max(1, [single]$printableArea.Height)
+            else {
+                # With OriginAtMargins false, Graphics (0,0) is already the
+                # printable-area origin. Do not add the hard margin a second time.
+                $originX = [single]0
+                $originY = [single]0
+                $availableWidth = [Math]::Max(1, [single]$printableArea.Width)
+                $availableHeight = [Math]::Max(1, [single]$printableArea.Height)
+            }
             $actualWidth = [single](100 * $image.Width / [Math]::Max(1, $image.HorizontalResolution))
             $actualHeight = [single](100 * $image.Height / [Math]::Max(1, $image.VerticalResolution))
             if ($Scaling -eq "actual_size" -or ($Scaling -eq "auto" -and $actualWidth -le $availableWidth -and $actualHeight -le $availableHeight)) {

@@ -130,6 +130,9 @@ export function JobOrdersPage() {
               pricingRules={data.pricingRules}
               scanPricingTiers={data.scanPricingTiers}
               sourceSpoolerJobId={sourceSpoolerJobId}
+              otherObservedPrintJobs={(data.spoolerMonitor?.jobs ?? []).filter(
+                (job) => job.reviewStatus === "unreviewed" && job.id !== sourceSpoolerJobId,
+              )}
               onClose={closeCreate}
               onCreated={(order) => {
                 closeCreate();

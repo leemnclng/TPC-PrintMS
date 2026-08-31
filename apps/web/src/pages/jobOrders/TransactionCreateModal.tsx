@@ -2,8 +2,9 @@ import { ChangeEvent, FormEvent, lazy, Suspense, useEffect, useState } from "rea
 import { Button } from "../../components/Button/Button";
 import { ComboBox } from "../../components/ComboBox/ComboBox";
 import { Modal } from "../../components/Modal/Modal";
+import { StatusPill } from "../../components/StatusPill/StatusPill";
 import { ApiError, api } from "../../lib/apiClient";
-import { formatCurrency, formatFileSize, formatProductPrintType } from "../../lib/format";
+import { formatCurrency, formatDateTime, formatFileSize, formatProductPrintType } from "../../lib/format";
 import { hasScanPricingConfigured, resolveScanPricePerPage } from "../../lib/productPricing";
 import { paperSizeDisplay } from "../../lib/paperSizes";
 import type {
@@ -12,6 +13,7 @@ import type {
   DocumentPricingRule,
   InventoryItem,
   JobOrder,
+  ObservedPrintJob,
   Product,
   ScanPricingTier,
   Service,
@@ -36,6 +38,10 @@ interface TransactionLine {
   analyzing: boolean;
   priceMode: PriceMode;
   customPrice: string;
+  /** Set when this line records a Windows print already completed outside
+   *  Printing-MS (e.g. Canon PRINT) — it skips the live print queue and is
+   *  recorded as already done. See the "other tracked prints" checklist. */
+  observedPrintJobId: string | null;
 }
 
 interface Props {
@@ -48,6 +54,10 @@ interface Props {
   scanPricingTiers: ScanPricingTier[];
   customers: Customer[];
   sourceSpoolerJobId?: string | null;
+  /** Other unreviewed Windows print events (excluding sourceSpoolerJobId) —
+   *  checking one off adds it as its own already-done line, so several
+   *  separately-tracked prints can be recorded under one transaction. */
+  otherObservedPrintJobs?: ObservedPrintJob[];
   order?: JobOrder;
   onClose: () => void;
   onCreated: (order: JobOrder) => void;
@@ -68,6 +78,7 @@ const newLine = (serviceId: string): TransactionLine => ({
   analyzing: false,
   priceMode: "suggested",
   customPrice: "",
+  observedPrintJobId: null,
 });
 
 export function TransactionCreateModal({
@@ -80,6 +91,7 @@ export function TransactionCreateModal({
   scanPricingTiers,
   customers,
   sourceSpoolerJobId,
+  otherObservedPrintJobs = [],
   order,
   onClose,
   onCreated,
@@ -98,7 +110,7 @@ export function TransactionCreateModal({
 
   useEffect(() => {
     if (!open) return;
-    setLines([newLine(initialService.id)]);
+    setLines([{ ...newLine(initialService.id), observedPrintJobId: sourceSpoolerJobId || null }]);
     setName(order?.name ?? "");
     setCustomerId(order?.customerId ?? "");
     setDueDate("");
@@ -106,14 +118,23 @@ export function TransactionCreateModal({
     setSubmitted(false);
     setSaving(false);
     setError(null);
-  }, [open, initialService.id, order?.customerId, order?.name]);
+  }, [open, initialService.id, order?.customerId, order?.name, sourceSpoolerJobId]);
 
   function updateLine(key: string, patch: Partial<TransactionLine>) {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
   }
 
   function chooseService(line: TransactionLine, serviceId: string) {
-    updateLine(line.key, { ...newLine(serviceId), key: line.key });
+    updateLine(line.key, { ...newLine(serviceId), key: line.key, observedPrintJobId: line.observedPrintJobId });
+  }
+
+  function toggleObservedPrintJob(job: ObservedPrintJob) {
+    const existingLine = lines.find((line) => line.observedPrintJobId === job.id);
+    if (existingLine) {
+      setLines((current) => current.filter((line) => line.key !== existingLine.key));
+    } else {
+      setLines((current) => [...current, { ...newLine(initialService.id), observedPrintJobId: job.id }]);
+    }
   }
 
   function chooseProduct(line: TransactionLine, productId: string) {
@@ -231,7 +252,6 @@ export function TransactionCreateModal({
       customerId: customerId || null,
       dueDate: dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null,
       notes: notes.trim() || null,
-      observedPrintJobId: sourceSpoolerJobId || null,
       items: lines.map((line) => ({
         clientKey: line.key,
         productId: line.productId,
@@ -243,6 +263,7 @@ export function TransactionCreateModal({
         priceMode: line.priceMode,
         customPrice: line.priceMode === "custom" ? Number(line.customPrice) : null,
         otherMaterials: [],
+        observedPrintJobId: line.observedPrintJobId || null,
       })),
     }));
     lines.forEach((line) => {
@@ -278,6 +299,28 @@ export function TransactionCreateModal({
             <label className="form-field"><span>Due date</span><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>
           </section> : <div className="transaction-create__existing"><span>Current transaction</span><strong>{order.name}</strong><small>{order.number} · {formatCurrency(order.total)} before additions</small></div>}
 
+          {otherObservedPrintJobs.length > 0 ? (
+            <section className="transaction-create__observed" aria-label="Other tracked Windows prints">
+              <header><span className="numeric">OTHER TRACKED PRINTS</span><p>Already printed outside Printing-MS and waiting to be recorded — check any that belong with this transaction.</p></header>
+              <ul className="transaction-observed-list">
+                {otherObservedPrintJobs.map((job) => {
+                  const checked = lines.some((line) => line.observedPrintJobId === job.id);
+                  return (
+                    <li key={job.id}>
+                      <label className="transaction-observed-list__item">
+                        <input type="checkbox" checked={checked} onChange={() => toggleObservedPrintJob(job)} />
+                        <span>
+                          <strong>{job.documentName}</strong>
+                          <small>{job.printerName} · job {job.osJobId} · {formatDateTime(job.firstSeenAt)}</small>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
+
           <section className="transaction-create__lines" aria-label="Products in this transaction">
             <header><div><span className="numeric">01 / WORK</span><h3>Products and operations</h3><p>Each product moves independently until every line is ready.</p><small className="transaction-create__required-key"><i aria-hidden="true" /> Highlighted fields are required to continue.</small></div><Button type="button" variant="secondary" onClick={() => setLines((current) => [...current, newLine(initialService.id)])}>Add product</Button></header>
             {lines.map((line, index) => {
@@ -285,7 +328,7 @@ export function TransactionCreateModal({
               const lineProducts = products.filter((candidate) => candidate.isActive && candidate.serviceId === line.serviceId);
               return (
                 <article className="transaction-line" key={line.key}>
-                  <header><div><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><strong>{product?.name || "Choose a product"}</strong>{product ? <small>{product.operationKind} workflow · {product.serviceName}</small> : null}</div>{lines.length > 1 ? <Button type="button" variant="ghost" size="sm" onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))}>Remove</Button> : null}</header>
+                  <header><div><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><strong>{product?.name || "Choose a product"}</strong>{product ? <small>{product.operationKind} workflow · {product.serviceName}</small> : null}{line.observedPrintJobId ? <StatusPill label="Already printed — recorded as done" tone="success" /> : null}</div>{lines.length > 1 ? <Button type="button" variant="ghost" size="sm" onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))}>Remove</Button> : null}</header>
                   <div className="transaction-line__fields">
                     <label className="form-field"><span>Service</span><select value={line.serviceId} disabled={!order && index === 0} onChange={(event) => chooseService(line, event.target.value)}>{activeServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{!order && index === 0 ? <small>Initial service</small> : null}</label>
                     <label className={`form-field form-field--required${!product ? " is-awaiting-input" : ""}`}><span>Product</span><ComboBox value={line.productId} onChange={(productId) => chooseProduct(line, productId)} placeholder="Select product" emptyMessage="No matching products" ariaInvalid={submitted && !product} options={lineProducts.map((candidate) => ({ value: candidate.id, label: `${candidate.name} | ${candidate.printTypeLabel || formatProductPrintType(candidate.printType)}`, meta: `${formatCurrency(candidate.pricePerPage)} / page`, keywords: `${candidate.operationKind} ${candidate.serviceName}` }))} /></label>
