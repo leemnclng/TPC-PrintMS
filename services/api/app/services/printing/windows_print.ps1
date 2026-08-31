@@ -143,12 +143,13 @@ if ($null -eq $paperSize) {
 $document.DefaultPageSettings.PaperSize = $paperSize
 $document.DefaultPageSettings.Color = ($ColorMode -eq "color")
 $document.DefaultPageSettings.Margins = [System.Drawing.Printing.Margins]::new(0, 0, 0, 0)
-$document.DefaultPageSettings.Landscape = ($Orientation -eq "landscape")
-# For "auto" this is corrected below, once the first page has been decoded —
-# many printer drivers only reliably honor the orientation established by
-# the job's *initial* DEVMODE and ignore a later per-page Landscape flip
-# inside QueryPageSettings, so leaving this at its portrait default for
-# "auto" risks a landscape source printing rotated or clipped.
+# Landscape is deliberately never set on PageSettings anywhere in this script
+# (see the rotation applied in PrintPage below, where it's handled instead).
+# Many printer drivers — this Canon included — only reliably honor that flag
+# for their most common paper sizes and misalign or clip less common ones
+# (Legal in particular). GDI+ and the driver see every page here as plain
+# portrait; landscape content is rotated onto it ourselves with a Graphics
+# transform, which has no such per-paper-size dependency.
 $document.OriginAtMargins = $false
 $document.PrintController = New-Object System.Drawing.Printing.StandardPrintController
 $document.PrinterSettings.Copies = 1
@@ -213,22 +214,9 @@ function Get-PrintPageImage {
     return $image
 }
 
-if ($Orientation -eq "auto") {
-    # See the comment above DefaultPageSettings.Landscape: this sets the
-    # job's initial orientation from the first page's own dimensions, in
-    # addition to (not instead of) the per-page detection in
-    # QueryPageSettings below — the per-page check still matters for a
-    # driver that does support switching mid-job, and for a document whose
-    # later pages differ from its first.
-    $firstPageProbe = Get-PrintPageImage -Index 0
-    $document.DefaultPageSettings.Landscape = $firstPageProbe.Width -gt $firstPageProbe.Height
-}
-
 $document.add_QueryPageSettings({
     param($sender, $eventArgs)
     try {
-        $probe = Get-PrintPageImage -Index $script:pageIndex
-        $eventArgs.PageSettings.Landscape = if ($Orientation -eq "auto") { $probe.Width -gt $probe.Height } else { $Orientation -eq "landscape" }
         $eventArgs.PageSettings.Color = ($ColorMode -eq "color")
         $eventArgs.PageSettings.PaperSize = $paperSize
         $eventArgs.PageSettings.Margins = [System.Drawing.Printing.Margins]::new(0, 0, 0, 0)
@@ -259,19 +247,37 @@ $document.add_PrintPage({
                 -[single]$eventArgs.PageSettings.HardMarginX,
                 -[single]$eventArgs.PageSettings.HardMarginY
             )
-            $originX = [single]0
-            $originY = [single]0
-            $availableWidth = [Math]::Max(1, [single]$eventArgs.PageBounds.Width)
-            $availableHeight = [Math]::Max(1, [single]$eventArgs.PageBounds.Height)
+            $pageWidth = [Math]::Max(1, [single]$eventArgs.PageBounds.Width)
+            $pageHeight = [Math]::Max(1, [single]$eventArgs.PageBounds.Height)
         }
         else {
             # With OriginAtMargins false, Graphics (0,0) is already the
             # printable-area origin. Do not add the hard margin a second time.
-            $originX = [single]0
-            $originY = [single]0
-            $availableWidth = [Math]::Max(1, [single]$printableArea.Width)
-            $availableHeight = [Math]::Max(1, [single]$printableArea.Height)
+            $pageWidth = [Math]::Max(1, [single]$printableArea.Width)
+            $pageHeight = [Math]::Max(1, [single]$printableArea.Height)
         }
+
+        # $pageWidth/$pageHeight above are always the physical sheet's own
+        # portrait-canonical dimensions (see the note on PaperSize) — for a
+        # landscape page, rotate the drawing surface itself onto that still-
+        # portrait page rather than asking PageSettings.Landscape to do it.
+        # This is the standard recipe for drawing landscape content onto a
+        # portrait GDI+ surface: shift the origin to the far edge, then
+        # rotate 90 degrees, so the full rotated rectangle lands back within
+        # the original page bounds.
+        $isLandscapePage = if ($Orientation -eq "auto") { $image.Width -gt $image.Height } else { $Orientation -eq "landscape" }
+        if ($isLandscapePage) {
+            $eventArgs.Graphics.TranslateTransform($pageWidth, 0)
+            $eventArgs.Graphics.RotateTransform(90)
+            $availableWidth = $pageHeight
+            $availableHeight = $pageWidth
+        }
+        else {
+            $availableWidth = $pageWidth
+            $availableHeight = $pageHeight
+        }
+        $originX = [single]0
+        $originY = [single]0
         $actualWidth = [single](100 * $image.Width / [Math]::Max(1, $image.HorizontalResolution))
         $actualHeight = [single](100 * $image.Height / [Math]::Max(1, $image.VerticalResolution))
         if ($Scaling -eq "actual_size" -or ($Scaling -eq "auto" -and $actualWidth -le $availableWidth -and $actualHeight -le $availableHeight)) {

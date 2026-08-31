@@ -34,6 +34,7 @@ export function PrinterOutputPreview({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
   const [sourceKind, setSourceKind] = useState<"image" | "pdf" | "unsupported" | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +51,7 @@ export function PrinterOutputPreview({
   useEffect(() => {
     if (!file) {
       setSourceUrl(null);
+      setPdfData(null);
       setSourceKind(null);
       setError(null);
       return;
@@ -59,13 +61,25 @@ export function PrinterOutputPreview({
     setLoading(true);
     setError(null);
     setSourceUrl(null);
+    setPdfData(null);
     setSourceKind(null);
     api.download(`/job-orders/${orderId}/files/${file.id}`)
-      .then((blob) => {
+      .then(async (blob) => {
         if (disposed) return;
-        objectUrl = URL.createObjectURL(blob);
-        setSourceUrl(objectUrl);
-        setSourceKind(fileKind(blob.type, file.originalFilename));
+        const kind = fileKind(blob.type, file.originalFilename);
+        if (kind === "pdf") {
+          // pdf.js loading a blob: URL by string depends on it being able to
+          // fetch/range-request that URL, which is exactly the path that
+          // failed here — handing it the bytes directly (the same approach
+          // PdfViewer already uses successfully) sidesteps that entirely.
+          const buffer = await blob.arrayBuffer();
+          if (disposed) return;
+          setPdfData(new Uint8Array(buffer));
+        } else if (kind === "image") {
+          objectUrl = URL.createObjectURL(blob);
+          setSourceUrl(objectUrl);
+        }
+        setSourceKind(kind);
       })
       .catch(() => {
         if (!disposed) setError("The retained print file could not be loaded. Retry before submitting the job.");
@@ -80,14 +94,14 @@ export function PrinterOutputPreview({
   }, [file, loadVersion, orderId]);
 
   useEffect(() => {
-    if (!sourceUrl || sourceKind !== "pdf" || !canvasRef.current) return;
-    const pdfUrl = sourceUrl;
+    if (!pdfData || sourceKind !== "pdf" || !canvasRef.current) return;
+    const data = pdfData;
     let disposed = false;
     let loadingTask: PDFDocumentLoadingTask | null = null;
     let renderTask: RenderTask | null = null;
     async function renderFirstPage() {
       try {
-        loadingTask = getDocument(pdfUrl);
+        loadingTask = getDocument({ data });
         const document = await loadingTask.promise;
         const page = await document.getPage(1);
         if (disposed || !canvasRef.current) return;
@@ -111,7 +125,7 @@ export function PrinterOutputPreview({
       renderTask?.cancel();
       void loadingTask?.destroy();
     };
-  }, [sourceKind, sourceUrl]);
+  }, [sourceKind, pdfData]);
 
   const scalingLabel = scaling === "fill"
     ? "Fill paper · cropped edges"
@@ -136,7 +150,7 @@ export function PrinterOutputPreview({
           {sourceKind === "image" && sourceUrl ? (
             <img src={sourceUrl} alt={`Output preview of ${file?.originalFilename ?? "the selected file"}`} />
           ) : null}
-          {sourceKind === "pdf" && sourceUrl ? (
+          {sourceKind === "pdf" && pdfData ? (
             <canvas ref={canvasRef} aria-label={`First-page output preview of ${file?.originalFilename ?? "the selected PDF"}`} />
           ) : null}
           {sourceKind === "unsupported" ? (
