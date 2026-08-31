@@ -2,11 +2,11 @@
 
 Chronological notes about app progress.
 
-## 2026-09-01 (desktop startup, shutdown, and backend setup reliability)
+## 2026-09-01 (desktop startup, display, and backend diagnostics reliability)
 
-- Summary: Removed the recurring startup race and avoidable Windows backend launch work, repaired the development Desktop shortcut, and made the launcher one owned lifecycle.
-- Completed: Windows development starts FastAPI directly through the project virtual environment. The renderer awaits the real startup promise and can retry a failed child. Informational maintenance runs off the readiness path. Shortcut creation validates its paths and invokes the quoted launcher through `cmd.exe /d /c`. Final-window close and terminal signals follow one guarded shutdown path and terminate the full backend process tree before Electron exits. A locked `requirements.txt` now supports manual runtime and test dependency installation into `.venv`.
-- Verified: Isolated fresh and migrated API launches reach the readiness contract; all 44 API tests, full renderer/desktop TypeScript checks, desktop production compilation, and diff validation pass. Shortcut COM creation and process-tree teardown still require final confirmation on the Windows workstation.
+- Summary: Removed recurring startup/retry races and avoidable Windows backend launch work, added native-dependency and display recovery, repaired the development Desktop shortcut, and made startup/crash diagnostics persistent.
+- Completed: Windows development starts FastAPI directly through the project virtual environment after a critical-import preflight. A failed environment receives one locked synchronization and a forced PyMuPDF reinstall when applicable, followed by verification; persistent failures retain their diagnostic and use a retry cooldown. Informational maintenance runs off the readiness path. Backend startup phases, slow requests, shutdown, and crashes are written to a rotating stage log. Windows software rendering is the default; GPU/renderer failures are persisted and receive bounded reload plus retry/close recovery. Shortcut creation validates its paths and invokes the quoted launcher through `cmd.exe /d /c`. Final-window close and terminal signals terminate the full backend process tree. A locked `requirements.txt` supports manual runtime and test dependency installation into `.venv`.
+- Verified: Isolated fresh and migrated API launches reach the readiness contract; all 44 API tests, full renderer/desktop TypeScript checks, desktop production compilation, persistent-log crash capture, and diff validation pass. Shortcut COM creation, process-tree teardown, and GPU recovery still require final confirmation on the Windows workstation.
 
 ## 2026-08-31 (stage switching, custom output size, and recovery hardening)
 

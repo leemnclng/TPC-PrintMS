@@ -57,10 +57,10 @@ npm install                 # installs the root + apps/web + apps/desktop worksp
 npm run dev                 # starts the Vite renderer, waits for it, then launches Electron
 ```
 
-Electron spawns the FastAPI backend itself on launch (via `uv run`, which
-resolves its own Python environment on first use — the first launch will be
-slower while `uv` fetches the interpreter and dependencies). You do not need
-to start the backend separately.
+Electron spawns the FastAPI backend itself on launch. Windows uses the project
+`.venv` directly when present and validates its critical imports first; `uv run`
+remains the fallback when no environment exists. You do not need to start the
+backend separately.
 
 For a manual pip-compatible backend setup, install the pinned runtime and test
 dependencies into the project virtual environment:
@@ -73,6 +73,18 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt
 
 `pyproject.toml` and `uv.lock` remain the dependency sources of truth;
 `requirements.txt` is their installation export.
+
+If Windows reports `No module named 'mupdf'`, repair the compiled PyMuPDF wheel:
+
+```powershell
+cd services\api
+uv sync --locked --reinstall-package pymupdf
+.\.venv\Scripts\python.exe -c "import pymupdf; print(pymupdf.__version__)"
+```
+
+The desktop now performs this repair automatically after a failed dependency
+preflight. If the import still fails, repair the current Microsoft Visual C++
+x64 Redistributable and retry.
 
 The backend reads its runtime stage and SQLite location from
 `services/api/.env`. Start from the checked-in example:
@@ -93,6 +105,21 @@ for the active stage. Each stage owns a complete folder containing its database,
 verified ZIP of that boundary or restore a same-stage ZIP after automatically
 creating a pre-restore safety backup. Use a persistent, writable absolute data
 root for installed production builds.
+
+## Diagnostics
+
+The backend writes timestamped startup phases, slow requests, shutdown events,
+and complete crash tracebacks to
+`<PRINT_MS_DATA_DIR>/<stage>/logs/backend.log` (by default,
+`services/api/.data/<stage>/logs/backend.log`). Logs rotate automatically. Set
+`PRINT_MS_LOG_LEVEL=DEBUG` in `services/api/.env` to include every completed
+request while investigating a problem, then return it to `INFO`.
+
+Electron writes GPU and renderer lifecycle failures to its `desktop.log` file
+inside the operating system's Electron logs directory; the exact path is
+recorded in the `desktop.start` entry. Windows uses software rendering by
+default to avoid driver-related black or white windows. Hardware acceleration
+can be tested explicitly with `PRINTING_MS_ENABLE_HARDWARE_ACCELERATION=1`.
 
 ## Project layout
 

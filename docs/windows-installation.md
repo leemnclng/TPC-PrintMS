@@ -84,3 +84,5 @@ model-specific package and approve vendor installation prompts.
 | Network scanner is absent | Scan-from-PC device is not selected | Configure IJ Network Scanner Selector EX2 |
 | Scanner appears offline | Device, USB, network, firewall, or driver communication failure | Confirm power/connection, close other scan apps, then refresh |
 | Scanner is visible but acquisition fails | Device is busy or reports paper, cover, or feeder state | Follow the Printing-MS readiness message and retry |
+| Backend exits with `No module named 'mupdf'` | The PyMuPDF native Windows wheel is incomplete or cannot load its DLL | Run `uv sync --locked --reinstall-package pymupdf` in `services\api`; if its import still fails, repair the Microsoft Visual C++ x64 Redistributable |
+| Window turns black, then white | The Electron GPU or renderer process exited | Update/rebuild Printing-MS; Windows software rendering is now the default. Check Electron's `desktop.log` and the active stage's `.data\<stage>\logs\backend.log`. Test hardware acceleration only with `PRINTING_MS_ENABLE_HARDWARE_ACCELERATION=1`. |

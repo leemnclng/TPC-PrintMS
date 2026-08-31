@@ -648,3 +648,21 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Keep backend dependency declarations in `pyproject.toml`, exact resolution in `uv.lock`, and commit a pip-compatible `requirements.txt` export containing locked runtime and development/test packages.
 - Rationale: A requirements file makes manual Windows `.venv` setup familiar, but independently maintained version declarations would drift from the environment Electron and CI use.
 - Impact: Owners may install the complete backend environment with `uv pip install -r requirements.txt`; dependency changes must be locked first and then re-exported using the command recorded in the file header.
+
+### Validate Native Backend Imports Before Starting the Server
+
+- Decision: On Windows source launches, run a short import preflight through the selected `.venv` before starting FastAPI. If it fails, synchronize the locked environment once and force-reinstall PyMuPDF when its native bindings are implicated; verify again before launching. Cool down renderer-triggered retries after a persistent failure.
+- Rationale: Package metadata can remain present even when a compiled `.pyd` or DLL is incomplete, so selecting the existing interpreter is not enough. Repeated server launches obscure the original import error and make the app appear merely slow.
+- Impact: Healthy environments add only one bounded import check. Broken environments repair automatically when possible; missing Windows native runtime support produces specific recovery guidance rather than a startup loop.
+
+### Prefer Stable Windows Rendering and Bounded Recovery
+
+- Decision: Disable Electron hardware acceleration by default on Windows, persist GPU/renderer lifecycle failures, automatically reload once per minute, and then offer an explicit retry or close action. Keep hardware acceleration available only through `PRINTING_MS_ENABLE_HARDWARE_ACCELERATION=1` for controlled validation.
+- Rationale: The observed black-to-white window coincided with Electron's GPU process exiting with code 34. Repeated silent reloads could hide a persistent driver failure or create a loop.
+- Impact: Windows rendering no longer depends on the unstable GPU path by default, and a failed renderer cannot leave an unexplained permanent white surface.
+
+### Persist Phase-Based Backend Diagnostics Per Environment
+
+- Decision: Configure logging before heavyweight application imports and write timestamped startup phases, slow/failed requests, background-thread exceptions, shutdown, and fatal process tracebacks to a rotating log under the active stage's data folder. Keep `INFO` as the default and enable request-completion detail with `PRINT_MS_LOG_LEVEL=DEBUG`.
+- Rationale: Terminal-only output disappears after launcher shutdown and cannot distinguish slow dependency imports, migrations, seeding, spooler startup, or an API stall.
+- Impact: Development, test, and production diagnostics remain isolated with their data. Logs are capped at five 5 MiB files and contain runtime paths and versions but never the per-launch authentication token.

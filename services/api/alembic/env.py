@@ -1,4 +1,5 @@
 from logging.config import fileConfig
+import logging
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
@@ -8,7 +9,7 @@ from app.db.base import Base
 from app.db import models  # noqa: F401 — registers all tables on Base.metadata
 
 config = context.config
-if config.config_file_name is not None:
+if config.config_file_name is not None and not logging.getLogger().handlers:
     fileConfig(config.config_file_name)
 
 config.set_main_option("sqlalchemy.url", settings.database_url)

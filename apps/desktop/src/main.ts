@@ -1,14 +1,99 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { execFile } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { BackendConfig, BackendManager, KNOWN_STAGES } from "./backendManager";
 import { acquireScannerPage, inspectScannerDevices } from "./scannerAcquisition";
 
-const backend = new BackendManager();
+const backend = new BackendManager((level, event, details) => logDesktopEvent(level, event, details));
+const useSoftwareRendering = process.platform === "win32" && process.env.PRINTING_MS_ENABLE_HARDWARE_ACCELERATION !== "1";
+if (useSoftwareRendering) app.disableHardwareAcceleration();
+
 let backendReady: Promise<BackendConfig> | null = null;
+let backendFailure: { error: Error; retryAfter: number } | null = null;
 let mainWindow: BrowserWindow | null = null;
 let shutdownPromise: Promise<void> | null = null;
 const appIconPath = path.join(__dirname, "..", "build", "icon.png");
+const BACKEND_RETRY_DELAY_MS = 15_000;
+const RENDERER_RECOVERY_WINDOW_MS = 60_000;
+let desktopLogPath: string | null = null;
+let lastRendererRecoveryAt = 0;
+let rendererFailureDialogOpen = false;
+
+function logDesktopEvent(level: "INFO" | "WARN" | "ERROR", event: string, details?: unknown): void {
+  const serializedDetails = details === undefined ? "" : ` ${JSON.stringify(details)}`;
+  const line = `${new Date().toISOString()} ${level} ${event}${serializedDetails}`;
+  if (level === "ERROR") console.error(`[desktop] ${event}`, details ?? "");
+  else if (level === "WARN") console.warn(`[desktop] ${event}`, details ?? "");
+  else console.log(`[desktop] ${event}`, details ?? "");
+  if (!desktopLogPath) return;
+  try {
+    appendFileSync(desktopLogPath, `${line}\n`, "utf8");
+  } catch (error) {
+    console.error("[desktop] could not write the desktop diagnostic log:", error);
+  }
+}
+
+function initializeDesktopLogging(): void {
+  const logDirectory = app.getPath("logs");
+  mkdirSync(logDirectory, { recursive: true });
+  desktopLogPath = path.join(logDirectory, "desktop.log");
+  logDesktopEvent("INFO", "desktop.start", {
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    softwareRendering: useSoftwareRendering,
+    logPath: desktopLogPath,
+  });
+}
+
+function loadRenderer(window: BrowserWindow): Promise<void> {
+  if (!app.isPackaged) return window.loadURL("http://localhost:5173");
+  return window.loadFile(path.join(__dirname, "..", "..", "web", "dist", "index.html"));
+}
+
+async function showRendererFailure(window: BrowserWindow, detail: string): Promise<void> {
+  if (rendererFailureDialogOpen || window.isDestroyed()) return;
+  rendererFailureDialogOpen = true;
+  try {
+    const result = await dialog.showMessageBox(window, {
+      type: "error",
+      title: "Printing-MS display recovery",
+      message: "The application screen stopped rendering.",
+      detail: `${detail}\n\nSoftware rendering is enabled on Windows. Diagnostics were saved to ${desktopLogPath ?? "the Electron log folder"}.`,
+      buttons: ["Try again", "Close app"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (result.response === 0 && !window.isDestroyed()) {
+      lastRendererRecoveryAt = Date.now();
+      void loadRenderer(window).catch((error) => recoverRenderer(window, `Reload failed: ${String(error)}`));
+    } else if (!window.isDestroyed()) {
+      window.close();
+    }
+  } finally {
+    rendererFailureDialogOpen = false;
+  }
+}
+
+function recoverRenderer(window: BrowserWindow, detail: string): void {
+  if (window.isDestroyed() || shutdownPromise) return;
+  logDesktopEvent("ERROR", "renderer.failure", { detail });
+  const now = Date.now();
+  if (now - lastRendererRecoveryAt > RENDERER_RECOVERY_WINDOW_MS) {
+    lastRendererRecoveryAt = now;
+    setTimeout(() => {
+      if (!window.isDestroyed()) {
+        void loadRenderer(window).catch((error) => recoverRenderer(window, `Automatic reload failed: ${String(error)}`));
+      }
+    }, 500);
+    return;
+  }
+  void showRendererFailure(window, detail);
+}
 
 function shutdownAndExit(exitCode = 0): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
@@ -27,9 +112,16 @@ function shutdownAndExit(exitCode = 0): Promise<void> {
 
 function trackBackendStart(startup: Promise<BackendConfig>): Promise<BackendConfig> {
   backendReady = startup;
+  backendFailure = null;
   void startup.catch((error) => {
     if (backendReady === startup) backendReady = null;
-    console.error("[main] backend failed to start:", error);
+    const normalizedError = error instanceof Error ? error : new Error(String(error));
+    backendFailure = { error: normalizedError, retryAfter: Date.now() + BACKEND_RETRY_DELAY_MS };
+    logDesktopEvent("ERROR", "backend.start.failed", {
+      message: normalizedError.message,
+      retryAfter: backendFailure.retryAfter,
+    });
+    console.error("[main] backend failed to start:", normalizedError);
   });
   return startup;
 }
@@ -40,11 +132,14 @@ async function ensureBackendReady(): Promise<BackendConfig> {
     if (backend.isReady()) return config;
     backendReady = null;
   }
+  if (backendFailure && Date.now() < backendFailure.retryAfter) {
+    throw backendFailure.error;
+  }
   return trackBackendStart(backend.start());
 }
 
 function createWindow(): void {
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 1040,
@@ -59,18 +154,31 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+  mainWindow = window;
 
   if (!app.isPackaged) {
-    mainWindow.loadURL("http://localhost:5173");
     if (process.env.PRINTING_MS_OPEN_DEVTOOLS === "1") {
-      mainWindow.webContents.openDevTools({ mode: "detach" });
+      window.webContents.openDevTools({ mode: "detach" });
     }
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "..", "..", "web", "dist", "index.html"));
   }
+  void loadRenderer(window).catch((error) => recoverRenderer(window, `Initial load failed: ${String(error)}`));
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  window.webContents.on("did-finish-load", () => {
+    logDesktopEvent("INFO", "renderer.ready", { url: window.webContents.getURL() });
+  });
+  window.webContents.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    recoverRenderer(window, `Renderer exited (${details.reason}, code ${details.exitCode}).`);
+  });
+  window.on("unresponsive", () => {
+    logDesktopEvent("WARN", "renderer.unresponsive");
+  });
+  window.on("responsive", () => {
+    logDesktopEvent("INFO", "renderer.responsive");
+  });
+
+  window.on("closed", () => {
+    if (mainWindow === window) mainWindow = null;
   });
 }
 
@@ -121,6 +229,7 @@ ipcMain.handle("paper-club:inspect-scanners", async () => inspectScannerDevices(
 ipcMain.handle("paper-club:acquire-scanner-page", async (_event, deviceId: unknown, settings: unknown) => acquireScannerPage(deviceId, settings));
 
 app.whenReady().then(async () => {
+  initializeDesktopLogging();
   if (process.platform === "darwin" && !app.isPackaged) {
     app.dock.setIcon(appIconPath);
   }
@@ -135,6 +244,11 @@ app.whenReady().then(async () => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on("child-process-gone", (_event, details) => {
+  const level = details.type === "GPU" ? "ERROR" : "WARN";
+  logDesktopEvent(level, "child-process.gone", details);
 });
 
 app.on("window-all-closed", () => {

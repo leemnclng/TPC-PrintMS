@@ -58,7 +58,7 @@ if not exist "node_modules" (
 
 echo.
 echo Launching Printing-MS - Electron will spawn the FastAPI backend itself.
-echo The first backend start is slower while uv resolves the Python environment.
+echo Electron will validate the backend environment and repair locked dependencies when needed.
 echo Close the app window ^(or press Ctrl+C here^) to stop everything.
 echo.
 

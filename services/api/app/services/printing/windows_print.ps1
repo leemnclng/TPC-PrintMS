@@ -177,22 +177,47 @@ $script:pageIndex = 0
 # message here, and cancel the job; Print() is then checked for this afterward
 # and re-thrown as a plain PowerShell error, which keeps the detail intact.
 $script:printFailure = $null
+$script:cachedImage = $null
+$script:cachedStream = $null
+$script:cachedImageIndex = -1
+
+function Get-PrintPageImage {
+    param([int]$Index)
+    if ($script:cachedImage -and $script:cachedImageIndex -eq $Index) {
+        return $script:cachedImage
+    }
+    if ($script:cachedImage) {
+        $script:cachedImage.Dispose()
+        $script:cachedStream.Dispose()
+    }
+    # Image.FromFile keeps the source file locked open for the image's entire
+    # lifetime, and opening+disposing a fresh Image per page — twice per page,
+    # once here and once in PrintPage below — is a well-documented cause of a
+    # spurious GDI+ "Out of memory" exception unrelated to actual available
+    # memory, especially across a multi-page or multi-copy job. Loading the
+    # bytes into a MemoryStream and using FromStream avoids holding a file
+    # lock and is cached per page index so each page is only decoded once;
+    # the stream must stay alive for as long as the image does (also cached
+    # here), or GDI+ can fail decoding it later.
+    $bytes = [System.IO.File]::ReadAllBytes($printPaths[$Index])
+    $stream = [System.IO.MemoryStream]::new($bytes)
+    $image = [System.Drawing.Image]::FromStream($stream)
+    $script:cachedImage = $image
+    $script:cachedStream = $stream
+    $script:cachedImageIndex = $Index
+    return $image
+}
 
 $document.add_QueryPageSettings({
     param($sender, $eventArgs)
     try {
-        $probe = [System.Drawing.Image]::FromFile($printPaths[$script:pageIndex])
-        try {
-            $eventArgs.PageSettings.Landscape = if ($Orientation -eq "auto") { $probe.Width -gt $probe.Height } else { $Orientation -eq "landscape" }
-            $eventArgs.PageSettings.Color = ($ColorMode -eq "color")
-            $eventArgs.PageSettings.PaperSize = $paperSize
-            $eventArgs.PageSettings.Margins = [System.Drawing.Printing.Margins]::new(0, 0, 0, 0)
-            if ($null -ne $printerResolution) {
-                $eventArgs.PageSettings.PrinterResolution = $printerResolution
-            }
-        }
-        finally {
-            $probe.Dispose()
+        $probe = Get-PrintPageImage -Index $script:pageIndex
+        $eventArgs.PageSettings.Landscape = if ($Orientation -eq "auto") { $probe.Width -gt $probe.Height } else { $Orientation -eq "landscape" }
+        $eventArgs.PageSettings.Color = ($ColorMode -eq "color")
+        $eventArgs.PageSettings.PaperSize = $paperSize
+        $eventArgs.PageSettings.Margins = [System.Drawing.Printing.Margins]::new(0, 0, 0, 0)
+        if ($null -ne $printerResolution) {
+            $eventArgs.PageSettings.PrinterResolution = $printerResolution
         }
     }
     catch {
@@ -204,66 +229,61 @@ $document.add_QueryPageSettings({
 $document.add_PrintPage({
     param($sender, $eventArgs)
     try {
-        $image = [System.Drawing.Image]::FromFile($printPaths[$script:pageIndex])
-        try {
-            $printableArea = $eventArgs.PageSettings.PrintableArea
-            if ($useBorderless) {
-                # Canon and other inkjet drivers can keep their true borderless
-                # capability in private DEVMODE data while the public .NET
-                # PrintableArea still reports a hard margin. Treat borderless as
-                # a driver-finalized request instead of rejecting that report.
-                # Move the GDI origin to the physical sheet and render against the
-                # full page; an unsupported queue may clip, but it can still accept
-                # and finalize the job using its installed media profile.
-                $eventArgs.Graphics.TranslateTransform(
-                    -[single]$eventArgs.PageSettings.HardMarginX,
-                    -[single]$eventArgs.PageSettings.HardMarginY
-                )
-                $originX = [single]0
-                $originY = [single]0
-                $availableWidth = [Math]::Max(1, [single]$eventArgs.PageBounds.Width)
-                $availableHeight = [Math]::Max(1, [single]$eventArgs.PageBounds.Height)
-            }
-            else {
-                # With OriginAtMargins false, Graphics (0,0) is already the
-                # printable-area origin. Do not add the hard margin a second time.
-                $originX = [single]0
-                $originY = [single]0
-                $availableWidth = [Math]::Max(1, [single]$printableArea.Width)
-                $availableHeight = [Math]::Max(1, [single]$printableArea.Height)
-            }
-            $actualWidth = [single](100 * $image.Width / [Math]::Max(1, $image.HorizontalResolution))
-            $actualHeight = [single](100 * $image.Height / [Math]::Max(1, $image.VerticalResolution))
-            if ($Scaling -eq "actual_size" -or ($Scaling -eq "auto" -and $actualWidth -le $availableWidth -and $actualHeight -le $availableHeight)) {
-                $drawWidth = $actualWidth
-                $drawHeight = $actualHeight
-            }
-            elseif ($Scaling -eq "auto") {
-                $shrinkScale = [Math]::Min($availableWidth / $actualWidth, $availableHeight / $actualHeight)
-                $drawWidth = [single]($actualWidth * $shrinkScale)
-                $drawHeight = [single]($actualHeight * $shrinkScale)
-            }
-            else {
-                $fitScale = [Math]::Min($availableWidth / $image.Width, $availableHeight / $image.Height)
-                $fillScale = [Math]::Max($availableWidth / $image.Width, $availableHeight / $image.Height)
-                $scale = if ($Scaling -eq "fill") { $fillScale } else { $fitScale }
-                $drawWidth = [single]($image.Width * $scale)
-                $drawHeight = [single]($image.Height * $scale)
-            }
-            $left = [single]($originX + (($availableWidth - $drawWidth) / 2))
-            $top = [single]($originY + (($availableHeight - $drawHeight) / 2))
-            $target = [System.Drawing.RectangleF]::new($left, $top, $drawWidth, $drawHeight)
+        $image = Get-PrintPageImage -Index $script:pageIndex
+        $printableArea = $eventArgs.PageSettings.PrintableArea
+        if ($useBorderless) {
+            # Canon and other inkjet drivers can keep their true borderless
+            # capability in private DEVMODE data while the public .NET
+            # PrintableArea still reports a hard margin. Treat borderless as
+            # a driver-finalized request instead of rejecting that report.
+            # Move the GDI origin to the physical sheet and render against the
+            # full page; an unsupported queue may clip, but it can still accept
+            # and finalize the job using its installed media profile.
+            $eventArgs.Graphics.TranslateTransform(
+                -[single]$eventArgs.PageSettings.HardMarginX,
+                -[single]$eventArgs.PageSettings.HardMarginY
+            )
+            $originX = [single]0
+            $originY = [single]0
+            $availableWidth = [Math]::Max(1, [single]$eventArgs.PageBounds.Width)
+            $availableHeight = [Math]::Max(1, [single]$eventArgs.PageBounds.Height)
+        }
+        else {
+            # With OriginAtMargins false, Graphics (0,0) is already the
+            # printable-area origin. Do not add the hard margin a second time.
+            $originX = [single]0
+            $originY = [single]0
+            $availableWidth = [Math]::Max(1, [single]$printableArea.Width)
+            $availableHeight = [Math]::Max(1, [single]$printableArea.Height)
+        }
+        $actualWidth = [single](100 * $image.Width / [Math]::Max(1, $image.HorizontalResolution))
+        $actualHeight = [single](100 * $image.Height / [Math]::Max(1, $image.VerticalResolution))
+        if ($Scaling -eq "actual_size" -or ($Scaling -eq "auto" -and $actualWidth -le $availableWidth -and $actualHeight -le $availableHeight)) {
+            $drawWidth = $actualWidth
+            $drawHeight = $actualHeight
+        }
+        elseif ($Scaling -eq "auto") {
+            $shrinkScale = [Math]::Min($availableWidth / $actualWidth, $availableHeight / $actualHeight)
+            $drawWidth = [single]($actualWidth * $shrinkScale)
+            $drawHeight = [single]($actualHeight * $shrinkScale)
+        }
+        else {
+            $fitScale = [Math]::Min($availableWidth / $image.Width, $availableHeight / $image.Height)
+            $fillScale = [Math]::Max($availableWidth / $image.Width, $availableHeight / $image.Height)
+            $scale = if ($Scaling -eq "fill") { $fillScale } else { $fitScale }
+            $drawWidth = [single]($image.Width * $scale)
+            $drawHeight = [single]($image.Height * $scale)
+        }
+        $left = [single]($originX + (($availableWidth - $drawWidth) / 2))
+        $top = [single]($originY + (($availableHeight - $drawHeight) / 2))
+        $target = [System.Drawing.RectangleF]::new($left, $top, $drawWidth, $drawHeight)
 
-            $eventArgs.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $eventArgs.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-            if ($Scaling -eq "fill") {
-                $eventArgs.Graphics.SetClip([System.Drawing.RectangleF]::new($originX, $originY, $availableWidth, $availableHeight))
-            }
-            $eventArgs.Graphics.DrawImage($image, $target)
+        $eventArgs.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $eventArgs.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        if ($Scaling -eq "fill") {
+            $eventArgs.Graphics.SetClip([System.Drawing.RectangleF]::new($originX, $originY, $availableWidth, $availableHeight))
         }
-        finally {
-            $image.Dispose()
-        }
+        $eventArgs.Graphics.DrawImage($image, $target)
 
         $script:pageIndex++
         $eventArgs.HasMorePages = ($script:pageIndex -lt $printPaths.Count)
@@ -281,5 +301,7 @@ try {
     }
 }
 finally {
+    if ($script:cachedImage) { $script:cachedImage.Dispose() }
+    if ($script:cachedStream) { $script:cachedStream.Dispose() }
     $document.Dispose()
 }

@@ -60,6 +60,8 @@ def test_each_stage_owns_files_backups_and_config(monkeypatch, tmp_path: Path) -
     assert configured.resolved_managed_files_dir == tmp_path / "production" / "files"
     assert configured.resolved_backup_dir == tmp_path / "production" / "backups"
     assert configured.resolved_environment_config_path == tmp_path / "production" / "config.json"
+    assert configured.resolved_backend_log_path == tmp_path / "production" / "logs" / "backend.log"
+    assert configured.resolved_backend_log_path.parent.is_dir()
 
 
 def test_legacy_database_and_files_are_copied_forward(monkeypatch, tmp_path: Path) -> None:

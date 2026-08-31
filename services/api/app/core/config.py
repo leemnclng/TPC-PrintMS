@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     production_database_path: Path | None = None
     test_database_path: Path | None = None
     printer_platform: Literal["auto", "windows", "macos", "linux"] = "auto"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     # Generated fresh per launch. Electron reads it from stdout and hands it
     # to the renderer via the preload bridge; it is never written to disk.
@@ -75,6 +76,12 @@ class Settings(BaseSettings):
     @property
     def resolved_environment_config_path(self) -> Path:
         return self.resolved_data_dir / "config.json"
+
+    @property
+    def resolved_backend_log_path(self) -> Path:
+        path = self.resolved_data_dir / "logs" / "backend.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
 
     @property
     def resolved_scan_output_dir(self) -> Path:

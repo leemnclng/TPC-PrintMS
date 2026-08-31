@@ -17,10 +17,38 @@ export interface BackendConfig {
   token: string;
 }
 
+interface CommandResult {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+export type BackendDiagnosticLogger = (
+  level: "INFO" | "WARN" | "ERROR",
+  event: string,
+  details?: Record<string, unknown>,
+) => void;
+
 const STARTUP_TIMEOUT_MS = 30_000;
 const STAGE_SWITCH_TIMEOUT_MS = 120_000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 3_000;
 const FORCED_SHUTDOWN_TIMEOUT_MS = 2_000;
+const DEPENDENCY_REPAIR_TIMEOUT_MS = 120_000;
+const BACKEND_IMPORT_CHECK = [
+  // Check the compiled PDF binding first so its broad internal fallback does
+  // not hide the package that needs a targeted wheel reinstall.
+  "import pymupdf",
+  "import alembic",
+  "import fastapi",
+  "import openpyxl",
+  "import PIL",
+  "import pydantic",
+  "import pypdf",
+  "import sqlalchemy",
+  "import uvicorn",
+  "import docx",
+  "import pptx",
+].join("; ");
 
 export const KNOWN_STAGES = ["development", "test", "production"] as const;
 export type EnvironmentStage = (typeof KNOWN_STAGES)[number];
@@ -30,6 +58,16 @@ export class BackendManager {
   private config: BackendConfig | null = null;
   private shuttingDown = false;
   private stage: EnvironmentStage | null = null;
+
+  constructor(private readonly diagnosticLogger?: BackendDiagnosticLogger) {}
+
+  private record(
+    level: "INFO" | "WARN" | "ERROR",
+    event: string,
+    details?: Record<string, unknown>,
+  ): void {
+    this.diagnosticLogger?.(level, event, details);
+  }
 
   async start(stage?: EnvironmentStage, startupTimeoutMs = STARTUP_TIMEOUT_MS): Promise<BackendConfig> {
     if (app.isPackaged) {
@@ -62,7 +100,10 @@ export class BackendManager {
     return this.stage;
   }
 
-  private startFromSource(stage?: EnvironmentStage, startupTimeoutMs = STARTUP_TIMEOUT_MS): Promise<BackendConfig> {
+  private async startFromSource(
+    stage?: EnvironmentStage,
+    startupTimeoutMs = STARTUP_TIMEOUT_MS,
+  ): Promise<BackendConfig> {
     const backendDir = path.resolve(__dirname, "..", "..", "..", "services", "api");
     const env = { ...process.env };
     if (stage) env.PRINT_MS_STAGE = stage;
@@ -78,7 +119,16 @@ export class BackendManager {
     const command = useDirectVirtualEnvironment ? virtualEnvironmentPython : "uv";
     const args = useDirectVirtualEnvironment ? ["-m", "app.main"] : ["run", "python", "-m", "app.main"];
     const startedAt = Date.now();
+    this.record("INFO", "backend.start", {
+      stage: this.stage,
+      launcher: command === "uv" ? "uv" : "project-venv",
+      timeoutMs: startupTimeoutMs,
+    });
     console.log(`[backend] starting ${this.stage} with ${command === "uv" ? "uv fallback" : "the project virtual environment"}.`);
+
+    if (useDirectVirtualEnvironment) {
+      await this.ensureSourceDependencies(backendDir, virtualEnvironmentPython, env);
+    }
 
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, {
@@ -87,6 +137,7 @@ export class BackendManager {
         windowsHide: true,
       });
       this.child = child;
+      this.record("INFO", "backend.process.spawned", { pid: child.pid, stage: this.stage });
 
       let settled = false;
       let timeout: ReturnType<typeof setTimeout>;
@@ -101,11 +152,16 @@ export class BackendManager {
         reject(error);
       };
       timeout = setTimeout(() => {
+        this.record("ERROR", "backend.start.timeout", {
+          stage: this.stage,
+          elapsedMs: Date.now() - startedAt,
+        });
         rejectStartup(new Error(`Backend did not report readiness within ${Math.round(startupTimeoutMs / 1000)} seconds.`));
       }, startupTimeoutMs);
 
       let port: number | null = null;
       let token: string | null = null;
+      let recentStderr = "";
 
       const stdoutLines = readline.createInterface({ input: child.stdout });
       stdoutLines.on("line", (line) => {
@@ -118,6 +174,11 @@ export class BackendManager {
           settled = true;
           clearTimeout(timeout);
           this.config = { baseUrl: `http://127.0.0.1:${port}`, token };
+          this.record("INFO", "backend.ready", {
+            stage: this.stage,
+            pid: child.pid,
+            elapsedMs: Date.now() - startedAt,
+          });
           console.log(`[backend] ready in ${Date.now() - startedAt}ms.`);
           resolve(this.config);
         }
@@ -125,11 +186,22 @@ export class BackendManager {
       });
 
       child.stderr.on("data", (chunk: Buffer) => {
-        console.error(`[backend:stderr] ${chunk.toString().trimEnd()}`);
+        const output = chunk.toString();
+        recentStderr = `${recentStderr}${output}`.slice(-16_000);
+        console.error(`[backend:stderr] ${output.trimEnd()}`);
       });
 
       child.on("exit", (code, signal) => {
         clearTimeout(timeout);
+        this.record(this.shuttingDown ? "INFO" : "ERROR", "backend.process.exit", {
+          stage: this.stage,
+          pid: child.pid,
+          code,
+          signal,
+          ready: settled,
+          uptimeMs: Date.now() - startedAt,
+          stderrTail: this.shuttingDown ? undefined : recentStderr.trim().slice(-8_000),
+        });
         if (!settled && !this.shuttingDown) {
           rejectStartup(new Error(`Backend exited before it became ready (code=${code}, signal=${signal}).`));
         }
@@ -143,6 +215,7 @@ export class BackendManager {
       });
 
       child.on("error", (err) => {
+        this.record("ERROR", "backend.process.error", { message: err.message });
         rejectStartup(err);
       });
     });
@@ -215,5 +288,111 @@ export class BackendManager {
         },
       );
     });
+  }
+
+  private async ensureSourceDependencies(
+    backendDir: string,
+    python: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<void> {
+    const checkedAt = Date.now();
+    this.record("INFO", "backend.dependencies.check.begin", { stage: this.stage });
+    const check = await this.runCommand(python, ["-c", BACKEND_IMPORT_CHECK], backendDir, env, 20_000);
+    if (check.code === 0) {
+      this.record("INFO", "backend.dependencies.check.complete", { elapsedMs: Date.now() - checkedAt });
+      console.log(`[backend] dependency preflight passed in ${Date.now() - checkedAt}ms.`);
+      return;
+    }
+
+    const diagnostic = `${check.stderr}\n${check.stdout}`.trim();
+    const pymupdfFailure = /pymupdf|mupdf|_extra|_mupdf/i.test(diagnostic);
+    this.record("WARN", "backend.dependencies.check.failed", {
+      elapsedMs: Date.now() - checkedAt,
+      pymupdfFailure,
+      diagnostic: diagnostic.slice(-4000),
+    });
+    console.warn(
+      `[backend] dependency preflight failed; repairing the locked environment.${
+        pymupdfFailure ? " PyMuPDF will be reinstalled." : ""
+      }`,
+    );
+
+    const syncArgs = ["sync", "--locked"];
+    if (pymupdfFailure) {
+      syncArgs.push("--reinstall-package", "pymupdf");
+    } else {
+      syncArgs.push("--reinstall");
+    }
+    const repairStartedAt = Date.now();
+    this.record("WARN", "backend.dependencies.repair.begin", { pymupdfFailure });
+    const repair = await this.runCommand("uv", syncArgs, backendDir, env, DEPENDENCY_REPAIR_TIMEOUT_MS);
+    if (repair.code !== 0) {
+      this.record("ERROR", "backend.dependencies.repair.failed", {
+        elapsedMs: Date.now() - repairStartedAt,
+        diagnostic: this.lastDiagnostic(repair),
+      });
+      throw new Error(
+        `Backend dependency repair failed. Run "uv sync --locked${
+          pymupdfFailure ? " --reinstall-package pymupdf" : ""
+        }" in services\\api. ${this.lastDiagnostic(repair)}`,
+      );
+    }
+
+    const repairedCheck = await this.runCommand(python, ["-c", BACKEND_IMPORT_CHECK], backendDir, env, 20_000);
+    if (repairedCheck.code !== 0) {
+      this.record("ERROR", "backend.dependencies.verify.failed", {
+        diagnostic: this.lastDiagnostic(repairedCheck),
+      });
+      const guidance = pymupdfFailure
+        ? " PyMuPDF still cannot load; install or repair the Microsoft Visual C++ x64 Redistributable, then retry."
+        : "";
+      throw new Error(`Backend dependency validation still fails after repair.${guidance} ${this.lastDiagnostic(repairedCheck)}`);
+    }
+    this.record("INFO", "backend.dependencies.repair.complete", {
+      elapsedMs: Date.now() - repairStartedAt,
+      totalElapsedMs: Date.now() - checkedAt,
+    });
+    console.log(`[backend] dependency repair completed in ${Date.now() - checkedAt}ms.`);
+  }
+
+  private runCommand(
+    command: string,
+    args: string[],
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+    timeoutMs: number,
+  ): Promise<CommandResult> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, args, { cwd, env, windowsHide: true });
+      let stdout = "";
+      let stderr = "";
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error(`${command} did not finish within ${Math.round(timeoutMs / 1000)} seconds.`));
+      }, timeoutMs);
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString();
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.once("close", (code) => {
+        clearTimeout(timer);
+        resolve({ code, stdout, stderr });
+      });
+    });
+  }
+
+  private lastDiagnostic(result: CommandResult): string {
+    const lines = `${result.stderr}\n${result.stdout}`
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return lines.slice(-4).join(" ") || `Process exited with code ${result.code}.`;
   }
 }

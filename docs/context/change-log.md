@@ -4,12 +4,17 @@ Track notable app changes by date.
 
 ## 2026-09-01 (desktop backend startup reliability)
 
+- Fixed: Windows now defaults to software rendering after the observed GPU-process crash caused a black-to-white application window.
+- Added: GPU and renderer failures are saved to `desktop.log`; one automatic recovery is attempted before the app presents Try again or Close app.
+- Added: The backend now writes rotating, stage-specific diagnostics with timed imports, migrations, seeding, spooler startup, slow/failed requests, shutdown, and complete crash tracebacks.
 - Fixed: App startup no longer converts a backend launch failure into repeated `Backend has not started yet` IPC errors.
 - Changed: Windows source builds use `.venv\Scripts\python.exe` directly when available, avoiding repeated `uv run` resolution overhead.
 - Changed: The non-secret configuration snapshot refresh and already-completed legacy file migration no longer delay normal backend readiness.
 - Fixed: Creating the Windows Desktop shortcut now works reliably with redirected Desktop folders and repository paths containing spaces.
 - Changed: Closing the final Windows app window stops the managed backend before Electron exits; the development launcher and its terminal then close instead of remaining active.
 - Added: The backend now includes a pinned pip-compatible `requirements.txt` for installing all runtime and test dependencies into `.venv`.
+- Fixed: An incomplete Windows PyMuPDF native installation now triggers one verified locked-environment repair instead of repeatedly crashing and restarting the backend.
+- Changed: Persistent backend import failures retain actionable diagnostics and wait before retrying, so the app no longer appears stuck in a rapid startup loop.
 
 ## 2026-08-31 (stage switching, custom output size, and recovery hardening)
 
