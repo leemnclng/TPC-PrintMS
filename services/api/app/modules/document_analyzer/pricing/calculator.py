@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from math import ceil
+
 from app.db.models import ProductPrintType
 
 from ..models.document_analysis import DocumentAnalysis
@@ -76,8 +78,20 @@ def calculate_price(
             )
         )
     adjustment_total = sum(item.amount for item in adjustments)
+    calculated_price = max(0, round(base_subtotal + adjustment_total, 2))
+    suggested_price = float(ceil(calculated_price))
+    rounding_amount = round(suggested_price - calculated_price, 2)
+    if rounding_amount:
+        adjustments.append(
+            PricingAdjustment(
+                kind="rounding",
+                label="Rounded-up recommendation",
+                basis="Next whole peso",
+                amount=rounding_amount,
+            )
+        )
     return PricingResult(
-        suggested_price=max(0, round(base_subtotal + adjustment_total, 2)),
+        suggested_price=suggested_price,
         base_subtotal=base_subtotal,
         breakdown=breakdown,
         adjustments=adjustments,

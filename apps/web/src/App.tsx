@@ -12,6 +12,7 @@ import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ConfigurationPage } from "./pages/ConfigurationPage";
 import { PricingCenterPage } from "./pages/PricingCenterPage";
+import { PricingOverviewWindow } from "./pages/PricingOverviewWindow";
 
 import { JobOrderWorkspace } from "./pages/workspaces/JobOrderWorkspace";
 import { ProductWorkspace } from "./pages/workspaces/ProductWorkspace";
@@ -23,6 +24,7 @@ import { CustomerWorkspace } from "./pages/workspaces/CustomerWorkspace";
 export default function App() {
   return (
     <Routes>
+      <Route path="pricing-overview" element={<PricingOverviewWindow />} />
       <Route element={<AppShell />}>
         <Route index element={<OverviewPage />} />
 

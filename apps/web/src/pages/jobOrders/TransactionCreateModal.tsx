@@ -30,7 +30,7 @@ interface TransactionLine {
   productId: string;
   paperId: string;
   variantId: string;
-  file: File | null;
+  files: File[];
   pages: number;
   copies: number;
   backToBack: boolean;
@@ -70,7 +70,7 @@ const newLine = (serviceId: string): TransactionLine => ({
   productId: "",
   paperId: "",
   variantId: "",
-  file: null,
+  files: [],
   pages: 1,
   copies: 1,
   backToBack: false,
@@ -143,7 +143,7 @@ export function TransactionCreateModal({
       productId,
       paperId: "",
       variantId: "",
-      file: null,
+      files: [],
       pages: 1,
       copies: 1,
       backToBack: false,
@@ -193,20 +193,25 @@ export function TransactionCreateModal({
 
   async function analyzeLine(line: TransactionLine) {
     const { product } = lineContext(line);
-    if (!product || !line.file || !line.paperId) {
+    const photoDuplex = product?.printType === "photo_print" && line.backToBack;
+    const hasRequiredFiles = photoDuplex ? line.files.length >= 2 : line.files.length === 1;
+    if (!product || !hasRequiredFiles || !line.paperId) {
       setSubmitted(true);
-      setError("Choose the printing product, document, and paper before analyzing it.");
+      setError(photoDuplex
+        ? "Choose at least two Photo Print files in front/back order and select the paper before analyzing."
+        : "Choose the printing product, document, and paper before analyzing it.");
       return;
     }
     updateLine(line.key, { analyzing: true });
     setError(null);
     const body = new FormData();
-    body.append("file", line.file);
+    if (photoDuplex) line.files.forEach((file) => body.append("files", file));
+    else body.append("file", line.files[0]);
     body.append("product_id", product.id);
     body.append("paper_inventory_item_id", line.paperId);
     if (line.variantId) body.append("variant_id", line.variantId);
     try {
-      const analysis = await api.upload<DocumentAnalysisResponse>("/document-analyzer/analyze", body);
+      const analysis = await api.upload<DocumentAnalysisResponse>(photoDuplex ? "/document-analyzer/analyze-photo-duplex" : "/document-analyzer/analyze", body);
       updateLine(line.key, { analysis, analyzing: false });
     } catch (caught) {
       updateLine(line.key, { analyzing: false });
@@ -214,11 +219,11 @@ export function TransactionCreateModal({
     }
   }
 
-  function selectFile(line: TransactionLine, event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
-    updateLine(line.key, { file, analysis: null });
-    if (!order && !name.trim() && lines.length === 1 && file) {
-      setName(file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").slice(0, 100));
+  function selectFiles(line: TransactionLine, event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    updateLine(line.key, { files: selectedFiles, analysis: null });
+    if (!order && !name.trim() && lines.length === 1 && selectedFiles[0]) {
+      setName(selectedFiles[0].name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").slice(0, 100));
     }
   }
 
@@ -227,7 +232,9 @@ export function TransactionCreateModal({
     return lines.every((line) => {
       const { product, papers, scanConfigured } = lineContext(line);
       if (!product) return false;
-      if (product.operationKind === "printing" && (!line.file || !line.analysis || !line.paperId)) return false;
+      const photoDuplex = product.printType === "photo_print" && line.backToBack;
+      const hasRequiredFiles = photoDuplex ? line.files.length >= 2 : line.files.length === 1;
+      if (product.operationKind === "printing" && (!hasRequiredFiles || !line.analysis || !line.paperId)) return false;
       if (["photocopy", "adhoc"].includes(product.operationKind) && (!line.paperId || line.pages < 1 || line.copies < 1)) return false;
       if (product.operationKind === "scan" && line.priceMode !== "custom" && !scanConfigured) return false;
       if (product.operationKind !== "scan" && papers.length === 0) return false;
@@ -267,9 +274,10 @@ export function TransactionCreateModal({
       })),
     }));
     lines.forEach((line) => {
-      if (!line.file) return;
-      body.append("file_keys", line.key);
-      body.append("files", line.file);
+      line.files.forEach((file) => {
+        body.append("file_keys", line.key);
+        body.append("files", file);
+      });
     });
     try {
       onCreated(await api.upload<JobOrder>(order ? `/job-orders/${order.id}/items` : "/job-orders/transactions", body));
@@ -326,6 +334,11 @@ export function TransactionCreateModal({
             {lines.map((line, index) => {
               const { product, papers, scanConfigured, suggested, total } = lineContext(line);
               const lineProducts = products.filter((candidate) => candidate.isActive && candidate.serviceId === line.serviceId);
+              const photoDuplex = product?.printType === "photo_print" && line.backToBack;
+              const hasRequiredFiles = photoDuplex ? line.files.length >= 2 : line.files.length === 1;
+              const reservedSheets = photoDuplex && line.analysis
+                ? Math.ceil(line.analysis.analysis.pageCount / 2) * line.copies
+                : 0;
               return (
                 <article className="transaction-line" key={line.key}>
                   <header><div><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><strong>{product?.name || "Choose a product"}</strong>{product ? <small>{product.operationKind} workflow · {product.serviceName}</small> : null}{line.observedPrintJobId ? <StatusPill label="Already printed — recorded as done" tone="success" /> : null}</div>{lines.length > 1 ? <Button type="button" variant="ghost" size="sm" onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))}>Remove</Button> : null}</header>
@@ -333,13 +346,13 @@ export function TransactionCreateModal({
                     <label className="form-field"><span>Service</span><select value={line.serviceId} disabled={!order && index === 0} onChange={(event) => chooseService(line, event.target.value)}>{activeServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{!order && index === 0 ? <small>Initial service</small> : null}</label>
                     <label className={`form-field form-field--required${!product ? " is-awaiting-input" : ""}`}><span>Product</span><ComboBox value={line.productId} onChange={(productId) => chooseProduct(line, productId)} placeholder="Select product" emptyMessage="No matching products" ariaInvalid={submitted && !product} options={lineProducts.map((candidate) => ({ value: candidate.id, label: `${candidate.name} | ${candidate.printTypeLabel || formatProductPrintType(candidate.printType)}`, meta: `${formatCurrency(candidate.pricePerPage)} / page`, keywords: `${candidate.operationKind} ${candidate.serviceName}` }))} /></label>
                     {product && product.operationKind !== "scan" ? <label className={`form-field form-field--required${!line.paperId ? " is-awaiting-input" : ""}`}><span>Paper</span><select value={line.paperId} onChange={(event) => updateLine(line.key, { paperId: event.target.value, analysis: null })} aria-invalid={submitted && !line.paperId} required><option value="">Select configured paper</option>{papers.map((paper) => <option key={paper.id} value={paper.id}>{paperSizeDisplay(paper.paperSize, paper.paperWidthMm, paper.paperHeightMm)} · {paper.name}</option>)}</select></label> : null}
-                    {product?.operationKind === "printing" ? <label className={`form-field form-field--required transaction-line__file${!line.file ? " is-awaiting-input" : ""}`}><span>Customer document</span><input type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.docx,.xlsx,.pptx" onChange={(event) => selectFile(line, event)} aria-invalid={submitted && !line.file} required /><small>{line.analysis ? `${line.analysis.analysis.pageCount} pages · best fit ${line.analysis.analysis.paperSize}` : "Analyze after choosing the file and paper."}</small></label> : null}
+                    {product?.operationKind === "printing" ? <label className={`form-field form-field--required transaction-line__file${!hasRequiredFiles ? " is-awaiting-input" : ""}`}><span>{photoDuplex ? "Front/back photo files" : "Customer document"}</span><input key={`${line.key}-${photoDuplex ? "bundle" : "single"}`} type="file" multiple={photoDuplex} accept={photoDuplex ? ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp" : ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.docx,.xlsx,.pptx"} onChange={(event) => selectFiles(line, event)} aria-invalid={submitted && !hasRequiredFiles} required /><small>{line.analysis ? `${line.analysis.analysis.pageCount} sides · best fit ${line.analysis.analysis.paperSize}` : photoDuplex ? `${line.files.length} selected · choose at least 2 in front/back order.` : "Analyze after choosing the file and paper."}</small></label> : null}
                     {product && ["photocopy", "adhoc"].includes(product.operationKind) ? <label className={`form-field form-field--required${line.pages < 1 ? " is-awaiting-input" : ""}`}><span>Units / pages</span><input type="number" min={1} value={line.pages} onChange={(event) => updateLine(line.key, { pages: Number(event.target.value) })} aria-invalid={submitted && line.pages < 1} required /></label> : null}
                     {product && product.operationKind !== "scan" ? <label className={`form-field form-field--required${line.copies < 1 ? " is-awaiting-input" : ""}`}><span>Copies</span><input type="number" min={1} value={line.copies} onChange={(event) => updateLine(line.key, { copies: Number(event.target.value) })} aria-invalid={submitted && line.copies < 1} required /></label> : null}
-                    {product && product.operationKind !== "scan" && product.variants.length ? <label className="form-field"><span>Variant</span><select value={line.variantId} onChange={(event) => { const variant = product.variants.find((candidate) => candidate.variantId === event.target.value); updateLine(line.key, { variantId: event.target.value, backToBack: Boolean(variant?.requiresManualDuplex), analysis: null }); }}><option value="">No variant</option>{product.variants.map((variant) => <option key={variant.variantId} value={variant.variantId}>{variant.label}</option>)}</select></label> : null}
+                    {product && product.operationKind !== "scan" && product.variants.length ? <label className="form-field"><span>Variant</span><select value={line.variantId} onChange={(event) => { const variant = product.variants.find((candidate) => candidate.variantId === event.target.value); const backToBack = Boolean(variant?.requiresManualDuplex); updateLine(line.key, { variantId: event.target.value, backToBack, files: product.printType === "photo_print" && !backToBack ? line.files.slice(0, 1) : line.files, analysis: null }); }}><option value="">No variant</option>{product.variants.map((variant) => <option key={variant.variantId} value={variant.variantId}>{variant.label}</option>)}</select></label> : null}
                   </div>
-                  {product?.operationKind === "printing" ? <div className={`transaction-line__analysis${!line.analysis ? " is-awaiting-action" : ""}`}><Button type="button" variant="secondary" disabled={line.analyzing || !line.file || !line.paperId} onClick={() => analyzeLine(line)}>{line.analyzing ? "Analyzing…" : line.analysis ? "Analyze again" : "Analyze document"}</Button><p>{line.analysis ? "Analysis complete. The detected size is guidance; your selected paper controls production." : line.file && line.paperId ? "Required · Analyze the document to calculate pricing and continue." : "Choose the required file and paper to enable analysis."}</p></div> : null}
-                  {product?.operationKind === "printing" && line.file && line.analysis ? <TransactionLineDocumentPreview file={line.file} analysis={line.analysis} /> : null}
+                  {product?.operationKind === "printing" ? <div className={`transaction-line__analysis${!line.analysis ? " is-awaiting-action" : ""}`}><Button type="button" variant="secondary" disabled={line.analyzing || !hasRequiredFiles || !line.paperId} onClick={() => analyzeLine(line)}>{line.analyzing ? "Analyzing…" : line.analysis ? "Analyze again" : photoDuplex ? "Analyze front/back set" : "Analyze document"}</Button><p>{line.analysis ? photoDuplex ? `${line.analysis.analysis.pageCount} ordered sides · ${reservedSheets} physical ${reservedSheets === 1 ? "sheet" : "sheets"} reserved. Paper is deducted once after the back pass.` : "Analysis complete. The detected size is guidance; your selected paper controls production." : hasRequiredFiles && line.paperId ? "Required · Analyze the document to calculate pricing and continue." : photoDuplex ? "Choose at least two ordered files and paper to enable analysis." : "Choose the required file and paper to enable analysis."}</p></div> : null}
+                  {product?.operationKind === "printing" && line.files.length > 0 && line.analysis ? <TransactionLineDocumentPreview files={line.files} analysis={line.analysis} /> : null}
                   {product?.operationKind === "scan" ? <p className="transaction-line__notice">Create the job now. Scanning and page detection happen later inside this product line.</p> : null}
                   {product?.operationKind === "scan" && !scanConfigured ? <p className="workspace-form__error" role="alert">Set a price for {product.name} — either on the product itself or a global page-count tier in Settings.</p> : null}
                   {product?.operationKind === "photocopy" ? <p className="transaction-line__notice">Complete the physical copies on the printer, then record this line as ready.</p> : null}
@@ -359,7 +372,9 @@ export function TransactionCreateModal({
   );
 }
 
-function TransactionLineDocumentPreview({ file, analysis }: { file: File; analysis: DocumentAnalysisResponse }) {
+function TransactionLineDocumentPreview({ files, analysis }: { files: File[]; analysis: DocumentAnalysisResponse }) {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const file = files[Math.min(selectedIndex, files.length - 1)];
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
   const isPdf = extension === "pdf" || file.type === "application/pdf";
@@ -372,12 +387,28 @@ function TransactionLineDocumentPreview({ file, analysis }: { file: File; analys
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  useEffect(() => setSelectedIndex(0), [files]);
+
+  const totalSize = files.reduce((sum, candidate) => sum + candidate.size, 0);
+  const multiFile = files.length > 1;
+
   return (
-    <section className="transaction-line-preview" aria-label={`Analyzed preview of ${file.name}`}>
+    <section className={`transaction-line-preview${multiFile ? " transaction-line-preview--bundle" : ""}`} aria-label={multiFile ? "Analyzed Photo Print front and back files" : `Analyzed preview of ${file.name}`}>
       <header>
-        <div><span className="numeric">ANALYZED DOCUMENT</span><strong>{file.name}</strong></div>
-        <small>{analysis.analysis.pageCount} {analysis.analysis.pageCount === 1 ? "page" : "pages"} · {formatFileSize(file.size)}</small>
+        <div><span className="numeric">{multiFile ? "PHOTO DUPLEX SET" : "ANALYZED DOCUMENT"}</span><strong>{multiFile ? `${files.length} ordered sides` : file.name}</strong></div>
+        <small>{analysis.analysis.pageCount} {analysis.analysis.pageCount === 1 ? "page" : "pages"} · {formatFileSize(totalSize)}</small>
       </header>
+      {multiFile ? (
+        <nav className="transaction-line-preview__sides" aria-label="Choose a Photo Print side to preview">
+          {files.map((candidate, index) => (
+            <button type="button" className={index === selectedIndex ? "is-active" : ""} aria-pressed={index === selectedIndex} onClick={() => setSelectedIndex(index)} key={`${candidate.name}-${candidate.lastModified}-${index}`}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <strong>{index % 2 === 0 ? "Front" : "Back"}</strong>
+              <small>{candidate.name}</small>
+            </button>
+          ))}
+        </nav>
+      ) : null}
       <div className="transaction-line-preview__canvas">
         {isPdf ? (
           <Suspense fallback={<div className="transaction-line-preview__status" role="status">Loading interactive preview…</div>}>

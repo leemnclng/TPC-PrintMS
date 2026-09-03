@@ -162,6 +162,178 @@ def test_ad_hoc_transaction_tracks_external_work_and_material_usage(tmp_path, mo
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 34
 
 
+def test_photo_duplex_combines_files_and_consumes_one_sheet_per_pair(tmp_path, monkeypatch) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'photo-duplex.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "app-data")
+    monkeypatch.setattr(settings, "printer_platform", "windows")
+
+    def override_db():
+        db = test_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(services.router)
+    app.include_router(products.router)
+    app.include_router(inventory.router)
+    app.include_router(variants.router)
+    app.include_router(document_analyzer_router)
+    app.include_router(job_orders.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    paper = _create_material(client, headers, "A4 photo sheet", "sheet", 40, paper_size="A4")
+    _assign_pricing_materials(client, headers, "printing", [paper["id"]])
+    photo_rule = next(
+        rule
+        for rule in client.get("/document-analyzer/pricing-rules", headers=headers).json()
+        if rule["pricingScope"] == "printing"
+        and rule["inventoryItemId"] == paper["id"]
+        and rule["printType"] == "photo_print"
+    )
+    assert client.put(
+        "/document-analyzer/pricing-rules",
+        headers=headers,
+        json={"rules": [{"id": photo_rule["id"], "pricePerPage": 10, "isActive": True}]},
+    ).status_code == 200
+    service = client.post(
+        "/services",
+        headers=headers,
+        json={"name": "Photo Studio", "category": "printing", "isActive": True},
+    ).json()
+    duplex = client.post(
+        "/variants",
+        headers=headers,
+        json={"label": "Photo front and back", "requiresManualDuplex": True, "isActive": True},
+    ).json()
+    product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Back-to-back photo card",
+            "printType": "photo_print",
+            "operationKind": "printing",
+            "isActive": True,
+            "variants": [{"variantId": duplex["id"], "priceAdjustment": 1}],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}],
+            "documentRates": [],
+        },
+    ).json()
+
+    front_buffer = BytesIO()
+    back_buffer = BytesIO()
+    Image.new("RGB", (600, 900), (190, 20, 20)).save(front_buffer, format="PNG", dpi=(150, 150))
+    Image.new("RGB", (600, 900), (20, 20, 190)).save(back_buffer, format="PNG", dpi=(150, 150))
+    front = front_buffer.getvalue()
+    back = back_buffer.getvalue()
+    analysis_response = client.post(
+        "/document-analyzer/analyze-photo-duplex",
+        headers=headers,
+        data={
+            "product_id": product["id"],
+            "variant_id": duplex["id"],
+            "paper_inventory_item_id": paper["id"],
+        },
+        files=[
+            ("files", ("card-front.png", front, "image/png")),
+            ("files", ("card-back.png", back, "image/png")),
+        ],
+    )
+    assert analysis_response.status_code == 200, analysis_response.text
+    assert analysis_response.json()["analysis"]["pageCount"] == 2
+    assert analysis_response.json()["pricingContext"]["variantId"] == duplex["id"]
+
+    transaction_response = client.post(
+        "/job-orders/transactions",
+        headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": "Two-sided photo card",
+                "initialServiceId": service["id"],
+                "items": [{
+                    "clientKey": "photo-card",
+                    "productId": product["id"],
+                    "paperInventoryItemId": paper["id"],
+                    "variantId": duplex["id"],
+                    "copies": 1,
+                    "backToBack": True,
+                }],
+            }),
+            "file_keys": ["photo-card", "photo-card"],
+        },
+        files=[
+            ("files", ("card-front.png", front, "image/png")),
+            ("files", ("card-back.png", back, "image/png")),
+        ],
+    )
+    assert transaction_response.status_code == 201, transaction_response.text
+    order = transaction_response.json()
+    item = order["items"][0]
+    assert item["pagesPerCopy"] == 2
+    assert item["requiresManualDuplex"] is True
+    assert item["lineTotal"] == order["suggestedTotal"]
+    assert item["lineTotal"] > 20  # Two priced sides plus the duplex variant adjustment.
+    assert item["materials"][0]["plannedQuantity"] == 1
+    assert len(order["files"]) == 1
+    assert order["files"][0]["kind"] == "print_ready"
+    assert order["files"][0]["originalFilename"] == "card-front-front-back-2-sides.pdf"
+    assert order["files"][0]["detectedPageCount"] == 2
+    retained = client.get(
+        f"/job-orders/{order['id']}/files/{order['files'][0]['id']}",
+        headers=headers,
+    )
+    assert retained.status_code == 200
+    assert retained.content.startswith(b"%PDF")
+
+    with test_session() as db:
+        printer = Printer(
+            system_name="Canon G4070 series",
+            display_name="Canon G4070 series",
+            is_default=True,
+            last_seen_state="idle",
+        )
+        db.add(printer)
+        db.commit()
+        printer_id = printer.id
+
+    class StubPrintAdapter:
+        def submit_file(self, *args, **kwargs):
+            return PrintSubmission(external_job_id=f"photo-{kwargs['duplex_pass']}")
+
+    monkeypatch.setattr(job_orders, "get_printer_adapter", lambda _platform: StubPrintAdapter())
+    print_payload = {
+        "printerId": printer_id,
+        "jobFileId": order["files"][0]["id"],
+        "jobOrderItemId": item["id"],
+    }
+    front_pass = client.post(
+        f"/job-orders/{order['id']}/print-attempts",
+        headers=headers,
+        json={**print_payload, "duplexPass": "front"},
+    )
+    assert front_pass.status_code == 201, front_pass.text
+    assert front_pass.json()["items"][0]["materials"][0]["consumedQuantity"] == 0
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 40
+
+    back_pass = client.post(
+        f"/job-orders/{order['id']}/print-attempts",
+        headers=headers,
+        json={**print_payload, "duplexPass": "back"},
+    )
+    assert back_pass.status_code == 201, back_pass.text
+    assert back_pass.json()["items"][0]["materials"][0]["consumedQuantity"] == 1
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 39
+
+
 def test_automatic_print_color_follows_analyzed_content_not_product_type() -> None:
     paper_size = SimpleNamespace(value="A4")
     material_plan = SimpleNamespace(inventory_item=SimpleNamespace(paper_size=paper_size))

@@ -684,3 +684,21 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Add Ad Hoc as a pricing-compatible operation for Custom services. It uses explicit material/output pricing but never requests a document, analyzer, scanner, or print submission.
 - Rationale: Some registered products are fulfilled outside Printing-MS while still needing consistent pricing, stock deduction, payment, quality rework, and audit history.
 - Impact: Owners enter units/pages and copies during intake, perform the work externally, then explicitly record completion. Planned material is deducted at that completion step.
+
+### Round Analyzer Recommendations Up to Whole Pesos
+
+- Decision: Preserve cent-level base and surcharge calculations, then round only the analyzer's final suggested price upward to the next whole peso and expose the difference as a pricing adjustment.
+- Rationale: Recommendations should never round below the engine calculation, while the visible breakdown must still reconcile to the displayed suggestion.
+- Impact: Analyzer-backed transaction suggestions use whole-peso recommendations. Owner-entered final prices and configured rates remain unchanged.
+
+### Normalize Photo Duplex Sources Before Production
+
+- Decision: Accept ordered, single-side PDF/image uploads for back-to-back Photo Print and combine them into one retained PDF. Price every printed side and its configured duplex adjustment, but plan and deduct paper by physical sheets (`ceil(sides / 2) × copies`) only after the successful back pass.
+- Rationale: Photo fronts and backs commonly arrive as separate files, while the existing supervised duplex adapter requires one ordered document. Charging and inventory measure different things: output sides drive selling price, while front/back pairs share one physical sheet.
+- Impact: The owner previews and confirms source order before saving. Ordinary file-based duplex remains a single multi-page upload whose consecutive pages become front/back pairs.
+
+### Keep the Price Book in a Dedicated Renderer Window
+
+- Decision: Open one reusable Electron window for the read-only product price overview, backed by the same local API but routed outside the full application shell. Repeated requests focus the existing window instead of creating duplicates.
+- Rationale: Owners need to reference live prices while keeping an in-progress transaction or production workspace untouched.
+- Impact: Pricing remains the configuration/detail workspace. The separate price book provides search, service filtering, inactive visibility, refresh, and effective product/material/variant rates; switching app environments reloads it against the newly selected database.

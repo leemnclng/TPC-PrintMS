@@ -27,6 +27,8 @@ export interface PaperClubApiConfig {
 
 export interface PaperClubBridge {
   getApiConfig: () => Promise<PaperClubApiConfig>;
+  /** Opens or focuses the read-only product price book in its own desktop window. */
+  openPricingOverview: () => Promise<void>;
   /** Stops the current backend and starts a fresh one bound to `stage`,
    *  returning its new base URL + token. Restarting the process is the only
    *  supported way to switch — see apps/desktop/src/backendManager.ts. */

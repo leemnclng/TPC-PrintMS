@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardHeader } from "../components/Card/Card";
+import { Button } from "../components/Button/Button";
 import { EmptyState } from "../components/EmptyState/EmptyState";
 import { ErrorState } from "../components/ErrorState/ErrorState";
 import { LoadingState } from "../components/LoadingState/LoadingState";
@@ -51,6 +52,8 @@ function AdditionalPricing({ product, scanTiers }: { product: Product; scanTiers
 export function PricingCenterPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PriceFilter>("all");
+  const [openingOverview, setOpeningOverview] = useState(false);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
   const { data, state, error, reload } = useResource(async () => {
     const [products, services, rules, scanTiers, printTypes, pricingCategories] = await Promise.all([
       api.get<Product[]>("/products"),
@@ -92,13 +95,35 @@ export function PricingCenterPage() {
     .map((service) => ({ service, rows: rows.filter(({ product }) => product.serviceId === service.id) }))
     .filter(({ service, rows: serviceRows }) => serviceRows.length > 0 || (filter === "all" && (!query.trim() || `${service.name} ${service.description ?? ""}`.toLowerCase().includes(query.trim().toLowerCase())))) ?? [];
 
+  async function openPricingOverview() {
+    setOpeningOverview(true);
+    setOverviewError(null);
+    try {
+      if (window.paperClub?.openPricingOverview) {
+        await window.paperClub.openPricingOverview();
+        return;
+      }
+      const url = `${window.location.origin}${window.location.pathname}#/pricing-overview`;
+      const opened = window.open(url, "printing-ms-pricing-overview", "popup,width=1260,height=820");
+      if (!opened) throw new Error("Allow pop-up windows to open the price overview.");
+      opened.focus();
+    } catch (openError) {
+      setOverviewError(openError instanceof Error ? openError.message : "The price overview could not be opened.");
+    } finally {
+      setOpeningOverview(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
         eyebrow="PRICING CENTER"
         title="Pricing"
         description="Compare material and print-type defaults, then see the effective price used by every product."
+        actions={<Button type="button" variant="primary" loading={openingOverview} onClick={openPricingOverview}>Open price overview</Button>}
       />
+
+      {overviewError ? <p className="pricing-overview-launch-error" role="alert">{overviewError}</p> : null}
 
       {state === "loading" ? <LoadingState label="Loading all pricing…" /> : null}
       {state === "error" ? <ErrorState description={error ?? undefined} onRetry={reload} /> : null}

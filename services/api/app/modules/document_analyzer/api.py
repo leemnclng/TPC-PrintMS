@@ -41,6 +41,7 @@ from .utils.file_detection import (
     UnsafeArchiveError,
     UnsupportedFileTypeError,
 )
+from .utils.print_bundle import combine_print_sources, photo_bundle_filename
 
 router = APIRouter(
     prefix="/document-analyzer",
@@ -143,6 +144,100 @@ async def analyze_document(
             )
             if product
             else None
+        ),
+    )
+
+
+@router.post("/analyze-photo-duplex", response_model=AnalysisResponse, response_model_exclude_none=True)
+async def analyze_photo_duplex(
+    files: list[UploadFile] = File(...),
+    product_id: str = Form(...),
+    variant_id: str = Form(...),
+    paper_inventory_item_id: str = Form(...),
+    db: Session = Depends(get_db),
+) -> AnalysisResponse:
+    """Analyze ordered Photo Print files as one supervised duplex document."""
+
+    product = db.get(Product, product_id)
+    if not product or product.operation_kind != "printing" or product.print_type != "photo_print":
+        raise HTTPException(status_code=422, detail="Select a Photo Print product for multiple back-to-back files.")
+    variant = (
+        db.query(ProductVariant)
+        .filter(ProductVariant.product_id == product.id, ProductVariant.variant_id == variant_id)
+        .first()
+    )
+    if variant is None or not variant.requires_manual_duplex:
+        raise HTTPException(status_code=422, detail="Select a configured back-to-back variant for these Photo Print files.")
+    paper_assignment = (
+        db.query(ProductMaterialAssignment)
+        .filter(
+            ProductMaterialAssignment.product_id == product.id,
+            ProductMaterialAssignment.inventory_item_id == paper_inventory_item_id,
+        )
+        .one_or_none()
+    )
+    if (
+        paper_assignment is None
+        or not paper_assignment.inventory_item.is_active
+        or paper_assignment.inventory_item.paper_size is None
+    ):
+        raise HTTPException(status_code=422, detail="Select an active paper configured for this Photo Print product.")
+    if len(files) < 2:
+        raise HTTPException(status_code=422, detail="Choose at least two files, ordered front then back.")
+    if len(files) > 100:
+        raise HTTPException(status_code=422, detail="A Photo Print duplex set can contain at most 100 files.")
+
+    sources: list[tuple[str, bytes]] = []
+    total_size = 0
+    for file in files:
+        filename = Path(file.filename or "photo-side").name
+        remaining = MAX_FILE_SIZE_BYTES - total_size
+        data = await file.read(remaining + 1)
+        await file.close()
+        if not data:
+            raise HTTPException(status_code=422, detail=f"Choose a non-empty file for {filename}.")
+        total_size += len(data)
+        if total_size > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(status_code=413, detail="The combined Photo Print files must be 25 MB or smaller.")
+        sources.append((filename, data))
+    try:
+        combined_data = await run_in_threadpool(combine_print_sources, sources)
+        if len(combined_data) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(status_code=413, detail="The combined Photo Print PDF must be 25 MB or smaller.")
+        analysis = await run_in_threadpool(
+            analysis_service.analyze,
+            photo_bundle_filename([filename for filename, _data in sources]),
+            combined_data,
+            "application/pdf",
+        )
+    except HTTPException:
+        raise
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except UnsupportedFileTypeError as error:
+        raise HTTPException(status_code=415, detail=str(error)) from error
+    except (InvalidDocumentError, UnsafeArchiveError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    pricing = pricing_service.calculate(
+        analysis,
+        db,
+        product,
+        variant,
+        paper_inventory_item_id,
+    )
+    if not pricing.breakdown:
+        raise HTTPException(status_code=422, detail="The selected paper has no active Photo Print price.")
+    return AnalysisResponse(
+        analysis=analysis,
+        pricing=pricing,
+        pricing_context=PricingContext(
+            product_id=product.id,
+            product_name=product.name,
+            print_type_label=product.print_type_definition.label,
+            applies_ink_coverage=product.print_type_definition.applies_ink_coverage,
+            variant_id=variant.variant_id,
+            variant_name=variant.label,
         ),
     )
 

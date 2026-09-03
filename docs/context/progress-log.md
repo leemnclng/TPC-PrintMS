@@ -605,3 +605,21 @@ Chronological notes about app progress.
 - Summary: Added an owner-tracked workflow for products completed outside the app.
 - Completed: Configuration can create Ad Hoc pricing categories with explicit materials. Custom-service products can select Ad Hoc, transaction intake collects units/pages and copies without a file, and the saved line exposes external completion and rework actions. Completion deducts the planned material and joins the existing combined payment and audit flow.
 - Verified: All 52 API tests, renderer/desktop TypeScript checks, renderer lint/build, migration-head validation, and Python compilation pass.
+
+## 2026-09-03 (analyzer recommendation rounding)
+
+- Summary: Made analyzer-generated price recommendations round upward consistently.
+- Completed: The engine retains exact base, ink, and variant amounts, rounds the final recommendation to the next whole peso, and adds the difference as a visible rounding adjustment. Configured rates and owner overrides are untouched.
+- Verified: All 52 API tests, renderer/desktop TypeScript checks, renderer lint/build, and Python compilation pass.
+
+## 2026-09-03 (Photo Print duplex intake)
+
+- Summary: Added separate-file intake and physical-sheet accounting for back-to-back Photo Print.
+- Completed: Owners can select ordered front/back PDF or image files, analyze and preview every side, then retain one combined PDF for supervised printing. Selling price uses every side plus the duplex adjustment; paper planning uses one sheet per pair and inventory deducts once after the back pass.
+- Verified: All 53 API tests, renderer TypeScript checks, lint, production build, Python compilation, and diff validation pass.
+
+## 2026-09-03 (separate product price overview)
+
+- Summary: Added a live read-only product price book that stays separate from the operational app window.
+- Completed: Pricing launches or focuses one dedicated Electron window. It groups all effective rates by service and product, shows material and variant details, and supports search, service/inactive filters, refresh, retry, empty, and responsive states without changing the main route.
+- Verified: Renderer and desktop TypeScript checks, renderer lint/build, desktop build, and diff validation pass.

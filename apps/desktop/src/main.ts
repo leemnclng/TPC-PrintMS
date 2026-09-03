@@ -12,6 +12,7 @@ if (useSoftwareRendering) app.disableHardwareAcceleration();
 let backendReady: Promise<BackendConfig> | null = null;
 let backendFailure: { error: Error; retryAfter: number } | null = null;
 let mainWindow: BrowserWindow | null = null;
+let pricingOverviewWindow: BrowserWindow | null = null;
 let shutdownPromise: Promise<void> | null = null;
 const appIconPath = path.join(__dirname, "..", "build", "icon.png");
 const BACKEND_RETRY_DELAY_MS = 15_000;
@@ -49,12 +50,16 @@ function initializeDesktopLogging(): void {
   });
 }
 
-function loadRenderer(window: BrowserWindow): Promise<void> {
-  if (!app.isPackaged) return window.loadURL("http://localhost:5173");
-  return window.loadFile(path.join(__dirname, "..", "..", "web", "dist", "index.html"));
+function loadRenderer(window: BrowserWindow, route = "/"): Promise<void> {
+  const hash = route === "/" ? "" : `#${route}`;
+  if (!app.isPackaged) return window.loadURL(`http://localhost:5173/${hash}`);
+  return window.loadFile(
+    path.join(__dirname, "..", "..", "web", "dist", "index.html"),
+    route === "/" ? undefined : { hash: route },
+  );
 }
 
-async function showRendererFailure(window: BrowserWindow, detail: string): Promise<void> {
+async function showRendererFailure(window: BrowserWindow, detail: string, route = "/"): Promise<void> {
   if (rendererFailureDialogOpen || window.isDestroyed()) return;
   rendererFailureDialogOpen = true;
   try {
@@ -70,7 +75,7 @@ async function showRendererFailure(window: BrowserWindow, detail: string): Promi
     });
     if (result.response === 0 && !window.isDestroyed()) {
       lastRendererRecoveryAt = Date.now();
-      void loadRenderer(window).catch((error) => recoverRenderer(window, `Reload failed: ${String(error)}`));
+      void loadRenderer(window, route).catch((error) => recoverRenderer(window, `Reload failed: ${String(error)}`, route));
     } else if (!window.isDestroyed()) {
       window.close();
     }
@@ -79,7 +84,7 @@ async function showRendererFailure(window: BrowserWindow, detail: string): Promi
   }
 }
 
-function recoverRenderer(window: BrowserWindow, detail: string): void {
+function recoverRenderer(window: BrowserWindow, detail: string, route = "/"): void {
   if (window.isDestroyed() || shutdownPromise) return;
   logDesktopEvent("ERROR", "renderer.failure", { detail });
   const now = Date.now();
@@ -87,12 +92,12 @@ function recoverRenderer(window: BrowserWindow, detail: string): void {
     lastRendererRecoveryAt = now;
     setTimeout(() => {
       if (!window.isDestroyed()) {
-        void loadRenderer(window).catch((error) => recoverRenderer(window, `Automatic reload failed: ${String(error)}`));
+        void loadRenderer(window, route).catch((error) => recoverRenderer(window, `Automatic reload failed: ${String(error)}`, route));
       }
     }, 500);
     return;
   }
-  void showRendererFailure(window, detail);
+  void showRendererFailure(window, detail, route);
 }
 
 function shutdownAndExit(exitCode = 0): Promise<void> {
@@ -182,6 +187,45 @@ function createWindow(): void {
   });
 }
 
+function openPricingOverviewWindow(): void {
+  if (pricingOverviewWindow && !pricingOverviewWindow.isDestroyed()) {
+    if (pricingOverviewWindow.isMinimized()) pricingOverviewWindow.restore();
+    pricingOverviewWindow.show();
+    pricingOverviewWindow.focus();
+    return;
+  }
+
+  const window = new BrowserWindow({
+    width: 1260,
+    height: 820,
+    minWidth: 820,
+    minHeight: 560,
+    backgroundColor: "#faf9f6",
+    title: "Price Overview — Printing-MS",
+    icon: appIconPath,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  pricingOverviewWindow = window;
+  void loadRenderer(window, "/pricing-overview")
+    .catch((error) => recoverRenderer(window, `Price overview load failed: ${String(error)}`, "/pricing-overview"));
+  window.webContents.on("did-finish-load", () => {
+    logDesktopEvent("INFO", "pricing-overview.ready", { url: window.webContents.getURL() });
+  });
+  window.webContents.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    recoverRenderer(window, `Price overview renderer exited (${details.reason}, code ${details.exitCode}).`, "/pricing-overview");
+  });
+  window.on("closed", () => {
+    if (pricingOverviewWindow === window) pricingOverviewWindow = null;
+  });
+}
+
 ipcMain.handle("paper-club:get-api-config", async () => {
   return ensureBackendReady();
 });
@@ -196,6 +240,10 @@ ipcMain.handle("paper-club:open-printer-settings", async () => {
     return;
   }
   throw new Error("Open your operating system's printer settings to add a printer.");
+});
+
+ipcMain.handle("paper-club:open-pricing-overview", () => {
+  openPricingOverviewWindow();
 });
 
 ipcMain.handle("paper-club:open-printer-preferences", async (_event, printerName: unknown) => {
@@ -222,7 +270,13 @@ ipcMain.handle("paper-club:switch-environment", async (_event, stage: unknown) =
   // Reassign backendReady itself (not just await the old one) so a request
   // that arrives mid-switch — namely the renderer's post-reload
   // getApiConfig() call — waits on this restart instead of the prior one.
-  return trackBackendStart(backend.switchStage(stage as (typeof KNOWN_STAGES)[number]));
+  const config = await trackBackendStart(backend.switchStage(stage as (typeof KNOWN_STAGES)[number]));
+  const overviewWindow = pricingOverviewWindow;
+  if (overviewWindow && !overviewWindow.isDestroyed()) {
+    void loadRenderer(overviewWindow, "/pricing-overview")
+      .catch((error) => recoverRenderer(overviewWindow, `Price overview reload failed: ${String(error)}`, "/pricing-overview"));
+  }
+  return config;
 });
 
 ipcMain.handle("paper-club:inspect-scanners", async () => inspectScannerDevices());

@@ -268,7 +268,13 @@ def test_analyzer_api_and_owner_pricing_rules(tmp_path) -> None:
         headers=headers,
         files={"file": ("colored-a4.png", image, "image/png")},
     ).json()
-    assert repriced["pricing"]["suggestedPrice"] == 7.5
+    assert repriced["pricing"]["suggestedPrice"] == 8
+    assert repriced["pricing"]["adjustments"][-1] == {
+        "kind": "rounding",
+        "label": "Rounded-up recommendation",
+        "basis": "Next whole peso",
+        "amount": 0.5,
+    }
 
     unsupported = client.post(
         "/document-analyzer/analyze",
@@ -395,7 +401,9 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
     assert priced["analysis"]["estimatedInkCoveragePercent"] == 88.2
     assert priced["pricing"]["baseSubtotal"] == 15
     assert priced["pricing"]["adjustments"][0]["kind"] == "inkCoverage"
-    assert priced["pricing"]["suggestedPrice"] == 28.23
+    assert priced["pricing"]["suggestedPrice"] == 29
+    assert priced["pricing"]["adjustments"][-1]["kind"] == "rounding"
+    assert priced["pricing"]["adjustments"][-1]["amount"] == 0.77
 
     sibling_product = client.post(
         "/products",
@@ -426,8 +434,9 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
         files={"file": ("colored-a4.png", image, "image/png")},
     ).json()
     assert with_variant["pricingContext"]["variantName"] == "Back-to-back"
-    assert with_variant["pricing"]["adjustments"][-1]["kind"] == "variant"
-    assert with_variant["pricing"]["suggestedPrice"] == 30.23
+    assert next(item for item in with_variant["pricing"]["adjustments"] if item["kind"] == "variant")
+    assert with_variant["pricing"]["adjustments"][-1]["kind"] == "rounding"
+    assert with_variant["pricing"]["suggestedPrice"] == 31
 
     bw_product = client.post(
         "/products",
@@ -473,7 +482,7 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
     ).json()
     assert semi_priced["pricing"]["baseSubtotal"] == 8
     assert semi_priced["pricing"]["adjustments"][0]["kind"] == "inkCoverage"
-    assert semi_priced["pricing"]["suggestedPrice"] == 15.06
+    assert semi_priced["pricing"]["suggestedPrice"] == 16
 
     # A selected product defines how every page is printed. The analyzer's
     # detected page color is still reported, but it must not switch away

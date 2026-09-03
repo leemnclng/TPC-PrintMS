@@ -51,6 +51,7 @@ from ..modules.document_analyzer.utils.file_detection import (
     UnsafeArchiveError,
     UnsupportedFileTypeError,
 )
+from ..modules.document_analyzer.utils.print_bundle import combine_print_sources, photo_bundle_filename
 from ..schemas.job_orders import (
     AnalyzedJobOrderCreate,
     JobOrderCreate,
@@ -721,11 +722,11 @@ async def _save_transaction_lines(
     uploaded_keys = file_keys or []
     if len(uploaded_files) != len(uploaded_keys):
         raise HTTPException(status_code=422, detail="Every uploaded document must identify its product line.")
-    if len(uploaded_keys) != len(set(uploaded_keys)):
-        raise HTTPException(status_code=422, detail="Attach only one source document to each printing line.")
     if any(key not in client_keys for key in uploaded_keys):
         raise HTTPException(status_code=422, detail="An uploaded document does not match a transaction line.")
-    file_by_key = dict(zip(uploaded_keys, uploaded_files, strict=True))
+    files_by_key: dict[str, list[UploadFile]] = defaultdict(list)
+    for key, uploaded_file in zip(uploaded_keys, uploaded_files, strict=True):
+        files_by_key[key].append(uploaded_file)
 
     product_ids = {item.product_id for item in payload.items}
     products = db.query(Product).filter(Product.id.in_(product_ids)).all()
@@ -740,21 +741,53 @@ async def _save_transaction_lines(
         product = product_by_id[line.product_id]
         if not product.is_active or not product.service.is_active:
             raise HTTPException(status_code=409, detail=f"Product or service is inactive: {product.name}.")
-        upload = file_by_key.get(line.client_key)
+        line_uploads = files_by_key.get(line.client_key, [])
         if product.operation_kind != "printing":
-            if upload:
+            if line_uploads:
                 raise HTTPException(status_code=422, detail=f"{product.name} does not accept an uploaded source document.")
             continue
-        if upload is None:
+        if not line_uploads:
             raise HTTPException(status_code=422, detail=f"Attach a document for {product.name}.")
-        filename = Path(upload.filename or "document").name
-        content_type = upload.content_type or ""
-        data = await upload.read(MAX_FILE_SIZE_BYTES + 1)
-        await upload.close()
-        if not data:
-            raise HTTPException(status_code=422, detail=f"The document for {product.name} is empty.")
-        if len(data) > MAX_FILE_SIZE_BYTES:
-            raise HTTPException(status_code=413, detail="Each document must be 25 MB or smaller.")
+        photo_duplex_bundle = product.print_type == "photo_print" and line.back_to_back
+        if len(line_uploads) > 1 and not photo_duplex_bundle:
+            raise HTTPException(
+                status_code=422,
+                detail="Multiple files are available only for a back-to-back Photo Print product.",
+            )
+        if photo_duplex_bundle and len(line_uploads) < 2:
+            raise HTTPException(status_code=422, detail=f"Attach at least two ordered front/back files for {product.name}.")
+        if len(line_uploads) > 100:
+            raise HTTPException(status_code=422, detail="A Photo Print duplex set can contain at most 100 files.")
+
+        sources: list[tuple[str, bytes, str]] = []
+        total_size = 0
+        for upload in line_uploads:
+            source_filename = Path(upload.filename or "document").name
+            content_type = upload.content_type or ""
+            remaining = MAX_FILE_SIZE_BYTES - total_size
+            source_data = await upload.read(remaining + 1)
+            await upload.close()
+            if not source_data:
+                raise HTTPException(status_code=422, detail=f"The document for {product.name} is empty: {source_filename}.")
+            total_size += len(source_data)
+            if total_size > MAX_FILE_SIZE_BYTES:
+                raise HTTPException(status_code=413, detail="The combined documents for one product must be 25 MB or smaller.")
+            sources.append((source_filename, source_data, content_type))
+
+        if photo_duplex_bundle:
+            filename = photo_bundle_filename([name for name, _data, _content_type in sources])
+            try:
+                data = await run_in_threadpool(
+                    combine_print_sources,
+                    [(name, source_data) for name, source_data, _content_type in sources],
+                )
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            if len(data) > MAX_FILE_SIZE_BYTES:
+                raise HTTPException(status_code=413, detail="The combined Photo Print PDF must be 25 MB or smaller.")
+            content_type = "application/pdf"
+        else:
+            filename, data, content_type = sources[0]
         try:
             analysis = await run_in_threadpool(analysis_service.analyze, filename, data, content_type)
         except UnsupportedFileTypeError as error:
@@ -812,7 +845,9 @@ async def _save_transaction_lines(
                 variant = next((value for value in product.variants if value.variant_id == line.variant_id), None)
                 if variant is None:
                     raise HTTPException(status_code=422, detail=f"The selected variant is not available for {product.name}.")
-            if line.back_to_back and not variant:
+            if line.back_to_back and variant is not None and not variant.requires_manual_duplex:
+                raise HTTPException(status_code=422, detail=f"Select a configured back-to-back variant for {product.name}.")
+            if line.back_to_back and variant is None:
                 variant = next((value for value in product.variants if value.requires_manual_duplex), None)
             if line.back_to_back and not variant:
                 raise HTTPException(status_code=422, detail=f"Configure a back-to-back variant for {product.name}.")

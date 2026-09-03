@@ -520,7 +520,7 @@ export interface DocumentPricingResult {
 }
 
 export interface DocumentPricingAdjustment {
-  kind: "inkCoverage" | "colorCoverage" | "variant";
+  kind: "inkCoverage" | "colorCoverage" | "variant" | "rounding";
   label: string;
   basis: string;
   amount: number;

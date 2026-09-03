@@ -356,3 +356,12 @@ Track notable app changes by date.
 - Added: Pricing categories may use an Ad Hoc compatible workflow for Custom-service products completed outside Printing-MS.
 - Added: Ad Hoc job lines require no uploaded file or printer/scanner action; owners record units and material, then mark external work complete from the product pane.
 - Added: Completing or reprocessing Ad Hoc work uses the existing inventory deduction, combined payment, quality, and history mechanisms.
+- Changed: Document Analyzer suggestions now always round upward to the next whole peso; the pricing breakdown shows the exact round-up amount.
+- Preserved: Product rates, intermediate coverage calculations, and owner-entered final prices retain their configured precision.
+- Added: Back-to-back Photo Print accepts 2–100 ordered single-side PDF/image files and previews each Front/Back side before transaction creation.
+- Changed: Photo duplex files are combined into one retained print-ready PDF so the existing supervised front/back process handles the complete set.
+- Fixed: Duplex pricing still charges every printed side and its configured variant, while paper inventory reserves one sheet per front/back pair and deducts it only after the successful back pass.
+- Preserved: Ordinary document back-to-back printing continues to pair consecutive pages from one uploaded file.
+- Added: Pricing can open a separate live Product Price Overview window without navigating away from the current app workflow.
+- Added: The read-only price book groups products by service and exposes search, service filtering, inactive-product visibility, effective material rates, variant adjustments, refresh, retry, and empty states.
+- Changed: Reopening the overview focuses the existing window, and an environment change reloads it against that environment's pricing data.

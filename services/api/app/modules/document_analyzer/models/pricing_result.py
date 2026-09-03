@@ -14,7 +14,7 @@ from .enums import PaperSize
 # generator, which only renames fields) — "paperSize" matches the frontend
 # union verbatim.
 RateSource = Literal["product", "paperSize"]
-AdjustmentKind = Literal["inkCoverage", "colorCoverage", "variant"]
+AdjustmentKind = Literal["inkCoverage", "colorCoverage", "variant", "rounding"]
 
 
 class PricingBreakdownItem(CamelModel):
