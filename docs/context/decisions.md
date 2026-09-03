@@ -672,3 +672,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Keep every PDF page represented in the continuous scroll layout, but rasterize only pages within 600 pixels of the viewport. Release distant canvas buffers to 1 × 1 pixels and cap active pages at three million pixels with a maximum 1.5× device output scale.
 - Rationale: PDF.js canvases can consume tens of megabytes per page and trigger long software-rendered repaints when several pages remain allocated. The owner still needs all pages reachable through one continuous viewer.
 - Impact: Nearby pages appear as the owner scrolls, distant pages retain stable light placeholders and page labels, zoom remains available, and memory/graphics load stays bounded by the small active-page window rather than total document length.
+
+### Make Pricing Categories Owner-Managed and Material-Explicit
+
+- Decision: Keep Printing and Scan or Photocopy as seeded pricing categories, allow additional categories with a compatible physical workflow, and require explicit paper assignment per category. Each physical product links to one category.
+- Rationale: A stocked material being eligible for one service does not mean it should appear in every commercial price table, and products with the same workflow may need separate base matrices.
+- Impact: Category membership is the source of available paper-rate rows. Existing rates are seeded as assignments during migration; newly registered paper remains unassigned until the owner chooses where it belongs.

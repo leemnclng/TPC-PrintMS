@@ -18,6 +18,7 @@ import { computeReferencePrice, resolveScanPricePerPage } from "../../lib/produc
 import type {
   DocumentPricingRule,
   InventoryItem,
+  PricingCategory,
   PrintTypeDefinition,
   Product,
   ProductOperationKind,
@@ -34,6 +35,7 @@ interface ProductFormState {
   description: string;
   printType: ProductPrintType;
   operationKind: ProductOperationKind;
+  pricingCategoryKey: string | null;
   standalonePricePerPage: number | null;
   isActive: boolean;
   variants: ProductVariantSelection[];
@@ -41,12 +43,13 @@ interface ProductFormState {
   documentRates: ProductDocumentRateSelection[];
 }
 
-function blankProduct(printType: ProductPrintType = "black_and_white", operationKind: ProductOperationKind = "printing"): ProductFormState {
+function blankProduct(printType: ProductPrintType = "black_and_white", operationKind: ProductOperationKind = "printing", pricingCategoryKey: string | null = operationKind === "scan" ? null : operationKind): ProductFormState {
   return {
     name: "",
     description: "",
     printType,
     operationKind,
+    pricingCategoryKey,
     standalonePricePerPage: null,
     isActive: true,
     variants: [],
@@ -63,6 +66,7 @@ interface ProductCreateModalProps {
   pricingRules: DocumentPricingRule[];
   scanPricingTiers: ScanPricingTier[];
   printTypes: PrintTypeDefinition[];
+  pricingCategories: PricingCategory[];
   onClose: () => void;
   onCreated: (product: Product) => void;
 }
@@ -75,6 +79,7 @@ export function ProductCreateModal({
   pricingRules,
   scanPricingTiers,
   printTypes,
+  pricingCategories,
   onClose,
   onCreated,
 }: ProductCreateModalProps) {
@@ -86,7 +91,10 @@ export function ProductCreateModal({
     ?? activePrintTypes[0]?.key
     ?? "black_and_white";
   const defaultOperationKind: ProductOperationKind = service.category === "photocopy" ? "photocopy" : "printing";
-  const [form, setForm] = useState<ProductFormState>(() => blankProduct(defaultPrintType, defaultOperationKind));
+  const defaultPricingCategoryKey = pricingCategories.find((category) => category.isActive && category.operationKind === defaultOperationKind)?.key ?? defaultOperationKind;
+  const [form, setForm] = useState<ProductFormState>(() => blankProduct(defaultPrintType, defaultOperationKind, defaultPricingCategoryKey));
+  const compatibleCategories = pricingCategories.filter((category) => category.isActive && category.operationKind === form.operationKind);
+  const selectedPricingCategory = pricingCategories.find((category) => category.key === form.pricingCategoryKey);
   const selectedPrintType = printTypes.find((printType) => printType.key === form.printType);
   const [nameTouched, setNameTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -99,7 +107,7 @@ export function ProductCreateModal({
   const activeScanTiers = sortedScanTiers.filter((tier) => tier.isActive);
   const referencePrice = isScan ? resolveScanPricePerPage(form.standalonePricePerPage, 1, sortedScanTiers) ?? 0 : computeReferencePrice(
     form.printType,
-    form.operationKind,
+    form.pricingCategoryKey ?? form.operationKind,
     form.documentRates,
     pricingRules,
     form.materialAssignments,
@@ -113,17 +121,17 @@ export function ProductCreateModal({
       : "Add at least one material needed to produce this product."
     : null;
   const hasPaperAssignment = pricingRules.some((rule) =>
-    rule.printType === form.printType && rule.pricingScope === form.operationKind && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
+    rule.printType === form.printType && rule.pricingScope === (form.pricingCategoryKey ?? form.operationKind) && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
   const photocopyPaperError = submitted && form.operationKind === "photocopy" && !hasPaperAssignment
     ? "Select at least one paper material for this photocopy product."
     : null;
   useEffect(() => {
     if (!open) return;
-    setForm(blankProduct(defaultPrintType, defaultOperationKind));
+    setForm(blankProduct(defaultPrintType, defaultOperationKind, defaultPricingCategoryKey));
     setNameTouched(false);
     setSubmitted(false);
     setSaveError(null);
-  }, [open, defaultPrintType, defaultOperationKind]);
+  }, [open, defaultPrintType, defaultOperationKind, defaultPricingCategoryKey]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -139,7 +147,7 @@ export function ProductCreateModal({
       form.materialAssignments.some((assignment) => !assignment.inventoryItemId) ||
       new Set(materialIds).size !== materialIds.length);
     const invalidScanPrice = isScan && form.standalonePricePerPage !== null && form.standalonePricePerPage < 0;
-    if (!form.name.trim() || hasInvalidVariant || hasInvalidMaterial || (form.operationKind === "photocopy" && !hasPaperAssignment) || invalidScanPrice) {
+    if (!form.name.trim() || (!isScan && !form.pricingCategoryKey) || hasInvalidVariant || hasInvalidMaterial || (form.operationKind === "photocopy" && !hasPaperAssignment) || invalidScanPrice) {
       if (invalidScanPrice) setSaveError("The scan price can't be negative.");
       window.requestAnimationFrame(() => {
         const firstInvalid = formElement.querySelector<HTMLElement>("[aria-invalid='true']");
@@ -214,6 +222,7 @@ export function ProductCreateModal({
                 onChange={(event) => setForm((current) => ({
                   ...current,
                   operationKind: event.target.value as ProductOperationKind,
+                  pricingCategoryKey: event.target.value === "scan" ? null : pricingCategories.find((category) => category.isActive && category.operationKind === event.target.value)?.key ?? null,
                   standalonePricePerPage: null,
                   variants: [],
                   materialAssignments: [],
@@ -224,6 +233,17 @@ export function ProductCreateModal({
                 <option value="scan">Scan to softcopy</option>
               </select>
               <span className="form-field__message">Determines the requirements collected when creating a job order.</span>
+            </label>
+          ) : null}
+
+          {!isScan ? (
+            <label className={`form-field${submitted && !form.pricingCategoryKey ? " form-field--error" : ""}`}>
+              <span>Pricing category</span>
+              <select value={form.pricingCategoryKey ?? ""} onChange={(event) => setForm((current) => ({ ...current, pricingCategoryKey: event.target.value || null, materialAssignments: [], documentRates: [] }))} aria-invalid={submitted && !form.pricingCategoryKey} required>
+                <option value="">Select pricing category</option>
+                {compatibleCategories.map((category) => <option key={category.key} value={category.key}>{category.name}</option>)}
+              </select>
+              <span className="form-field__message">Controls which paper materials and global prices this product may use.</span>
             </label>
           ) : null}
 
@@ -268,7 +288,7 @@ export function ProductCreateModal({
                 ? form.standalonePricePerPage !== null
                   ? "This product's own flat price, regardless of page count. No paper, ink, or printing cost."
                   : "Following the global page-count tiers below (shown here for a 1-page scan). No paper, ink, or printing cost."
-                : `Computed from the ${form.operationKind === "photocopy" ? "Scan or Photocopy" : "Printing"} global table for the assigned paper's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate.`}
+                : `Computed from the ${selectedPricingCategory?.name ?? "selected"} global table for the assigned paper's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate.`}
             </small>
           </div>
 
@@ -331,6 +351,8 @@ export function ProductCreateModal({
                     idPrefix="product-create-document-rate"
                     printType={form.printType}
                     operationKind={form.operationKind}
+                    pricingCategoryKey={form.pricingCategoryKey}
+                    pricingCategoryName={selectedPricingCategory?.name}
                     pricingRules={pricingRules}
                     value={form.documentRates}
                     materialAssignments={form.materialAssignments}
@@ -403,6 +425,7 @@ export function ProductCreateModal({
               value={form.materialAssignments}
               printType={form.printType}
               operationKind={form.operationKind}
+              pricingCategoryKey={form.pricingCategoryKey}
               pricingRules={pricingRules}
               documentRates={form.documentRates}
               error={materialsError}

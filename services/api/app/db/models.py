@@ -256,29 +256,76 @@ class Variant(TimestampMixin, Base):
     product_variants: Mapped[list["ProductVariant"]] = relationship(back_populates="variant")
 
 
+class PricingCategory(TimestampMixin, Base):
+    """Owner-managed pricing table for one physical production workflow."""
+
+    __tablename__ = "pricing_categories"
+    __table_args__ = (
+        CheckConstraint(
+            "operation_kind IN ('printing', 'photocopy')",
+            name="ck_pricing_categories_operation_kind",
+        ),
+    )
+
+    key: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    operation_kind: Mapped[str] = mapped_column(String, nullable=False)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    material_assignments: Mapped[list["PricingCategoryMaterial"]] = relationship(
+        back_populates="category", cascade="all, delete-orphan"
+    )
+    pricing_rules: Mapped[list["DocumentPricingRule"]] = relationship(
+        back_populates="pricing_category"
+    )
+    products: Mapped[list["Product"]] = relationship(back_populates="pricing_category")
+
+
+class PricingCategoryMaterial(Base):
+    """Paper stock explicitly made available to one pricing category."""
+
+    __tablename__ = "pricing_category_materials"
+    __table_args__ = (UniqueConstraint("pricing_category_key", "inventory_item_id"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    pricing_category_key: Mapped[str] = mapped_column(
+        ForeignKey("pricing_categories.key"), nullable=False
+    )
+    inventory_item_id: Mapped[str] = mapped_column(
+        ForeignKey("inventory_items.id"), nullable=False
+    )
+
+    category: Mapped["PricingCategory"] = relationship(back_populates="material_assignments")
+    inventory_item: Mapped["InventoryItem"] = relationship(
+        back_populates="pricing_category_assignments"
+    )
+
+
 class DocumentPricingRule(TimestampMixin, Base):
     """Workflow-scoped global rate for one real paper-stock item and print type."""
 
     __tablename__ = "document_pricing_rules"
     __table_args__ = (
         UniqueConstraint("inventory_item_id", "print_type", "pricing_scope"),
-        CheckConstraint(
-            "pricing_scope IN ('printing', 'photocopy')",
-            name="ck_document_pricing_rules_scope",
-        ),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     inventory_item_id: Mapped[str] = mapped_column(ForeignKey("inventory_items.id"), nullable=False)
     print_type: Mapped[str] = mapped_column(ForeignKey("print_types.key"), nullable=False)
     pricing_scope: Mapped[str] = mapped_column(
-        String, default=DocumentPricingScope.printing.value, nullable=False
+        ForeignKey("pricing_categories.key"),
+        default=DocumentPricingScope.printing.value,
+        nullable=False,
     )
     price_per_page: Mapped[float] = mapped_column(Float, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     inventory_item: Mapped["InventoryItem"] = relationship(back_populates="document_pricing_rules")
     print_type_definition: Mapped["PrintType"] = relationship(back_populates="pricing_rules")
+    pricing_category: Mapped["PricingCategory"] = relationship(back_populates="pricing_rules")
     product_rates: Mapped[list["ProductDocumentRate"]] = relationship(back_populates="pricing_rule")
 
     @property
@@ -326,6 +373,9 @@ class Product(TimestampMixin, Base):
     operation_kind: Mapped[str] = mapped_column(
         String, default=ProductOperationKind.printing.value, nullable=False
     )
+    pricing_category_key: Mapped[str | None] = mapped_column(
+        ForeignKey("pricing_categories.key"), nullable=True
+    )
     standalone_price_per_page: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -335,6 +385,7 @@ class Product(TimestampMixin, Base):
 
     service: Mapped["Service"] = relationship(back_populates="products")
     print_type_definition: Mapped["PrintType"] = relationship(back_populates="products")
+    pricing_category: Mapped["PricingCategory | None"] = relationship(back_populates="products")
     variants: Mapped[list["ProductVariant"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
     )
@@ -449,6 +500,9 @@ class InventoryItem(TimestampMixin, Base):
         back_populates="inventory_item"
     )
     document_pricing_rules: Mapped[list["DocumentPricingRule"]] = relationship(
+        back_populates="inventory_item"
+    )
+    pricing_category_assignments: Mapped[list["PricingCategoryMaterial"]] = relationship(
         back_populates="inventory_item"
     )
 

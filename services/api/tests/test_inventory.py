@@ -370,6 +370,22 @@ def test_inventory_item_deletion_guards(tmp_path) -> None:
             "isActive": True,
         },
     ).json()
+    category = next(
+        item for item in client.get(
+            "/document-analyzer/pricing-categories", headers=headers
+        ).json() if item["key"] == "printing"
+    )
+    assert client.put(
+        "/document-analyzer/pricing-categories/printing",
+        headers=headers,
+        json={
+            "name": category["name"],
+            "description": category["description"],
+            "operationKind": category["operationKind"],
+            "materialIds": [paper_item["id"]],
+            "isActive": True,
+        },
+    ).status_code == 200
     assert client.get("/document-analyzer/pricing-rules", headers=headers).status_code == 200
     blocked_by_pricing_rule = client.delete(f"/inventory-items/{paper_item['id']}", headers=headers)
     assert blocked_by_pricing_rule.status_code == 409

@@ -11,15 +11,10 @@ import { api } from "../lib/apiClient";
 import { formatCurrency } from "../lib/format";
 import { comparePaperSizes, paperSizeDisplay } from "../lib/paperSizes";
 import { hasCustomPricing, productUsesPaperSize, resolveProductPricePoints } from "../lib/pricingView";
-import type { DocumentPricingRule, InventoryPaperSize, PrintTypeDefinition, Product, ScanPricingTier, Service } from "../types/domain";
+import type { DocumentPricingRule, InventoryPaperSize, PricingCategory, PrintTypeDefinition, Product, ScanPricingTier, Service } from "../types/domain";
 import "./PricingCenterPage.css";
 
 type PriceFilter = "all" | "custom" | "global" | "missing";
-const GLOBAL_SCOPES = [
-  { key: "printing" as const, label: "Printing" },
-  { key: "photocopy" as const, label: "Scan or Photocopy" },
-];
-
 function workflowLabel(service: Service): string {
   if (service.category === "printing") return "Printing";
   if (service.category === "photocopy") return "Scan or Photocopy";
@@ -57,14 +52,15 @@ export function PricingCenterPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PriceFilter>("all");
   const { data, state, error, reload } = useResource(async () => {
-    const [products, services, rules, scanTiers, printTypes] = await Promise.all([
+    const [products, services, rules, scanTiers, printTypes, pricingCategories] = await Promise.all([
       api.get<Product[]>("/products"),
       api.get<Service[]>("/services"),
       api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
       api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
       api.get<PrintTypeDefinition[]>("/print-types"),
+      api.get<PricingCategory[]>("/document-analyzer/pricing-categories"),
     ]);
-    return { products, services, rules, scanTiers, printTypes };
+    return { products, services, rules, scanTiers, printTypes, pricingCategories };
   });
 
   const rows = useMemo(() => {
@@ -118,9 +114,9 @@ export function PricingCenterPage() {
           <Card className="pricing-global-card">
             <CardHeader title="Material × print type matrices" action={<Link className="pricing-text-link" to="/configuration#document-pricing">Configure pricing</Link>} />
             <p className="pricing-card-copy">Rows are stocked paper materials and columns are reusable print types. These values are fallbacks; each product may replace its matching cell.</p>
-            {data.rules.length ? (
+            {data.pricingCategories.length ? (
               <div className="pricing-global-scopes">
-                {GLOBAL_SCOPES.map((scope) => {
+                {data.pricingCategories.map((scope) => {
                   const scopedRules = data.rules.filter((rule) => rule.pricingScope === scope.key);
                   const materials = Array.from(new Map(scopedRules.map((rule) => [rule.inventoryItemId, {
                     id: rule.inventoryItemId,
@@ -129,10 +125,10 @@ export function PricingCenterPage() {
                     paperWidthMm: rule.paperWidthMm,
                     paperHeightMm: rule.paperHeightMm,
                   }])).values()).sort((left, right) => comparePaperSizes(left.paperSize, right.paperSize) || left.name.localeCompare(right.name));
-                  return <section key={scope.key}><header><span>BASE MATRIX</span><h3>{scope.label}</h3>{scope.key === "photocopy" ? <small>Photocopy output; Scan stays paper-free.</small> : <small>Uploaded documents sent to print.</small>}</header><div className="pricing-global-matrix" role="region" aria-label={`${scope.label} global price matrix`} tabIndex={0}><table><thead><tr><th>Material</th>{data.printTypes.map((type) => <th key={type.key}>{type.label}</th>)}</tr></thead><tbody>{materials.map((material) => <tr key={material.id}><th scope="row"><strong>{material.name}</strong><small>{paperSizeDisplay(material.paperSize, material.paperWidthMm, material.paperHeightMm)}</small></th>{data.printTypes.map((type) => {
+                  return <section key={scope.key}><header><span>BASE MATRIX</span><h3>{scope.name}</h3><small>{scope.description || (scope.operationKind === "photocopy" ? "Photocopy output; Scan stays paper-free." : "Uploaded documents sent to print.")}</small></header>{materials.length ? <div className="pricing-global-matrix" role="region" aria-label={`${scope.name} global price matrix`} tabIndex={0}><table><thead><tr><th>Material</th>{data.printTypes.map((type) => <th key={type.key}>{type.label}</th>)}</tr></thead><tbody>{materials.map((material) => <tr key={material.id}><th scope="row"><strong>{material.name}</strong><small>{paperSizeDisplay(material.paperSize, material.paperWidthMm, material.paperHeightMm)}</small></th>{data.printTypes.map((type) => {
                     const rule = scopedRules.find((candidate) => candidate.inventoryItemId === material.id && candidate.printType === type.key);
                     return <td className={rule && !rule.isActive ? "is-inactive" : ""} key={type.key}>{rule ? <><strong>{formatCurrency(rule.pricePerPage)}</strong><small>{rule.isActive ? "per page" : "Inactive"}</small></> : "—"}</td>;
-                  })}</tr>)}</tbody></table></div></section>;
+                  })}</tr>)}</tbody></table></div> : <p className="pricing-inline-empty">No materials assigned to this category.</p>}</section>;
                 })}
               </div>
             ) : <p className="pricing-inline-empty">No global paper pricing has been configured.</p>}

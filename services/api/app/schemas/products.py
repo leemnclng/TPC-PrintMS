@@ -29,7 +29,7 @@ class ProductDocumentRateRead(ProductDocumentRateIn):
     id: str
     paper_size: InventoryPaperSize
     print_type: str
-    pricing_scope: Literal["printing", "photocopy"]
+    pricing_scope: str
 
 
 class ProductMaterialAssignmentIn(CamelModel):
@@ -48,6 +48,7 @@ class ProductBase(CamelModel):
     description: str | None = None
     print_type: str = ProductPrintType.black_and_white.value
     operation_kind: Literal["printing", "photocopy", "scan"] = "printing"
+    pricing_category_key: str | None = None
     standalone_price_per_page: float | None = Field(default=None, ge=0)
     is_active: bool = True
 
@@ -71,6 +72,7 @@ class ProductRead(ProductBase):
     print_type_label: str
     print_color_mode: str
     print_applies_ink_coverage: bool
+    pricing_category_name: str | None = None
     price_per_page: float = Field(ge=0)
     variants: list[ProductVariantRead] = Field(default_factory=list)
     material_assignments: list[ProductMaterialAssignmentRead] = Field(default_factory=list)

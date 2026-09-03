@@ -25,7 +25,7 @@ export function resolveProductPricePoints(product: Product, rules: DocumentPrici
 
   const overrides = new Map(product.documentRates.map((rate) => [rate.pricingRuleId, rate]));
   return product.materialAssignments.flatMap((assignment) => {
-    const rule = rules.find((candidate) => candidate.isActive && candidate.inventoryItemId === assignment.inventoryItemId && candidate.printType === product.printType && candidate.pricingScope === product.operationKind);
+    const rule = rules.find((candidate) => candidate.isActive && candidate.inventoryItemId === assignment.inventoryItemId && candidate.printType === product.printType && candidate.pricingScope === (product.pricingCategoryKey ?? product.operationKind));
     if (!rule) return [];
     const override = overrides.get(rule.id);
     return [{
@@ -41,7 +41,7 @@ export function resolveProductPricePoints(product: Product, rules: DocumentPrici
 
 export function productUsesPaperSize(product: Product, paperSize: InventoryPaperSize, rules: DocumentPricingRule[]): boolean {
   const materialIds = new Set(product.materialAssignments.map((assignment) => assignment.inventoryItemId));
-  return rules.some((rule) => materialIds.has(rule.inventoryItemId) && rule.paperSize === paperSize && rule.pricingScope === product.operationKind);
+  return rules.some((rule) => materialIds.has(rule.inventoryItemId) && rule.paperSize === paperSize && rule.pricingScope === (product.pricingCategoryKey ?? product.operationKind));
 }
 
 export function hasCustomPricing(product: Product): boolean {

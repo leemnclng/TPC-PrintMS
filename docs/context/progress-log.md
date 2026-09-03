@@ -6,6 +6,7 @@ Chronological notes about app progress.
 
 - Summary: Removed recurring startup/retry races and avoidable Windows backend launch work, added native-dependency and display recovery, bounded PDF preview rendering, repaired the development Desktop shortcut, and made startup/crash diagnostics persistent.
 - Completed: Windows development starts FastAPI directly through the project virtual environment after a critical-import preflight. A failed environment receives one locked synchronization and a forced PyMuPDF reinstall when applicable, followed by verification; persistent failures retain their diagnostic and use a retry cooldown. Informational maintenance runs off the readiness path. Backend startup phases, slow requests, shutdown, and crashes are written to a rotating stage log. Windows software rendering is the default; GPU/renderer failures are persisted and receive bounded reload plus retry/close recovery. Continuous PDF viewers now allocate capped canvases only near the scroll viewport and release distant page buffers. Shortcut creation validates its paths and invokes the quoted launcher through `cmd.exe /d /c`. Final-window close and terminal signals terminate the full backend process tree. A locked `requirements.txt` supports manual runtime and test dependency installation into `.venv`.
+- Completed: Print Center now keeps the existing-job linking route visible on every unreviewed external spooler row, using the same guarded picker as the global notification.
 - Verified: Isolated fresh and migrated API launches reach the readiness contract; all 44 API tests, full renderer/desktop TypeScript checks, renderer lint/build, desktop production compilation, persistent-log crash capture, and diff validation pass. Shortcut COM creation, process-tree teardown, GPU recovery, and the virtualized scroll walkthrough still require final confirmation on the Windows workstation because no browser surface was connected for live QA.
 
 ## 2026-08-31 (stage switching, custom output size, and recovery hardening)
@@ -592,3 +593,9 @@ Chronological notes about app progress.
 - Summary: Replaced the three-value paper tag with measured Canon G4070 media profiles.
 - Completed: Material create/edit groups 31 document, photo, envelope, card, and custom sizes and shows the canonical millimeter measurement for every named profile. Custom media validates Canon's 55 × 89 mm through 216 × 1200 mm range. Measurements now flow through inventory, analyzer best-fit, pricing displays, job paper selection, print history, and Windows/CUPS print submission. Multiple materials may share a size so bond, glossy, and other stocks remain separate pricing rows.
 - Verified: Fresh migration coverage runs through the backup/restore test; 37 API tests, renderer/desktop typechecks, renderer production build/lint, desktop build, Python compilation, and diff validation pass.
+
+## 2026-09-03 (owner-managed pricing categories)
+
+- Summary: Replaced fixed all-material workflow matrices with explicit pricing categories.
+- Completed: Added category creation/editing, workflow compatibility, selected paper assignments, dynamic Configuration/Pricing views, and category selection on physical products. Existing Printing and Scan or Photocopy prices migrate intact.
+- Verified: All 51 API tests, renderer/desktop TypeScript checks, and renderer lint pass.

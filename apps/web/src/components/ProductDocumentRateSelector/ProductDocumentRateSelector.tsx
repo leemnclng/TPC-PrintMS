@@ -15,6 +15,8 @@ interface ProductDocumentRateSelectorProps {
    *  shown; there is no separate Colored/B&W choice at the product level. */
   printType: ProductPrintType;
   operationKind: ProductOperationKind;
+  pricingCategoryKey?: string | null;
+  pricingCategoryName?: string | null;
   pricingRules: DocumentPricingRule[];
   value: ProductDocumentRateSelection[];
   materialAssignments: MaterialSelection[];
@@ -26,6 +28,8 @@ export function ProductDocumentRateSelector({
   idPrefix,
   printType,
   operationKind,
+  pricingCategoryKey,
+  pricingCategoryName,
   pricingRules,
   value,
   materialAssignments,
@@ -34,7 +38,7 @@ export function ProductDocumentRateSelector({
 }: ProductDocumentRateSelectorProps) {
   const relevantRules = pricingRules
     .filter((rule) =>
-      rule.printType === printType && rule.pricingScope === operationKind && (
+      rule.printType === printType && rule.pricingScope === (pricingCategoryKey ?? operationKind) && (
         rule.isActive || materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId)
       ))
     .sort((left, right) =>
@@ -104,7 +108,7 @@ export function ProductDocumentRateSelector({
                     disabled={disabled || !rule.isActive}
                     onChange={(event) => updateRateSource(rule, event.target.value as "global" | "custom")}
                   >
-                    <option value="global">{operationKind === "photocopy" ? "Scan or Photocopy" : "Printing"} global · {formatCurrency(rule.pricePerPage)}</option>
+                    <option value="global">{pricingCategoryName ?? (operationKind === "photocopy" ? "Scan or Photocopy" : "Printing")} global · {formatCurrency(rule.pricePerPage)}</option>
                     <option value="custom">Custom price</option>
                   </select>
                 </label>

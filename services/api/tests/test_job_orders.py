@@ -19,6 +19,22 @@ from app.routers import customers, inventory, job_orders, products, services, va
 from app.services.printing.adapter import PrintSubmission, PrintSubmissionError
 
 
+def _assign_pricing_materials(client: TestClient, headers: dict[str, str], category_key: str, material_ids: list[str]) -> None:
+    category = next(item for item in client.get("/document-analyzer/pricing-categories", headers=headers).json() if item["key"] == category_key)
+    response = client.put(
+        f"/document-analyzer/pricing-categories/{category_key}",
+        headers=headers,
+        json={
+            "name": category["name"],
+            "description": category["description"],
+            "operationKind": category["operationKind"],
+            "materialIds": material_ids,
+            "isActive": category["isActive"],
+        },
+    )
+    assert response.status_code == 200
+
+
 def test_job_order_number_sequence_handles_million_scale(tmp_path) -> None:
     engine = create_engine(f"sqlite:///{tmp_path / 'numbers.db'}")
     Base.metadata.create_all(engine)
@@ -94,6 +110,8 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     alternative_paper = _create_material(client, headers, "Short paper", "sheet", 100, paper_size="Letter")
     ink = _create_material(client, headers, "Black ink", "bottle", 50)
     unassigned = _create_material(client, headers, "Long paper", "sheet", 100)
+    _assign_pricing_materials(client, headers, "printing", [paper["id"], alternative_paper["id"]])
+    _assign_pricing_materials(client, headers, "photocopy", [paper["id"]])
 
     # A catalog reference uses the lowest assigned paper-material rate, while
     # a job line must use the exact paper material selected for that line.
@@ -617,6 +635,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     # The uploaded image is A4, while the owner deliberately chooses Letter.
     # Detection must remain advisory throughout pricing, inventory, and printing.
     paper = _create_material(client, headers, "Letter transaction paper", "sheet", 100, paper_size="Letter")
+    _assign_pricing_materials(client, headers, "printing", [paper["id"]])
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
     bw_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "black_and_white" and rule["pricingScope"] == "printing")
     assert client.put(
@@ -1187,6 +1206,7 @@ def test_transaction_lines_from_observed_prints_are_recorded_ready_and_combined(
     headers = {"X-Print-MS-Token": settings.token}
 
     paper = _create_material(client, headers, "Letter observed paper", "sheet", 100, paper_size="Letter")
+    _assign_pricing_materials(client, headers, "printing", [paper["id"]])
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
     bw_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "black_and_white" and rule["pricingScope"] == "printing")
     assert client.put(

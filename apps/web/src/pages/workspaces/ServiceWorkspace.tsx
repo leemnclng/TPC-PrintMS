@@ -11,7 +11,7 @@ import { StatusPill } from "../../components/StatusPill/StatusPill";
 import { useResource } from "../../hooks/useResource";
 import { api, ApiError } from "../../lib/apiClient";
 import { formatCurrency, formatProductPrintType } from "../../lib/format";
-import type { DeletedProduct, DocumentPricingRule, InventoryItem, PrintTypeDefinition, Product, ScanPricingTier, Service, Variant } from "../../types/domain";
+import type { DeletedProduct, DocumentPricingRule, InventoryItem, PricingCategory, PrintTypeDefinition, Product, ScanPricingTier, Service, Variant } from "../../types/domain";
 import { ProductCreateModal } from "./ProductCreateModal";
 import "./ServiceWorkspace.css";
 
@@ -24,6 +24,7 @@ interface WorkspaceData {
   pricingRules: DocumentPricingRule[];
   scanPricingTiers: ScanPricingTier[];
   printTypes: PrintTypeDefinition[];
+  pricingCategories: PricingCategory[];
 }
 
 export function ServiceWorkspace() {
@@ -37,7 +38,7 @@ export function ServiceWorkspace() {
     async () => {
       if (!serviceId) throw new Error("Service not found.");
 
-      const [service, products, deletedProducts, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes] = await Promise.all([
+      const [service, products, deletedProducts, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories] = await Promise.all([
         api.get<Service>(`/services/${serviceId}`),
         api.get<Product[]>(`/products?service_id=${encodeURIComponent(serviceId)}`),
         api.get<DeletedProduct[]>(`/products/deleted?service_id=${encodeURIComponent(serviceId)}`),
@@ -46,9 +47,10 @@ export function ServiceWorkspace() {
         api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
         api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
         api.get<PrintTypeDefinition[]>("/print-types"),
+        api.get<PricingCategory[]>("/document-analyzer/pricing-categories"),
       ]);
 
-      return { service, products, deletedProducts, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes };
+      return { service, products, deletedProducts, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories };
     },
     [serviceId],
   );
@@ -217,6 +219,7 @@ export function ServiceWorkspace() {
         pricingRules={data.pricingRules}
         scanPricingTiers={data.scanPricingTiers}
         printTypes={data.printTypes}
+        pricingCategories={data.pricingCategories}
         onClose={() => setCreateModalOpen(false)}
         onCreated={(product) => {
           setCreatedProducts((current) => [...current, product]);

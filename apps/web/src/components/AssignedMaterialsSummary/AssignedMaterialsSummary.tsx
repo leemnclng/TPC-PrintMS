@@ -13,6 +13,7 @@ interface AssignedMaterialsSummaryProps {
   value: MaterialSelection[];
   printType: ProductPrintType;
   operationKind: ProductOperationKind;
+  pricingCategoryKey?: string | null;
   pricingRules: DocumentPricingRule[];
   documentRates: ProductDocumentRateSelection[];
   error?: string | null;
@@ -23,6 +24,7 @@ export function AssignedMaterialsSummary({
   value,
   printType,
   operationKind,
+  pricingCategoryKey,
   pricingRules,
   documentRates,
   error,
@@ -47,7 +49,7 @@ export function AssignedMaterialsSummary({
           {assignedItems.map((item) => {
             const pricingRule = item.paperSize
               ? pricingRules.find(
-                  (rule) => rule.inventoryItemId === item.id && rule.printType === printType && rule.pricingScope === operationKind && rule.isActive,
+                  (rule) => rule.inventoryItemId === item.id && rule.printType === printType && rule.pricingScope === (pricingCategoryKey ?? operationKind) && rule.isActive,
                 )
               : null;
             const override = pricingRule

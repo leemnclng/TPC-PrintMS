@@ -176,10 +176,10 @@ export function TransactionCreateModal({
       suggested = scanPrice ?? 0;
     } else if (product?.operationKind === "photocopy") {
       const customRate = product.documentRates.find((candidate) =>
-        pricingRules.some((rule) => rule.id === candidate.pricingRuleId && rule.inventoryItemId === line.paperId && rule.pricingScope === product.operationKind),
+        pricingRules.some((rule) => rule.id === candidate.pricingRuleId && rule.inventoryItemId === line.paperId && rule.pricingScope === (product.pricingCategoryKey ?? product.operationKind)),
       )?.pricePerPage;
       const globalRate = pricingRules.find((rule) =>
-        rule.isActive && rule.inventoryItemId === line.paperId && rule.printType === product.printType && rule.pricingScope === product.operationKind,
+        rule.isActive && rule.inventoryItemId === line.paperId && rule.printType === product.printType && rule.pricingScope === (product.pricingCategoryKey ?? product.operationKind),
       )?.pricePerPage;
       const rate = customRate ?? globalRate ?? product.pricePerPage;
       suggested = (rate + (variant?.priceAdjustment ?? 0)) * line.pages * line.copies;

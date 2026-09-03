@@ -4,6 +4,8 @@ Track notable app changes by date.
 
 ## 2026-09-01 (desktop backend startup reliability)
 
+- Added: Each unreviewed Windows spooler entry in Print Center now provides Add to existing job alongside Create job, even after its notification is closed.
+- Changed: Linked spooler history opens its job, while dismissed history remains read-only instead of offering invalid creation actions.
 - Fixed: Multi-page PDF previews no longer retain a full-resolution canvas for every visited page, reducing the temporary black-screen repaint seen during document analysis.
 - Changed: Continuous preview now renders only the visible/nearby pages, frees distant raster buffers, caps per-page resolution, and uses a light preparation surface.
 - Fixed: Windows now defaults to software rendering after the observed GPU-process crash caused a black-to-white application window.
@@ -344,3 +346,10 @@ Track notable app changes by date.
 - Added: Custom paper accepts measured dimensions within 55 × 89 mm and 216 × 1200 mm, with inline validation and normalized short/long edges.
 - Changed: Analyzer guidance, product pricing, job paper choices, and print history display the same measured media profile selected in Inventory.
 - Changed: More than one material may use the same paper size, allowing separate bond, glossy, matte, and specialty stocks with independent pricing.
+
+## 2026-09-03
+
+- Added: Configuration can create owner-managed Printing or Photocopy pricing categories.
+- Changed: Each pricing category contains only paper materials explicitly selected by the owner; new inventory paper no longer appears in every pricing table automatically.
+- Added: Physical products select a compatible pricing category, and job/analyzer pricing follows that category through to the transaction.
+- Preserved: Existing Printing and Scan or Photocopy rates and product links are migrated without losing configured prices.

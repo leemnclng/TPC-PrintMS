@@ -10,6 +10,8 @@ from ..db.models import (
     DocumentPricingRule,
     InventoryItem,
     PrintType,
+    PricingCategory,
+    PricingCategoryMaterial,
     Product,
     ProductDocumentRate,
     ProductMaterialAssignment,
@@ -25,6 +27,7 @@ from ..services.product_deletion import (
 )
 from ..services.product_pricing import reference_price_per_page, resolve_scan_price_per_page
 from ..services.print_types import ensure_builtin_print_types
+from ..modules.document_analyzer.services.pricing_service import PricingService
 
 router = APIRouter(prefix="/products", tags=["products"], dependencies=[Depends(require_token)])
 
@@ -44,6 +47,8 @@ def _to_read(product: Product, db: Session) -> ProductRead:
         description=product.description,
         print_type=product.print_type,
         operation_kind=product.operation_kind,
+        pricing_category_key=product.pricing_category_key,
+        pricing_category_name=product.pricing_category.name if product.pricing_category else None,
         standalone_price_per_page=product.standalone_price_per_page,
         price_per_page=(
             # A scan's rate is page-count tiered, not a single number — this
@@ -52,7 +57,7 @@ def _to_read(product: Product, db: Session) -> ProductRead:
             if product.operation_kind == "scan"
             else reference_price_per_page(
                 product.print_type,
-                product.operation_kind,
+                product.pricing_category_key or product.operation_kind,
                 overrides,
                 material_ids,
                 db,
@@ -124,8 +129,11 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         raise HTTPException(status_code=404, detail="Service not found.")
     _validate_operation(service, data["operation_kind"], data["standalone_price_per_page"], variants, material_assignments, document_rates)
     _validate_print_type(data["print_type"], db, require_active=True)
+    data["pricing_category_key"] = _validate_pricing_category(
+        data["operation_kind"], data["pricing_category_key"], material_assignments, db, require_active=True
+    )
     document_rates = _clean_document_rates(
-        document_rates, data["print_type"], data["operation_kind"], db
+        document_rates, data["print_type"], data["pricing_category_key"], db
     )
     _validate_material_assignments(material_assignments, db, require_active=True)
     _validate_photocopy_materials(data["operation_kind"], material_assignments, db)
@@ -133,7 +141,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         data["standalone_price_per_page"], 1, db
     ) if data["operation_kind"] == "scan" else reference_price_per_page(
         data["print_type"],
-        data["operation_kind"],
+        data["pricing_category_key"],
         {rate["pricing_rule_id"]: rate["price_per_page"] for rate in document_rates},
         [assignment["inventory_item_id"] for assignment in material_assignments],
         db,
@@ -170,14 +178,23 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
     service = db.get(Service, data["service_id"])
     if not service:
         raise HTTPException(status_code=404, detail="Service not found.")
+    if data["pricing_category_key"] is None and data["operation_kind"] == product.operation_kind:
+        data["pricing_category_key"] = product.pricing_category_key
     _validate_operation(service, data["operation_kind"], data["standalone_price_per_page"], variants, material_assignments, document_rates)
     _validate_print_type(
         data["print_type"],
         db,
         require_active=data["print_type"] != product.print_type,
     )
+    data["pricing_category_key"] = _validate_pricing_category(
+        data["operation_kind"],
+        data["pricing_category_key"],
+        material_assignments,
+        db,
+        require_active=data["pricing_category_key"] != product.pricing_category_key,
+    )
     document_rates = _clean_document_rates(
-        document_rates, data["print_type"], data["operation_kind"], db
+        document_rates, data["print_type"], data["pricing_category_key"], db
     )
     _validate_material_assignments(material_assignments, db)
     _validate_photocopy_materials(data["operation_kind"], material_assignments, db)
@@ -185,7 +202,7 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
         data["standalone_price_per_page"], 1, db
     ) if data["operation_kind"] == "scan" else reference_price_per_page(
         data["print_type"],
-        data["operation_kind"],
+        data["pricing_category_key"],
         {rate["pricing_rule_id"]: rate["price_per_page"] for rate in document_rates},
         [assignment["inventory_item_id"] for assignment in material_assignments],
         db,
@@ -302,7 +319,7 @@ def _clean_variants(
 
 
 def _clean_document_rates(
-    document_rates: list[dict], print_type: str, operation_kind: str, db: Session
+    document_rates: list[dict], print_type: str, pricing_category_key: str | None, db: Session
 ) -> list[dict]:
     rule_ids = [rate["pricing_rule_id"] for rate in document_rates]
     if len(rule_ids) != len(set(rule_ids)):
@@ -319,16 +336,57 @@ def _clean_document_rates(
             detail=f"A document pricing override must match this product's print type ({print_type}).",
         )
     if mismatched_scope := next(
-        (rule for rule in rules if rule.pricing_scope != operation_kind), None
+        (rule for rule in rules if rule.pricing_scope != pricing_category_key), None
     ):
         raise HTTPException(
             status_code=422,
             detail=(
                 "A product pricing override must use the global table for "
-                f"{operation_kind.replace('_', ' ')} products."
+                f"{pricing_category_key or 'the selected pricing category'}."
             ),
         )
     return document_rates
+
+
+def _validate_pricing_category(
+    operation_kind: str,
+    category_key: str | None,
+    material_assignments: list[dict],
+    db: Session,
+    *,
+    require_active: bool,
+) -> str | None:
+    if operation_kind == "scan":
+        if category_key is not None:
+            raise HTTPException(status_code=422, detail="Scan products use scan tiers, not a paper pricing category.")
+        return None
+    PricingService.ensure_builtin_categories(db)
+    resolved_key = category_key or operation_kind
+    category = db.get(PricingCategory, resolved_key)
+    if category is None:
+        raise HTTPException(status_code=422, detail="Select a pricing category.")
+    if category.operation_kind != operation_kind:
+        raise HTTPException(status_code=422, detail="The pricing category does not match this product's workflow.")
+    if require_active and not category.is_active:
+        raise HTTPException(status_code=409, detail=f"Pricing category is inactive: {category.name}.")
+    paper_ids = {
+        item_id for (item_id,) in db.query(InventoryItem.id).filter(
+            InventoryItem.id.in_([entry["inventory_item_id"] for entry in material_assignments]),
+            InventoryItem.paper_size.isnot(None),
+        ).all()
+    }
+    assigned_ids = {
+        item_id for (item_id,) in db.query(PricingCategoryMaterial.inventory_item_id).filter(
+            PricingCategoryMaterial.pricing_category_key == resolved_key
+        ).all()
+    }
+    if unavailable := paper_ids - assigned_ids:
+        item = db.get(InventoryItem, next(iter(unavailable)))
+        raise HTTPException(
+            status_code=422,
+            detail=f"{item.name if item else 'The selected paper'} is not assigned to {category.name}.",
+        )
+    return resolved_key
 
 
 def _validate_print_type(print_type: str, db: Session, *, require_active: bool) -> PrintType:

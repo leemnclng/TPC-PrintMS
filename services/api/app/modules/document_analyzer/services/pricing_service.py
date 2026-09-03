@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.db.models import DocumentPricingRule, InventoryItem, PrintType, Product, ProductVariant
+from app.db.models import (
+    DocumentPricingRule,
+    PricingCategory,
+    PricingCategoryMaterial,
+    PrintType,
+    Product,
+    ProductVariant,
+)
 from app.services.print_types import ensure_builtin_print_types
 
 from ..models.document_analysis import DocumentAnalysis
@@ -15,44 +22,64 @@ class PricingService:
         self._engine = PricingEngine()
 
     def ensure_defaults(self, db: Session) -> list[DocumentPricingRule]:
-        """Every active, paper-tagged inventory item gets a rule per print
-        type and physical-output workflow (starting at ₱0). Unlike the old
-        fixed paper-size list, this is fully driven by what the owner has
-        actually tagged as paper stock in Inventory — see decisions.md "Tie
-        Document Pricing to Real Paper Stock"."""
+        """Create rates only for paper explicitly assigned to a category."""
         print_types = ensure_builtin_print_types(db)
-        paper_items = (
-            db.query(InventoryItem)
-            .filter(InventoryItem.paper_size.isnot(None), InventoryItem.is_active.is_(True))
-            .all()
-        )
-        scopes = ("printing", "photocopy")
+        self.ensure_builtin_categories(db)
+        assignments = db.query(PricingCategoryMaterial).all()
         existing = {
             (rule.inventory_item_id, rule.print_type, rule.pricing_scope)
             for rule in db.query(DocumentPricingRule).all()
         }
         created_default = False
-        for item in paper_items:
+        for assignment in assignments:
             for print_type in print_types:
-                for scope in scopes:
-                    if (item.id, print_type.key, scope) in existing:
-                        continue
-                    db.add(
-                        DocumentPricingRule(
-                            inventory_item_id=item.id,
-                            print_type=print_type.key,
-                            pricing_scope=scope,
-                            price_per_page=0.0,
-                            is_active=True,
-                        )
+                key = (assignment.inventory_item_id, print_type.key, assignment.pricing_category_key)
+                if key in existing:
+                    continue
+                db.add(
+                    DocumentPricingRule(
+                        inventory_item_id=assignment.inventory_item_id,
+                        print_type=print_type.key,
+                        pricing_scope=assignment.pricing_category_key,
+                        price_per_page=0.0,
+                        is_active=True,
                     )
-                    created_default = True
+                )
+                created_default = True
         if created_default:
             db.commit()
-        # Every rule is returned (even ones whose item has since gone
-        # inactive) so the owner keeps visibility into what they set;
-        # `calculate` filters to active items separately for actual pricing.
-        return db.query(DocumentPricingRule).all()
+        return (
+            db.query(DocumentPricingRule)
+            .join(
+                PricingCategoryMaterial,
+                (PricingCategoryMaterial.pricing_category_key == DocumentPricingRule.pricing_scope)
+                & (PricingCategoryMaterial.inventory_item_id == DocumentPricingRule.inventory_item_id),
+            )
+            .all()
+        )
+
+    @staticmethod
+    def ensure_builtin_categories(db: Session) -> list[PricingCategory]:
+        defaults = (
+            ("printing", "Printing", "File-based output sent to a printer.", "printing", 0),
+            ("photocopy", "Scan or Photocopy", "Device-side photocopy output. Scan-to-softcopy uses scan tiers.", "photocopy", 1),
+        )
+        changed = False
+        for key, name, description, operation_kind, sort_order in defaults:
+            if db.get(PricingCategory, key) is None:
+                db.add(PricingCategory(
+                    key=key,
+                    name=name,
+                    description=description,
+                    operation_kind=operation_kind,
+                    is_builtin=True,
+                    is_active=True,
+                    sort_order=sort_order,
+                ))
+                changed = True
+        if changed:
+            db.commit()
+        return db.query(PricingCategory).order_by(PricingCategory.sort_order, PricingCategory.name).all()
 
     def calculate(
         self,
@@ -74,7 +101,8 @@ class PricingService:
             definition = db.get(PrintType, product.print_type)
             usable_rules = [
                 rule for rule in rules
-                if rule.inventory_item.is_active and rule.pricing_scope == product.operation_kind
+                if rule.inventory_item.is_active
+                and rule.pricing_scope == (product.pricing_category_key or product.operation_kind)
             ]
             assigned_material_ids = {assignment.inventory_item_id for assignment in product.material_assignments}
             usable_rules = [

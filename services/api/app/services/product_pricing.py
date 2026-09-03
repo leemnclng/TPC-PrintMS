@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
-from ..db.models import DocumentPricingRule, InventoryItem, ScanPricingTier
+from ..db.models import DocumentPricingRule, InventoryItem, PricingCategoryMaterial, ScanPricingTier
 
 
 def reference_price_per_page(
@@ -30,6 +30,11 @@ def reference_price_per_page(
     rules = (
         db.query(DocumentPricingRule)
         .join(InventoryItem)
+        .join(
+            PricingCategoryMaterial,
+            (PricingCategoryMaterial.pricing_category_key == DocumentPricingRule.pricing_scope)
+            & (PricingCategoryMaterial.inventory_item_id == DocumentPricingRule.inventory_item_id),
+        )
         .filter(
             InventoryItem.id.in_(inventory_item_ids),
             InventoryItem.paper_size.isnot(None),
@@ -65,6 +70,11 @@ def price_per_page_for_material(
     rule = (
         db.query(DocumentPricingRule)
         .join(InventoryItem)
+        .join(
+            PricingCategoryMaterial,
+            (PricingCategoryMaterial.pricing_category_key == DocumentPricingRule.pricing_scope)
+            & (PricingCategoryMaterial.inventory_item_id == DocumentPricingRule.inventory_item_id),
+        )
         .filter(
             InventoryItem.id == inventory_item_id,
             InventoryItem.paper_size.isnot(None),

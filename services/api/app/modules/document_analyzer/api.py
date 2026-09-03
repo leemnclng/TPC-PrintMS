@@ -3,11 +3,21 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.core.security import require_token
-from app.db.models import DocumentPricingRule, Product, ProductMaterialAssignment, ProductVariant, ScanPricingTier
+from app.db.models import (
+    DocumentPricingRule,
+    InventoryItem,
+    PricingCategory,
+    PricingCategoryMaterial,
+    Product,
+    ProductMaterialAssignment,
+    ProductVariant,
+    ScanPricingTier,
+)
 from app.db.session import get_db
 from app.services.product_pricing import scan_tier_ranges_overlap
 
@@ -15,6 +25,9 @@ from .analyzers.base import InvalidDocumentError
 from .models.document_analysis import AnalysisResponse
 from .models.pricing_result import (
     PricingContext,
+    PricingCategoryCreate,
+    PricingCategoryRead,
+    PricingCategoryUpdate,
     PricingRuleRead,
     PricingRulesUpdate,
     ScanPricingTierCreate,
@@ -36,7 +49,6 @@ router = APIRouter(
 )
 analysis_service = AnalysisService()
 pricing_service = PricingService()
-PRICING_SCOPE_ORDER = {"printing": 0, "photocopy": 1}
 
 
 @router.post("/analyze", response_model=AnalysisResponse, response_model_exclude_none=True)
@@ -140,7 +152,8 @@ def list_pricing_rules(db: Session = Depends(get_db)) -> list[PricingRuleRead]:
     rules = pricing_service.ensure_defaults(db)
     rules.sort(
         key=lambda rule: (
-            PRICING_SCOPE_ORDER.get(rule.pricing_scope, 99),
+            rule.pricing_category.sort_order,
+            rule.pricing_category.name,
             rule.paper_size.value,
             rule.print_type_definition.sort_order,
         )
@@ -168,12 +181,155 @@ def update_pricing_rules(
     all_rules = pricing_service.ensure_defaults(db)
     all_rules.sort(
         key=lambda rule: (
-            PRICING_SCOPE_ORDER.get(rule.pricing_scope, 99),
+            rule.pricing_category.sort_order,
+            rule.pricing_category.name,
             rule.paper_size.value,
             rule.print_type_definition.sort_order,
         )
     )
     return [pricing_service.to_read(rule) for rule in all_rules]
+
+
+def _category_to_read(category: PricingCategory, db: Session) -> PricingCategoryRead:
+    return PricingCategoryRead(
+        key=category.key,
+        name=category.name,
+        description=category.description,
+        operation_kind=category.operation_kind,
+        material_ids=[assignment.inventory_item_id for assignment in category.material_assignments],
+        is_builtin=category.is_builtin,
+        is_active=category.is_active,
+        linked_product_count=db.query(Product).filter(Product.pricing_category_key == category.key).count(),
+        created_at=category.created_at,
+        updated_at=category.updated_at,
+    )
+
+
+def _validated_category_materials(
+    material_ids: list[str], db: Session, *, allowed_inactive_ids: set[str] | None = None
+) -> list[InventoryItem]:
+    if len(material_ids) != len(set(material_ids)):
+        raise HTTPException(status_code=409, detail="Each material can be assigned only once.")
+    if not material_ids:
+        return []
+    items = db.query(InventoryItem).filter(InventoryItem.id.in_(material_ids)).all()
+    by_id = {item.id: item for item in items}
+    if missing := set(material_ids) - set(by_id):
+        raise HTTPException(status_code=404, detail=f"Inventory material not found: {next(iter(missing))}.")
+    allowed_inactive_ids = allowed_inactive_ids or set()
+    if invalid := next((
+        item for item in items
+        if item.paper_size is None or (not item.is_active and item.id not in allowed_inactive_ids)
+    ), None):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{invalid.name} must be active and have a paper size before it can be priced.",
+        )
+    return items
+
+
+@router.get("/pricing-categories", response_model=list[PricingCategoryRead])
+def list_pricing_categories(db: Session = Depends(get_db)) -> list[PricingCategoryRead]:
+    categories = pricing_service.ensure_builtin_categories(db)
+    return [_category_to_read(category, db) for category in categories]
+
+
+@router.post("/pricing-categories", response_model=PricingCategoryRead, status_code=201)
+def create_pricing_category(
+    payload: PricingCategoryCreate, db: Session = Depends(get_db)
+) -> PricingCategoryRead:
+    name = payload.name.strip()
+    if db.query(PricingCategory).filter(func.lower(PricingCategory.name) == name.lower()).first():
+        raise HTTPException(status_code=409, detail="A pricing category with this name already exists.")
+    _validated_category_materials(payload.material_ids, db)
+    category = PricingCategory(
+        name=name,
+        description=payload.description.strip() if payload.description else None,
+        operation_kind=payload.operation_kind,
+        is_builtin=False,
+        is_active=True,
+        sort_order=(db.query(func.max(PricingCategory.sort_order)).scalar() or 0) + 1,
+    )
+    assignments_by_material = {
+        assignment.inventory_item_id: assignment
+        for assignment in category.material_assignments
+    }
+    for material_id, assignment in assignments_by_material.items():
+        if material_id not in payload.material_ids:
+            category.material_assignments.remove(assignment)
+    for material_id in payload.material_ids:
+        if material_id not in assignments_by_material:
+            category.material_assignments.append(
+                PricingCategoryMaterial(inventory_item_id=material_id)
+            )
+    db.add(category)
+    db.commit()
+    db.refresh(category)
+    pricing_service.ensure_defaults(db)
+    db.refresh(category)
+    return _category_to_read(category, db)
+
+
+@router.put("/pricing-categories/{category_key}", response_model=PricingCategoryRead)
+def update_pricing_category(
+    category_key: str,
+    payload: PricingCategoryUpdate,
+    db: Session = Depends(get_db),
+) -> PricingCategoryRead:
+    category = db.get(PricingCategory, category_key)
+    if category is None:
+        raise HTTPException(status_code=404, detail="Pricing category not found.")
+    name = payload.name.strip()
+    duplicate = db.query(PricingCategory).filter(
+        func.lower(PricingCategory.name) == name.lower(),
+        PricingCategory.key != category.key,
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A pricing category with this name already exists.")
+    if category.is_builtin and payload.operation_kind != category.operation_kind:
+        raise HTTPException(status_code=422, detail="A built-in category's workflow cannot be changed.")
+    if payload.operation_kind != category.operation_kind and category.products:
+        raise HTTPException(status_code=409, detail="Move linked products before changing this category's workflow.")
+    existing_material_ids = {
+        assignment.inventory_item_id for assignment in category.material_assignments
+    }
+    _validated_category_materials(
+        payload.material_ids, db, allowed_inactive_ids=existing_material_ids
+    )
+    removed_ids = {
+        assignment.inventory_item_id for assignment in category.material_assignments
+    } - set(payload.material_ids)
+    if removed_ids:
+        used = db.query(ProductMaterialAssignment).join(Product).filter(
+            Product.pricing_category_key == category.key,
+            ProductMaterialAssignment.inventory_item_id.in_(removed_ids),
+            Product.deleted_at.is_(None),
+        ).first()
+        if used:
+            raise HTTPException(
+                status_code=409,
+                detail="A linked product still uses one of the materials being removed.",
+            )
+    category.name = name
+    category.description = payload.description.strip() if payload.description else None
+    category.operation_kind = payload.operation_kind
+    category.is_active = payload.is_active
+    assignments_by_material = {
+        assignment.inventory_item_id: assignment
+        for assignment in category.material_assignments
+    }
+    for material_id, assignment in assignments_by_material.items():
+        if material_id not in payload.material_ids:
+            category.material_assignments.remove(assignment)
+    for material_id in payload.material_ids:
+        if material_id not in assignments_by_material:
+            category.material_assignments.append(
+                PricingCategoryMaterial(inventory_item_id=material_id)
+            )
+    db.commit()
+    pricing_service.ensure_defaults(db)
+    db.refresh(category)
+    return _category_to_read(category, db)
 
 
 def _to_scan_tier_read(tier: ScanPricingTier) -> ScanPricingTierRead:

@@ -490,9 +490,24 @@ export function PrintCenterPage() {
                     <StatusPill label={job.status === "released" ? "Released by spooler" : job.status} tone={tone} />
                     {job.linkedJobOrderId ? (
                       <LinkButton to={`/job-orders/${encodeURIComponent(job.linkedJobOrderId)}`} variant="ghost" size="sm">View job</LinkButton>
-                    ) : (
-                      <LinkButton to={`/job-orders?create=1&spoolerJobId=${encodeURIComponent(job.id)}`} variant="ghost" size="sm">Create job</LinkButton>
-                    )}
+                    ) : job.reviewStatus === "unreviewed" ? (
+                      <div className="spooler-job-list__review-actions" aria-label={`Record ${job.documentName}`}>
+                        <LinkButton
+                          to={`/job-orders?attachSpoolerJobId=${encodeURIComponent(job.id)}`}
+                          variant="secondary"
+                          size="sm"
+                        >
+                          Add to existing job
+                        </LinkButton>
+                        <LinkButton
+                          to={`/job-orders?create=1&spoolerJobId=${encodeURIComponent(job.id)}`}
+                          variant="ghost"
+                          size="sm"
+                        >
+                          Create job
+                        </LinkButton>
+                      </div>
+                    ) : null}
                   </div>
                 </article>
               );

@@ -24,6 +24,22 @@ from app.modules.document_analyzer.services.analysis_service import AnalysisServ
 from app.routers import inventory, job_orders, products, services, variants
 
 
+def _assign_pricing_materials(client: TestClient, headers: dict[str, str], category_key: str, material_ids: list[str]) -> None:
+    category = next(item for item in client.get("/document-analyzer/pricing-categories", headers=headers).json() if item["key"] == category_key)
+    response = client.put(
+        f"/document-analyzer/pricing-categories/{category_key}",
+        headers=headers,
+        json={
+            "name": category["name"],
+            "description": category["description"],
+            "operationKind": category["operationKind"],
+            "materialIds": material_ids,
+            "isActive": category["isActive"],
+        },
+    )
+    assert response.status_code == 200
+
+
 def test_supported_document_formats_produce_normalized_analysis() -> None:
     service = AnalysisService()
     fixtures = _fixtures()
@@ -98,6 +114,80 @@ def test_bw_product_rate_already_includes_paper_and_ink_for_every_size(paper_siz
     assert pricing.adjustments == []
 
 
+def test_owner_can_create_pricing_category_with_explicit_materials(tmp_path) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'pricing-categories.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+
+    def override_db():
+        db = test_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(router)
+    app.include_router(inventory.router)
+    app.include_router(services.router)
+    app.include_router(products.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+    first = client.post("/inventory-items", headers=headers, json={
+        "name": "Glossy A4", "category": "Paper", "unit": "sheet",
+        "openingQuantity": 20, "reorderLevel": 2, "paperSize": "A4", "isActive": True,
+    }).json()
+    client.post("/inventory-items", headers=headers, json={
+        "name": "Matte Letter", "category": "Paper", "unit": "sheet",
+        "openingQuantity": 20, "reorderLevel": 2, "paperSize": "Letter", "isActive": True,
+    })
+
+    assert client.get("/document-analyzer/pricing-rules", headers=headers).json() == []
+    created = client.post("/document-analyzer/pricing-categories", headers=headers, json={
+        "name": "Photo studio", "description": "Photo paper prices",
+        "operationKind": "printing", "materialIds": [first["id"]],
+    })
+    assert created.status_code == 201
+    category = created.json()
+    assert category["materialIds"] == [first["id"]]
+    rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
+    assert len(rules) == 4
+    assert {rule["pricingScope"] for rule in rules} == {category["key"]}
+    assert {rule["inventoryItemId"] for rule in rules} == {first["id"]}
+    unchanged = client.put(
+        f"/document-analyzer/pricing-categories/{category['key']}",
+        headers=headers,
+        json={
+            "name": category["name"], "description": category["description"],
+            "operationKind": category["operationKind"],
+            "materialIds": [first["id"]], "isActive": True,
+        },
+    )
+    assert unchanged.status_code == 200
+    bw_rule = next(rule for rule in rules if rule["printType"] == "black_and_white")
+    assert client.put(
+        "/document-analyzer/pricing-rules",
+        headers=headers,
+        json={"rules": [{"id": bw_rule["id"], "pricePerPage": 12, "isActive": True}]},
+    ).status_code == 200
+    service = client.post("/services", headers=headers, json={
+        "name": "Photo services", "category": "printing", "isActive": True,
+    }).json()
+    product = client.post("/products", headers=headers, json={
+        "serviceId": service["id"], "name": "Studio photo", "printType": "black_and_white",
+        "operationKind": "printing", "pricingCategoryKey": category["key"], "isActive": True,
+        "variants": [], "materialAssignments": [{"inventoryItemId": first["id"]}],
+        "documentRates": [],
+    })
+    assert product.status_code == 201
+    assert product.json()["pricingCategoryName"] == "Photo studio"
+    assert product.json()["pricePerPage"] == 12
+
+
 def test_analyzer_api_and_owner_pricing_rules(tmp_path) -> None:
     engine = create_engine(
         f"sqlite:///{tmp_path / 'analyzer.db'}",
@@ -124,7 +214,7 @@ def test_analyzer_api_and_owner_pricing_rules(tmp_path) -> None:
     # Paper sizes are tied to real inventory stock — see decisions.md "Tie
     # Document Pricing to Real Paper Stock" — so nothing prices until an
     # item is tagged, and a freshly-tagged item's rule starts at ₱0.
-    client.post(
+    material = client.post(
         "/inventory-items",
         headers=headers,
         json={
@@ -136,7 +226,9 @@ def test_analyzer_api_and_owner_pricing_rules(tmp_path) -> None:
             "paperSize": "A4",
             "isActive": True,
         },
-    )
+    ).json()
+    _assign_pricing_materials(client, headers, "printing", [material["id"]])
+    _assign_pricing_materials(client, headers, "photocopy", [material["id"]])
 
     rules_response = client.get("/document-analyzer/pricing-rules", headers=headers)
     assert rules_response.status_code == 200
@@ -237,6 +329,7 @@ def test_analyze_prefers_product_override_then_falls_back_to_global_rate(tmp_pat
             "isActive": True,
         },
     ).json()
+    _assign_pricing_materials(client, headers, "printing", [material["id"]])
 
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
     a4_color_rule = next(rule for rule in rules if rule["paperSize"] == "A4" and rule["printType"] == "colored" and rule["pricingScope"] == "printing")

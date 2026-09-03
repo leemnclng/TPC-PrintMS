@@ -24,6 +24,7 @@ import { computeReferencePrice, resolveScanPricePerPage } from "../../lib/produc
 import type {
   DocumentPricingRule,
   InventoryItem,
+  PricingCategory,
   PrintTypeDefinition,
   Product,
   ProductOperationKind,
@@ -39,6 +40,7 @@ type FormState = {
   description: string;
   printType: ProductPrintType;
   operationKind: ProductOperationKind;
+  pricingCategoryKey: string | null;
   standalonePricePerPage: number | null;
   isActive: boolean;
   variants: ProductVariantSelection[];
@@ -51,6 +53,7 @@ const BLANK: FormState = {
   description: "",
   printType: "black_and_white",
   operationKind: "printing",
+  pricingCategoryKey: "printing",
   standalonePricePerPage: null,
   isActive: true,
   variants: [],
@@ -66,7 +69,7 @@ export function ProductWorkspace() {
   const { data, state, error } = useResource(
     async () => {
       if (!serviceId) throw new Error("Service is required.");
-      const [service, product, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes] = await Promise.all([
+      const [service, product, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories] = await Promise.all([
         api.get<Service>(`/services/${serviceId}`),
         isNew ? Promise.resolve(null) : api.get<Product>(`/products/${productId}`),
         api.get<InventoryItem[]>("/inventory-items"),
@@ -74,8 +77,9 @@ export function ProductWorkspace() {
         api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
         api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
         api.get<PrintTypeDefinition[]>("/print-types"),
+        api.get<PricingCategory[]>("/document-analyzer/pricing-categories"),
       ]);
-      return { service, product, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes };
+      return { service, product, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories };
     },
     [serviceId, productId],
   );
@@ -93,6 +97,7 @@ export function ProductWorkspace() {
         description: data.product.description ?? "",
         printType: data.product.printType,
         operationKind: data.product.operationKind,
+        pricingCategoryKey: data.product.pricingCategoryKey ?? (data.product.operationKind === "scan" ? null : data.product.operationKind),
         standalonePricePerPage: data.product.standalonePricePerPage ?? null,
         isActive: data.product.isActive,
         variants: data.product.variants.map((variant) => ({
@@ -110,7 +115,8 @@ export function ProductWorkspace() {
     } else if (data) {
       const defaultPrintType = data.printTypes.find((printType) => printType.isActive && printType.key === "black_and_white")
         ?? data.printTypes.find((printType) => printType.isActive);
-      setForm({ ...BLANK, printType: defaultPrintType?.key ?? BLANK.printType, operationKind: data.service.category === "photocopy" ? "photocopy" : "printing" });
+      const operationKind = data.service.category === "photocopy" ? "photocopy" : "printing";
+      setForm({ ...BLANK, printType: defaultPrintType?.key ?? BLANK.printType, operationKind, pricingCategoryKey: data.pricingCategories.find((category) => category.isActive && category.operationKind === operationKind)?.key ?? operationKind });
     }
   }, [data]);
 
@@ -120,6 +126,10 @@ export function ProductWorkspace() {
     try {
       if (!serviceId) throw new Error("Service is required.");
       const isScan = form.operationKind === "scan";
+      if (!isScan && !form.pricingCategoryKey) {
+        setSaveError("Select a pricing category for this product.");
+        return;
+      }
       if (!isScan && isNew && form.materialAssignments.length === 0) {
         setSaveError("Assign at least one material this product may use.");
         return;
@@ -130,7 +140,7 @@ export function ProductWorkspace() {
       }
       if (form.operationKind === "photocopy") {
         const hasPaperAssignment = (data?.pricingRules ?? []).some((rule) =>
-          rule.printType === form.printType && rule.pricingScope === form.operationKind && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
+          rule.printType === form.printType && rule.pricingScope === (form.pricingCategoryKey ?? form.operationKind) && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
         if (!hasPaperAssignment) {
           setSaveError("Select at least one paper material for this photocopy product.");
           return;
@@ -147,7 +157,7 @@ export function ProductWorkspace() {
       }
       const referencePrice = isScan ? resolveScanPricePerPage(form.standalonePricePerPage, 1, data?.scanPricingTiers ?? []) ?? 0 : computeReferencePrice(
         form.printType,
-        form.operationKind,
+        form.pricingCategoryKey ?? form.operationKind,
         form.documentRates,
         data?.pricingRules ?? [],
         form.materialAssignments,
@@ -214,11 +224,13 @@ export function ProductWorkspace() {
   ) ?? [];
   const selectedPrintType = data?.printTypes.find((printType) => printType.key === form.printType);
   const isScan = form.operationKind === "scan";
+  const compatibleCategories = data?.pricingCategories.filter((category) => (category.isActive || category.key === form.pricingCategoryKey) && category.operationKind === form.operationKind) ?? [];
+  const selectedPricingCategory = data?.pricingCategories.find((category) => category.key === form.pricingCategoryKey);
   const scanPricingTiers = [...(data?.scanPricingTiers ?? [])].sort((left, right) => left.minPages - right.minPages);
   const activeScanTiers = scanPricingTiers.filter((tier) => tier.isActive);
   const referencePrice = isScan ? resolveScanPricePerPage(form.standalonePricePerPage, 1, scanPricingTiers) ?? 0 : computeReferencePrice(
     form.printType,
-    form.operationKind,
+    form.pricingCategoryKey ?? form.operationKind,
     form.documentRates,
     pricingRules,
     form.materialAssignments,
@@ -259,6 +271,7 @@ export function ProductWorkspace() {
                 onChange={(event) => setForm((current) => ({
                   ...current,
                   operationKind: event.target.value as ProductOperationKind,
+                  pricingCategoryKey: event.target.value === "scan" ? null : data?.pricingCategories.find((category) => category.isActive && category.operationKind === event.target.value)?.key ?? null,
                   standalonePricePerPage: null,
                   variants: [],
                   materialAssignments: [],
@@ -269,6 +282,16 @@ export function ProductWorkspace() {
                 <option value="scan">Scan to softcopy</option>
               </select>
               <span className="form-field__message">Changing operation clears incompatible printing configuration.</span>
+            </label>
+          ) : null}
+          {!isScan ? (
+            <label className="form-field">
+              <span>Pricing category</span>
+              <select value={form.pricingCategoryKey ?? ""} onChange={(event) => setForm((current) => ({ ...current, pricingCategoryKey: event.target.value || null, materialAssignments: [], documentRates: [] }))} required>
+                <option value="">Select pricing category</option>
+                {compatibleCategories.map((category) => <option key={category.key} value={category.key}>{category.name}</option>)}
+              </select>
+              <span className="form-field__message">Controls the available paper stock and global rates.</span>
             </label>
           ) : null}
           <div className="workspace-form__row">
@@ -311,7 +334,7 @@ export function ProductWorkspace() {
                 ? form.standalonePricePerPage !== null
                   ? "This product's own flat price, regardless of page count. No paper, ink, or inventory usage."
                   : "Following the global page-count tiers below (shown here for a 1-page scan). No paper, ink, or inventory usage."
-                : `Computed from the ${form.operationKind === "photocopy" ? "Scan or Photocopy" : "Printing"} global table for the assigned paper's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate.`}
+                : `Computed from the ${selectedPricingCategory?.name ?? "selected"} global table for the assigned paper's ${selectedPrintType?.label ?? formatProductPrintType(form.printType)} rate.`}
             </small>
           </div>
 
@@ -356,6 +379,8 @@ export function ProductWorkspace() {
                     idPrefix="product-workspace-document-rate"
                     printType={form.printType}
                     operationKind={form.operationKind}
+                    pricingCategoryKey={form.pricingCategoryKey}
+                    pricingCategoryName={selectedPricingCategory?.name}
                     pricingRules={pricingRules}
                     value={form.documentRates}
                     materialAssignments={form.materialAssignments}
@@ -428,6 +453,7 @@ export function ProductWorkspace() {
               value={form.materialAssignments}
               printType={form.printType}
               operationKind={form.operationKind}
+              pricingCategoryKey={form.pricingCategoryKey}
               pricingRules={pricingRules}
               documentRates={form.documentRates}
             />

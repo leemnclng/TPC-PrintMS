@@ -10,7 +10,7 @@ import { useResource } from "../../hooks/useResource";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatProductPrintType } from "../../lib/format";
 import { comparePaperSizes, paperSizeDisplay } from "../../lib/paperSizes";
-import type { DocumentPricingRule, InventoryPaperSize, PrintTypeDefinition, ScanPricingTier } from "../../types/domain";
+import type { DocumentPricingRule, InventoryItem, InventoryPaperSize, PricingCategory, PrintTypeDefinition, ScanPricingTier } from "../../types/domain";
 import "../SettingsPage.css";
 import { PrintTypeCreateModal } from "./PrintTypeCreateModal";
 
@@ -27,29 +27,16 @@ function sortMaterials(materials: MaterialSummary[]): MaterialSummary[] {
     comparePaperSizes(left.paperSize, right.paperSize) || left.name.localeCompare(right.name));
 }
 
-const PRICING_SCOPES = [
-  {
-    key: "printing" as const,
-    label: "Printing",
-    eyebrow: "FILE-BASED OUTPUT",
-    description: "Default paper and print-type rates for products that send an uploaded document to the printer.",
-  },
-  {
-    key: "photocopy" as const,
-    label: "Scan or Photocopy",
-    eyebrow: "DEVICE-SIDE OUTPUT",
-    description: "Default paper and print-type rates for Photocopy products. Scan has its own table below, since it consumes no print material.",
-  },
-];
-
 export function DocumentPricingSettings() {
   const { data, state, error, reload } = useResource(
     async () => {
-      const [rules, printTypes] = await Promise.all([
+      const [rules, printTypes, categories, inventoryItems] = await Promise.all([
         api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
         api.get<PrintTypeDefinition[]>("/print-types"),
+        api.get<PricingCategory[]>("/document-analyzer/pricing-categories"),
+        api.get<InventoryItem[]>("/inventory-items"),
       ]);
-      return { rules, printTypes };
+      return { rules, printTypes, categories, inventoryItems };
     },
   );
   const [rules, setRules] = useState<DocumentPricingRule[]>([]);
@@ -57,7 +44,8 @@ export function DocumentPricingSettings() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [createTypeOpen, setCreateTypeOpen] = useState(false);
-  const [editingMaterial, setEditingMaterial] = useState<{ scope: (typeof PRICING_SCOPES)[number]; material: MaterialSummary } | null>(null);
+  const [editingMaterial, setEditingMaterial] = useState<{ scope: PricingCategory; material: MaterialSummary } | null>(null);
+  const [editingCategory, setEditingCategory] = useState<PricingCategory | "new" | null>(null);
   const [removingTypeKey, setRemovingTypeKey] = useState<string | null>(null);
   const [printTypeError, setPrintTypeError] = useState<string | null>(null);
 
@@ -117,14 +105,14 @@ export function DocumentPricingSettings() {
           action={(
             <div className="settings-card-actions">
               <Button type="button" variant="secondary" size="sm" onClick={() => setCreateTypeOpen(true)}>Add print type</Button>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setEditingCategory("new")}>Add pricing category</Button>
               <LinkButton to="/document-analyzer" variant="secondary" size="sm">Open analyzer</LinkButton>
             </div>
           )}
         />
         <p className="settings-placeholder-text">
-          Configure a separate global table for each built-in workflow. Printing and Photocopy rates stay tied to
-          real paper inventory; Scan has no paper, so its rate instead depends on how many pages were scanned.
-          Every value may still be overridden by an individual product.
+          Create pricing categories for each physical workflow, then choose exactly which paper materials belong
+          to each one. Products use one compatible category and may still override its rates.
         </p>
 
         {data?.printTypes.length ? (
@@ -149,7 +137,7 @@ export function DocumentPricingSettings() {
         {state === "loading" ? <LoadingState label="Loading pricing rules…" /> : null}
         {state === "error" ? <ErrorState description={error ?? undefined} onRetry={reload} /> : null}
 
-        {state === "ready" && rules.length === 0 ? (
+        {state === "ready" && (data?.categories.length ?? 0) === 0 ? (
           <EmptyState
             title="No paper sizes configured yet"
             description="Tag an inventory material with a supported Canon paper size to start pricing by size."
@@ -157,19 +145,20 @@ export function DocumentPricingSettings() {
           />
         ) : null}
 
-        {state === "ready" && rules.length > 0 ? (
+        {state === "ready" && data?.categories.length ? (
           <form className="settings-pricing-form" onSubmit={handleSubmit}>
             <div className="settings-pricing-scopes">
-              {PRICING_SCOPES.map((scope, scopeIndex) => {
+              {data.categories.map((scope, scopeIndex) => {
                 const scopedRules = rules.filter((rule) => rule.pricingScope === scope.key);
                 return (
                   <section className="settings-pricing-scope" key={scope.key} aria-labelledby={`pricing-scope-${scope.key}`}>
                     <header className="settings-pricing-scope__header">
-                      <span className="numeric">{String(scopeIndex + 1).padStart(2, "0")} / {scope.eyebrow}</span>
-                      <div><h3 id={`pricing-scope-${scope.key}`}>{scope.label}</h3><p>{scope.description}</p></div>
-                      <output>{scopedRules.filter((rule) => rule.isActive).length}<small>active rates</small></output>
+                      <span className="numeric">{String(scopeIndex + 1).padStart(2, "0")} / {scope.operationKind === "printing" ? "FILE-BASED OUTPUT" : "DEVICE-SIDE OUTPUT"}</span>
+                      <div><h3 id={`pricing-scope-${scope.key}`}>{scope.name}</h3><p>{scope.description || "Owner-managed pricing category."}</p></div>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setEditingCategory(scope)}>Manage materials</Button>
+                      <output>{scope.materialIds.length}<small>materials</small></output>
                     </header>
-                    <div className="pricing-materials" role="list" aria-label={`${scope.label} per-page pricing rules`}>
+                    <div className="pricing-materials" role="list" aria-label={`${scope.name} per-page pricing rules`}>
                       {sortMaterials(Array.from(new Map(scopedRules.map((rule) => [rule.inventoryItemId, {
                         id: rule.inventoryItemId,
                         name: rule.inventoryItemName,
@@ -207,13 +196,19 @@ export function DocumentPricingSettings() {
                           </button>
                         );
                       })}
+                      {scope.materialIds.length === 0 ? (
+                        <div className="pricing-material pricing-material--empty" role="listitem">
+                          <span className="pricing-material__label"><strong>No materials assigned</strong><small>Choose paper stock before setting rates.</small></span>
+                          <Button type="button" variant="secondary" size="sm" onClick={() => setEditingCategory(scope)}>Choose materials</Button>
+                        </div>
+                      ) : null}
                     </div>
                   </section>
                 );
               })}
             </div>
             <div className="settings-form__actions">
-              <Button type="submit" variant="primary" loading={saving}>Save pricing rules</Button>
+              <Button type="submit" variant="primary" loading={saving} disabled={rules.length === 0}>Save pricing rules</Button>
               {saved ? <span className="settings-form__saved">Saved.</span> : null}
               {saveError ? <span className="settings-form__error" role="alert">{saveError}</span> : null}
             </div>
@@ -227,7 +222,7 @@ export function DocumentPricingSettings() {
 
       <MaterialRatesModal
         open={editingMaterial !== null}
-        scopeLabel={editingMaterial?.scope.label ?? ""}
+        scopeLabel={editingMaterial?.scope.name ?? ""}
         material={editingMaterial?.material ?? null}
         materialRules={editingMaterial ? rules.filter((rule) => rule.pricingScope === editingMaterial.scope.key && rule.inventoryItemId === editingMaterial.material.id) : []}
         printTypes={printTypes}
@@ -242,7 +237,136 @@ export function DocumentPricingSettings() {
           reload();
         }}
       />
+      <PricingCategoryModal
+        open={editingCategory !== null}
+        category={editingCategory === "new" ? null : editingCategory}
+        inventoryItems={data?.inventoryItems ?? []}
+        onClose={() => setEditingCategory(null)}
+        onSaved={() => {
+          setEditingCategory(null);
+          reload();
+        }}
+      />
     </section>
+  );
+}
+
+function PricingCategoryModal({
+  open,
+  category,
+  inventoryItems,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  category: PricingCategory | null;
+  inventoryItems: InventoryItem[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [operationKind, setOperationKind] = useState<"printing" | "photocopy">("printing");
+  const [materialIds, setMaterialIds] = useState<string[]>([]);
+  const [isActive, setIsActive] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setName(category?.name ?? "");
+    setDescription(category?.description ?? "");
+    setOperationKind(category?.operationKind ?? "printing");
+    setMaterialIds(category?.materialIds ?? []);
+    setIsActive(category?.isActive ?? true);
+    setSubmitted(false);
+    setSaveError(null);
+  }, [open, category]);
+
+  const paperMaterials = inventoryItems
+    .filter((item) => item.paperSize && (item.isActive || materialIds.includes(item.id)))
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitted(true);
+    setSaveError(null);
+    if (!name.trim()) return;
+    setSaving(true);
+    const payload = {
+      name: name.trim(),
+      description: description.trim() || null,
+      operationKind,
+      materialIds,
+      isActive,
+    };
+    try {
+      if (category) await api.put(`/document-analyzer/pricing-categories/${category.key}`, payload);
+      else await api.post("/document-analyzer/pricing-categories", payload);
+      onSaved();
+    } catch (caught) {
+      setSaveError(caught instanceof ApiError ? caught.message : "The pricing category couldn’t be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleMaterial(id: string, selected: boolean) {
+    setMaterialIds((current) => selected ? [...current, id] : current.filter((value) => value !== id));
+  }
+
+  return (
+    <Modal
+      open={open}
+      title={category ? `Manage ${category.name}` : "New pricing category"}
+      description="Choose the workflow and only the paper materials this pricing table may use."
+      busy={saving}
+      status={saveError ? "error" : saving ? "loading" : "idle"}
+      onClose={onClose}
+      className="material-rates-modal"
+    >
+      <form className="settings-modal-body pricing-category-form" onSubmit={submit} noValidate>
+        <label className={`form-field${submitted && !name.trim() ? " form-field--error" : ""}`}>
+          <span>Category name</span>
+          <input value={name} onChange={(event) => setName(event.target.value)} aria-invalid={submitted && !name.trim()} autoFocus required />
+          {submitted && !name.trim() ? <small className="workspace-form__error">Enter a category name.</small> : null}
+        </label>
+        <label className="form-field">
+          <span>Compatible workflow</span>
+          <select value={operationKind} disabled={Boolean(category?.isBuiltin)} onChange={(event) => setOperationKind(event.target.value as "printing" | "photocopy")}>
+            <option value="printing">Printing</option>
+            <option value="photocopy">Photocopy</option>
+          </select>
+          <small>Only products with this workflow can use the category.</small>
+        </label>
+        <label className="form-field">
+          <span>Description</span>
+          <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
+        </label>
+        {category ? (
+          <label className="settings-pricing-table__toggle pricing-category-form__active">
+            <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
+            <span>Available to products</span>
+          </label>
+        ) : null}
+        <fieldset className="pricing-category-materials">
+          <legend>Paper materials</legend>
+          <p>Select only the stock that belongs in this category. A price row is created for every active print type.</p>
+          {paperMaterials.length ? paperMaterials.map((item) => (
+            <label key={item.id}>
+              <input type="checkbox" checked={materialIds.includes(item.id)} disabled={!item.isActive && !materialIds.includes(item.id)} onChange={(event) => toggleMaterial(item.id, event.target.checked)} />
+              <span><strong>{item.name}</strong><small>{paperSizeDisplay(item.paperSize!, item.paperWidthMm, item.paperHeightMm)}{item.isActive ? "" : " · inactive"}</small></span>
+            </label>
+          )) : <p>No active paper materials. Add a paper-sized item in Inventory first.</p>}
+        </fieldset>
+        {saveError ? <p className="workspace-form__error" role="alert">{saveError}</p> : null}
+        <footer className="settings-modal-actions">
+          <Button type="button" variant="ghost" disabled={saving} onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" loading={saving}>{category ? "Save category" : "Create category"}</Button>
+        </footer>
+      </form>
+    </Modal>
   );
 }
 

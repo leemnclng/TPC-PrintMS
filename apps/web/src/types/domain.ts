@@ -90,7 +90,7 @@ export interface ProductDocumentRate {
   pricingRuleId: string;
   paperSize: InventoryPaperSize;
   printType: ProductPrintType;
-  pricingScope: "printing" | "photocopy";
+  pricingScope: string;
   pricePerPage: number;
 }
 
@@ -114,6 +114,8 @@ export interface Product {
   description?: string | null;
   printType: ProductPrintType;
   operationKind: ProductOperationKind;
+  pricingCategoryKey?: string | null;
+  pricingCategoryName?: string | null;
   standalonePricePerPage?: number | null;
   printTypeLabel: string;
   printColorMode: "color" | "grayscale";
@@ -547,9 +549,22 @@ export interface DocumentPricingRule {
   paperWidthMm?: number | null;
   paperHeightMm?: number | null;
   printType: ProductPrintType;
-  pricingScope: "printing" | "photocopy";
+  pricingScope: string;
   pricePerPage: number;
   isActive: boolean;
+}
+
+export interface PricingCategory {
+  key: string;
+  name: string;
+  description?: string | null;
+  operationKind: "printing" | "photocopy";
+  materialIds: string[];
+  isBuiltin: boolean;
+  isActive: boolean;
+  linkedProductCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** Global per-page-count rate band for Scan products — a scan's price never

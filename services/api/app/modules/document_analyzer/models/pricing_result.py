@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import Field
@@ -58,7 +59,7 @@ class PricingRuleRead(CamelModel):
     paper_width_mm: float | None = None
     paper_height_mm: float | None = None
     print_type: str
-    pricing_scope: Literal["printing", "photocopy"]
+    pricing_scope: str
     price_per_page: float = Field(ge=0)
     is_active: bool
 
@@ -71,6 +72,30 @@ class PricingRuleUpdate(CamelModel):
 
 class PricingRulesUpdate(CamelModel):
     rules: list[PricingRuleUpdate] = Field(min_length=1)
+
+
+class PricingCategoryBase(CamelModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    operation_kind: Literal["printing", "photocopy"]
+    material_ids: list[str] = Field(default_factory=list)
+
+
+class PricingCategoryCreate(PricingCategoryBase):
+    pass
+
+
+class PricingCategoryUpdate(PricingCategoryBase):
+    is_active: bool = True
+
+
+class PricingCategoryRead(PricingCategoryBase):
+    key: str
+    is_builtin: bool
+    is_active: bool
+    linked_product_count: int
+    created_at: datetime
+    updated_at: datetime
 
 
 class ScanPricingTierRead(CamelModel):

@@ -276,7 +276,7 @@ def create_photocopy_job_order(
     overrides = {rate.pricing_rule_id: rate.price_per_page for rate in product.document_rates}
     base_rate = price_per_page_for_material(
         product.print_type,
-        product.operation_kind,
+        product.pricing_category_key or product.operation_kind,
         overrides,
         paper_assignment.inventory_item_id,
         db,
@@ -828,7 +828,7 @@ async def _save_transaction_lines(
                 pages = line.pages_per_copy
                 base_rate = price_per_page_for_material(
                     product.print_type,
-                    product.operation_kind,
+                    product.pricing_category_key or product.operation_kind,
                     overrides,
                     assignment.inventory_item_id,
                     db,
@@ -1202,7 +1202,7 @@ def _create_job_order(
             for material_id in active_paper_ids
             if price_per_page_for_material(
                 product.print_type,
-                product.operation_kind,
+                product.pricing_category_key or product.operation_kind,
                 overrides,
                 material_id,
                 db,
@@ -1252,7 +1252,7 @@ def _create_job_order(
         reference_price = resolve_scan_price_per_page(product.standalone_price_per_page, item_payload.pages_per_copy, db) if product.operation_kind == "scan" else (
             price_per_page_for_material(
                 product.print_type,
-                product.operation_kind,
+                product.pricing_category_key or product.operation_kind,
                 overrides,
                 priced_material_ids[0],
                 db,
@@ -1260,7 +1260,7 @@ def _create_job_order(
             if priced_material_ids
             else reference_price_per_page(
                 product.print_type,
-                product.operation_kind,
+                product.pricing_category_key or product.operation_kind,
                 overrides,
                 [assignment.inventory_item_id for assignment in product.material_assignments],
                 db,

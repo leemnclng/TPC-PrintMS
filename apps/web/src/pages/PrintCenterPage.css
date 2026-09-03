@@ -303,6 +303,8 @@
 .spooler-job-list__body small { color: var(--color-ink-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .spooler-job-list .status-pill { white-space: nowrap; }
 .spooler-job-list__actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.spooler-job-list__review-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.spooler-job-list__review-actions .btn { white-space: nowrap; }
 .spooler-activity__boundary { margin: 0; border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-5); background: var(--color-warning-soft); color: var(--color-ink-soft); font-size: var(--text-xs); }
 .spooler-activity__boundary strong { color: var(--color-ink); }
 
@@ -349,6 +351,7 @@
   .spooler-job-list article { grid-template-columns: minmax(0, 1fr) auto; }
   .spooler-job-list__origin { grid-column: 1 / -1; }
   .spooler-job-list__actions { align-items: flex-end; flex-direction: column; }
+  .spooler-job-list__review-actions { align-items: flex-end; flex-direction: column; }
 }
 
 @media (max-width: 520px) {
@@ -368,4 +371,5 @@
   .spooler-job-list article { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
   .spooler-job-list .status-pill { justify-self: start; }
   .spooler-job-list__actions { align-items: flex-start; }
+  .spooler-job-list__review-actions { align-items: flex-start; }
 }
