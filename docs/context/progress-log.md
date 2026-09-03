@@ -599,3 +599,9 @@ Chronological notes about app progress.
 - Summary: Replaced fixed all-material workflow matrices with explicit pricing categories.
 - Completed: Added category creation/editing, workflow compatibility, selected paper assignments, dynamic Configuration/Pricing views, and category selection on physical products. Existing Printing and Scan or Photocopy prices migrate intact.
 - Verified: All 51 API tests, renderer/desktop TypeScript checks, and renderer lint pass.
+
+## 2026-09-03 (Ad Hoc external-work workflow)
+
+- Summary: Added an owner-tracked workflow for products completed outside the app.
+- Completed: Configuration can create Ad Hoc pricing categories with explicit materials. Custom-service products can select Ad Hoc, transaction intake collects units/pages and copies without a file, and the saved line exposes external completion and rework actions. Completion deducts the planned material and joins the existing combined payment and audit flow.
+- Verified: All 52 API tests, renderer/desktop TypeScript checks, renderer lint/build, migration-head validation, and Python compilation pass.

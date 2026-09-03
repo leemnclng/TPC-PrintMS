@@ -678,3 +678,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Keep Printing and Scan or Photocopy as seeded pricing categories, allow additional categories with a compatible physical workflow, and require explicit paper assignment per category. Each physical product links to one category.
 - Rationale: A stocked material being eligible for one service does not mean it should appear in every commercial price table, and products with the same workflow may need separate base matrices.
 - Impact: Category membership is the source of available paper-rate rows. Existing rates are seeded as assignments during migration; newly registered paper remains unassigned until the owner chooses where it belongs.
+
+### Track Ad Hoc Work Without Device Control
+
+- Decision: Add Ad Hoc as a pricing-compatible operation for Custom services. It uses explicit material/output pricing but never requests a document, analyzer, scanner, or print submission.
+- Rationale: Some registered products are fulfilled outside Printing-MS while still needing consistent pricing, stock deduction, payment, quality rework, and audit history.
+- Impact: Owners enter units/pages and copies during intake, perform the work externally, then explicitly record completion. Planned material is deducted at that completion step.

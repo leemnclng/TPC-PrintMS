@@ -153,7 +153,7 @@ export function DocumentPricingSettings() {
                 return (
                   <section className="settings-pricing-scope" key={scope.key} aria-labelledby={`pricing-scope-${scope.key}`}>
                     <header className="settings-pricing-scope__header">
-                      <span className="numeric">{String(scopeIndex + 1).padStart(2, "0")} / {scope.operationKind === "printing" ? "FILE-BASED OUTPUT" : "DEVICE-SIDE OUTPUT"}</span>
+                      <span className="numeric">{String(scopeIndex + 1).padStart(2, "0")} / {scope.operationKind === "printing" ? "FILE-BASED OUTPUT" : scope.operationKind === "photocopy" ? "DEVICE-SIDE OUTPUT" : "EXTERNAL TRACKING"}</span>
                       <div><h3 id={`pricing-scope-${scope.key}`}>{scope.name}</h3><p>{scope.description || "Owner-managed pricing category."}</p></div>
                       <Button type="button" variant="ghost" size="sm" onClick={() => setEditingCategory(scope)}>Manage materials</Button>
                       <output>{scope.materialIds.length}<small>materials</small></output>
@@ -266,7 +266,7 @@ function PricingCategoryModal({
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [operationKind, setOperationKind] = useState<"printing" | "photocopy">("printing");
+  const [operationKind, setOperationKind] = useState<"printing" | "photocopy" | "adhoc">("printing");
   const [materialIds, setMaterialIds] = useState<string[]>([]);
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -334,11 +334,12 @@ function PricingCategoryModal({
         </label>
         <label className="form-field">
           <span>Compatible workflow</span>
-          <select value={operationKind} disabled={Boolean(category?.isBuiltin)} onChange={(event) => setOperationKind(event.target.value as "printing" | "photocopy")}>
+          <select value={operationKind} disabled={Boolean(category?.isBuiltin)} onChange={(event) => setOperationKind(event.target.value as "printing" | "photocopy" | "adhoc")}>
             <option value="printing">Printing</option>
             <option value="photocopy">Photocopy</option>
+            <option value="adhoc">Ad Hoc</option>
           </select>
-          <small>Only products with this workflow can use the category.</small>
+          <small>Ad Hoc records work completed outside the app without printer or scanner control.</small>
         </label>
         <label className="form-field">
           <span>Description</span>

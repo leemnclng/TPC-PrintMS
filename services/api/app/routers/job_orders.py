@@ -1157,8 +1157,11 @@ def _create_job_order(
         if not product.is_active:
             raise HTTPException(status_code=409, detail=f"Product is inactive: {product.name}.")
         variant_label = item_payload.variant_label.strip() if item_payload.variant_label else None
-        if product.operation_kind in {"photocopy", "scan"} and not allow_device_side:
-            raise HTTPException(status_code=422, detail="Create Scan or Photocopy jobs through their operation-specific workflow.")
+        if product.operation_kind in {"photocopy", "scan", "adhoc"} and not allow_device_side:
+            raise HTTPException(
+                status_code=422,
+                detail="Create Scan, Photocopy, or Ad Hoc jobs through the transaction workflow.",
+            )
         if product.operation_kind == "scan":
             if variant_label or item_payload.materials:
                 raise HTTPException(status_code=422, detail="Scan products cannot use print variants or inventory materials.")
@@ -1341,8 +1344,8 @@ def transition_job_order(
     # Photocopy is produced entirely on the device with no computer queue to
     # return to. Scan does have a queue: the acquisition happens inside this
     # job, so a failed quality check can send it back to re-scan.
-    if operation_kind == "photocopy" and target == JobOrderStatus.queued:
-        raise HTTPException(status_code=409, detail="Photocopy jobs are produced on the device and cannot enter the computer print queue.")
+    if operation_kind in {"photocopy", "adhoc"} and target == JobOrderStatus.queued:
+        raise HTTPException(status_code=409, detail="Device-side and Ad Hoc jobs cannot enter the computer print queue.")
     # Quality inspection is not its own status: printing lands in Ready, where
     # the owner either sends the job back to Queued for a re-print or, once
     # output passes, marks it Paid (collecting payment first if any balance
@@ -1369,7 +1372,7 @@ def transition_job_order(
 
     default_notes = {
         JobOrderStatus.ready: "Printing finished; owner started quality review.",
-        JobOrderStatus.queued: f"Quality check did not pass; job requeued for a {'re-scan' if operation_kind == 'scan' else 're-print'}.",
+        JobOrderStatus.queued: f"Quality check did not pass; job requeued for {'a re-scan' if operation_kind == 'scan' else 'external rework' if operation_kind == 'adhoc' else 'a re-print'}.",
         JobOrderStatus.paid: "No payment due; job marked paid without a payment record.",
         JobOrderStatus.completed: "Owner completed the job order.",
     }
@@ -1441,14 +1444,14 @@ def transition_job_order_item(
         raise HTTPException(status_code=409, detail="Acquire and save the scanned document before marking this product ready.")
     if target == "ready" and item.operation_kind == "printing" and item.status != "printing":
         raise HTTPException(status_code=409, detail="Submit this product to the printer before marking it ready.")
-    if target == "ready" and item.operation_kind == "photocopy":
+    if target == "ready" and item.operation_kind in {"photocopy", "adhoc"}:
         pending = _remaining_planned_materials(job_order, item)
         _validate_material_stock(pending)
         _deduct_planned_materials(
             job_order,
             pending,
             db,
-            note=f"Automatically deducted after device-side photocopy work for {job_order.number}",
+            note=f"Automatically deducted after {'externally completed Ad Hoc' if item.operation_kind == 'adhoc' else 'device-side photocopy'} work for {job_order.number}",
         )
     if target == "queued":
         cycle = _plan_item_reprocess(item)

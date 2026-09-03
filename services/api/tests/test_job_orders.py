@@ -47,6 +47,121 @@ def test_job_order_number_sequence_handles_million_scale(tmp_path) -> None:
         assert job_orders._next_job_order_number(db) == "JOB-0001000001"
 
 
+def test_ad_hoc_transaction_tracks_external_work_and_material_usage(tmp_path, monkeypatch) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'ad-hoc-jobs.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "app-data")
+
+    def override_db():
+        db = test_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(services.router)
+    app.include_router(products.router)
+    app.include_router(inventory.router)
+    app.include_router(job_orders.router)
+    app.include_router(variants.router)
+    app.include_router(document_analyzer_router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    paper = _create_material(client, headers, "Letter tracking stock", "sheet", 40, paper_size="Letter")
+    category_response = client.post(
+        "/document-analyzer/pricing-categories",
+        headers=headers,
+        json={
+            "name": "Ad Hoc counter work",
+            "description": "Work completed outside Printing-MS.",
+            "operationKind": "adhoc",
+            "materialIds": [paper["id"]],
+        },
+    )
+    assert category_response.status_code == 201, category_response.text
+    category = category_response.json()
+    rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
+    bw_rule = next(
+        rule
+        for rule in rules
+        if rule["pricingScope"] == category["key"]
+        and rule["inventoryItemId"] == paper["id"]
+        and rule["printType"] == "black_and_white"
+    )
+    assert client.put(
+        "/document-analyzer/pricing-rules",
+        headers=headers,
+        json={"rules": [{"id": bw_rule["id"], "pricePerPage": 4, "isActive": True}]},
+    ).status_code == 200
+
+    service = client.post(
+        "/services",
+        headers=headers,
+        json={"name": "Counter Services", "category": "custom", "isActive": True},
+    ).json()
+    product_response = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Manual counter task",
+            "printType": "black_and_white",
+            "operationKind": "adhoc",
+            "pricingCategoryKey": category["key"],
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}],
+            "documentRates": [],
+        },
+    )
+    assert product_response.status_code == 201, product_response.text
+    product = product_response.json()
+
+    transaction_response = client.post(
+        "/job-orders/transactions",
+        headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": "Tracked outside-app work",
+                "initialServiceId": service["id"],
+                "items": [{
+                    "clientKey": "external-line",
+                    "productId": product["id"],
+                    "paperInventoryItemId": paper["id"],
+                    "pagesPerCopy": 3,
+                    "copies": 2,
+                }],
+            }),
+        },
+    )
+    assert transaction_response.status_code == 201, transaction_response.text
+    transaction = transaction_response.json()
+    item = transaction["items"][0]
+    assert item["operationKind"] == "adhoc"
+    assert item["status"] == "queued"
+    assert item["lineTotal"] == 24
+    assert transaction["files"] == []
+    assert item["materials"][0]["plannedQuantity"] == 6
+
+    ready_response = client.post(
+        f"/job-orders/{transaction['id']}/items/{item['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "ready", "note": "Owner confirmed the external work."},
+    )
+    assert ready_response.status_code == 200, ready_response.text
+    ready_item = ready_response.json()["items"][0]
+    assert ready_item["status"] == "ready"
+    assert ready_item["materials"][0]["consumedQuantity"] == 6
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 34
+
+
 def test_automatic_print_color_follows_analyzed_content_not_product_type() -> None:
     paper_size = SimpleNamespace(value="A4")
     material_plan = SimpleNamespace(inventory_item=SimpleNamespace(paper_size=paper_size))
@@ -523,7 +638,7 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
         }]},
     )
     assert bypass_scan.status_code == 422
-    assert bypass_scan.json()["detail"] == "Create Scan or Photocopy jobs through their operation-specific workflow."
+    assert bypass_scan.json()["detail"] == "Create Scan, Photocopy, or Ad Hoc jobs through the transaction workflow."
 
     # The scan job is created immediately, before any page is acquired: it
     # waits in the queue, just like a print job, until the scan is submitted.

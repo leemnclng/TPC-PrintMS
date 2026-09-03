@@ -90,8 +90,8 @@ export function ProductCreateModal({
   const defaultPrintType = activePrintTypes.find((printType) => printType.key === "black_and_white")?.key
     ?? activePrintTypes[0]?.key
     ?? "black_and_white";
-  const defaultOperationKind: ProductOperationKind = service.category === "photocopy" ? "photocopy" : "printing";
-  const defaultPricingCategoryKey = pricingCategories.find((category) => category.isActive && category.operationKind === defaultOperationKind)?.key ?? defaultOperationKind;
+  const defaultOperationKind: ProductOperationKind = service.category === "photocopy" ? "photocopy" : service.category === "custom" ? "adhoc" : "printing";
+  const defaultPricingCategoryKey = pricingCategories.find((category) => category.isActive && category.operationKind === defaultOperationKind)?.key ?? null;
   const [form, setForm] = useState<ProductFormState>(() => blankProduct(defaultPrintType, defaultOperationKind, defaultPricingCategoryKey));
   const compatibleCategories = pricingCategories.filter((category) => category.isActive && category.operationKind === form.operationKind);
   const selectedPricingCategory = pricingCategories.find((category) => category.key === form.pricingCategoryKey);
@@ -122,8 +122,8 @@ export function ProductCreateModal({
     : null;
   const hasPaperAssignment = pricingRules.some((rule) =>
     rule.printType === form.printType && rule.pricingScope === (form.pricingCategoryKey ?? form.operationKind) && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
-  const photocopyPaperError = submitted && form.operationKind === "photocopy" && !hasPaperAssignment
-    ? "Select at least one paper material for this photocopy product."
+  const photocopyPaperError = submitted && ["photocopy", "adhoc"].includes(form.operationKind) && !hasPaperAssignment
+    ? `Select at least one paper material for this ${form.operationKind === "adhoc" ? "Ad Hoc" : "photocopy"} product.`
     : null;
   useEffect(() => {
     if (!open) return;
@@ -147,7 +147,7 @@ export function ProductCreateModal({
       form.materialAssignments.some((assignment) => !assignment.inventoryItemId) ||
       new Set(materialIds).size !== materialIds.length);
     const invalidScanPrice = isScan && form.standalonePricePerPage !== null && form.standalonePricePerPage < 0;
-    if (!form.name.trim() || (!isScan && !form.pricingCategoryKey) || hasInvalidVariant || hasInvalidMaterial || (form.operationKind === "photocopy" && !hasPaperAssignment) || invalidScanPrice) {
+    if (!form.name.trim() || (!isScan && !form.pricingCategoryKey) || hasInvalidVariant || hasInvalidMaterial || (["photocopy", "adhoc"].includes(form.operationKind) && !hasPaperAssignment) || invalidScanPrice) {
       if (invalidScanPrice) setSaveError("The scan price can't be negative.");
       window.requestAnimationFrame(() => {
         const firstInvalid = formElement.querySelector<HTMLElement>("[aria-invalid='true']");
@@ -214,7 +214,7 @@ export function ProductCreateModal({
             <span className="form-field__message">Optional. Add production details that help identify the product.</span>
           </label>
 
-          {service.category === "photocopy" ? (
+          {service.category === "photocopy" || service.category === "custom" ? (
             <label className="form-field">
               <span>Operation</span>
               <select
@@ -229,10 +229,12 @@ export function ProductCreateModal({
                   documentRates: [],
                 }))}
               >
-                <option value="photocopy">Photocopy</option>
-                <option value="scan">Scan to softcopy</option>
+                {service.category === "photocopy" ? <option value="photocopy">Photocopy</option> : null}
+                {service.category === "photocopy" ? <option value="scan">Scan to softcopy</option> : null}
+                {service.category === "custom" ? <option value="adhoc">Ad Hoc tracking</option> : null}
+                {service.category === "custom" ? <option value="printing">Printing</option> : null}
               </select>
-              <span className="form-field__message">Determines the requirements collected when creating a job order.</span>
+              <span className="form-field__message">Ad Hoc tracks work completed outside the app without controlling a device.</span>
             </label>
           ) : null}
 

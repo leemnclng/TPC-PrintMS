@@ -18,7 +18,7 @@ export type JobOrderStatus =
 
 export type SourceChannel = "messenger" | "gmail" | "form" | "walk_in" | "phone" | "other";
 export type ServiceCategory = "printing" | "photocopy" | "custom";
-export type ProductOperationKind = "printing" | "photocopy" | "scan";
+export type ProductOperationKind = "printing" | "photocopy" | "scan" | "adhoc";
 
 export type PrinterState = "idle" | "printing" | "offline" | "error" | "unknown";
 
@@ -558,7 +558,7 @@ export interface PricingCategory {
   key: string;
   name: string;
   description?: string | null;
-  operationKind: "printing" | "photocopy";
+  operationKind: "printing" | "photocopy" | "adhoc";
   materialIds: string[];
   isBuiltin: boolean;
   isActive: boolean;

@@ -258,6 +258,8 @@ export function JobOrderWorkspace() {
                         ? { label: "Scanner step", title: "Acquire the document", description: "Open the scanner controls, capture every page, and review the retained softcopy." }
                         : item.operationKind === "photocopy"
                           ? { label: "Device step", title: "Record the photocopy", description: "Complete the copies at the printer, inspect them, then record completion and material use." }
+                          : item.operationKind === "adhoc"
+                            ? { label: "External step", title: "Record external work", description: "Complete this product outside the app, review the result, then record completion and material use." }
                           : { label: "Print step", title: "Prepare and print", description: "Open print setup to select the device, verify output settings, and submit this product." };
             return (
               <article
@@ -272,9 +274,9 @@ export function JobOrderWorkspace() {
                 <header><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><span className="job-operation-card__status">{item.reprocessCount > 0 ? <b>Reprocess × {item.reprocessCount}</b> : null}<StatusPill label={statusLabel} tone={tone} /></span></header>
                 <div className="job-operation-card__title"><div><h3>{item.productName}</h3><p>{item.serviceName} · {item.operationKind} workflow</p></div><strong>{formatCurrency(item.lineTotal)}</strong></div>
                 <dl>
-                  <div><dt>Quantity</dt><dd>{item.operationKind === "scan" && !scanOutput ? "Detected after scan" : `${item.pagesPerCopy} pages × ${item.copies}`}</dd></div>
-                  <div><dt>{item.operationKind === "scan" ? "Softcopy" : item.operationKind === "photocopy" ? "Paper" : "Source"}</dt><dd>{item.operationKind === "scan" ? scanOutput?.originalFilename ?? "Not acquired" : item.operationKind === "photocopy" ? paper ? `${paper.paperSize} · ${paper.inventoryItemName}` : "Not configured" : sourceFile?.originalFilename ?? "Unavailable"}</dd></div>
-                  <div><dt>Output</dt><dd>{item.operationKind === "scan" ? "Digital file" : item.printSides === "double_sided" ? "Back-to-back" : "Single-sided"}</dd></div>
+                  <div><dt>Quantity</dt><dd>{item.operationKind === "scan" && !scanOutput ? "Detected after scan" : `${item.pagesPerCopy} ${item.operationKind === "adhoc" ? "units" : "pages"} × ${item.copies}`}</dd></div>
+                  <div><dt>{item.operationKind === "scan" ? "Softcopy" : ["photocopy", "adhoc"].includes(item.operationKind) ? "Material" : "Source"}</dt><dd>{item.operationKind === "scan" ? scanOutput?.originalFilename ?? "Not acquired" : ["photocopy", "adhoc"].includes(item.operationKind) ? paper ? `${paper.paperSize} · ${paper.inventoryItemName}` : "Not configured" : sourceFile?.originalFilename ?? "Unavailable"}</dd></div>
+                  <div><dt>Output</dt><dd>{item.operationKind === "scan" ? "Digital file" : item.operationKind === "adhoc" ? "External work" : item.printSides === "double_sided" ? "Back-to-back" : "Single-sided"}</dd></div>
                   <div><dt>Progress records</dt><dd>{item.statusEvents.length} status · {order.printAttempts.filter((attempt) => attempt.jobOrderItemId === item.id).length} attempts</dd></div>
                 </dl>
                 <button
@@ -303,6 +305,7 @@ export function JobOrderWorkspace() {
                       {!productionLocked && item.status === "queued" && item.operationKind === "printing" ? <Button variant="primary" onClick={() => setPrintItem(item)}>Open print setup</Button> : null}
                       {!productionLocked && item.status === "queued" && item.operationKind === "scan" ? <Button variant="primary" onClick={() => setScanItem(item)}>Start scanning</Button> : null}
                       {!productionLocked && item.status === "queued" && item.operationKind === "photocopy" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Record photocopy complete</Button> : null}
+                      {!productionLocked && item.status === "queued" && item.operationKind === "adhoc" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Record external work complete</Button> : null}
                       {!productionLocked && item.status === "printing" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Printing finished</Button> : null}
                       {!productionLocked && item.status === "ready" ? <Button variant="danger" onClick={() => setQualityFailureItem(item)}>Failed quality</Button> : null}
                       {scanOutput ? <><Button variant="secondary" onClick={() => setPreviewFile(scanOutput)}>View softcopy</Button><Button variant="ghost" onClick={() => downloadJobFile(scanOutput)}>Download</Button></> : null}

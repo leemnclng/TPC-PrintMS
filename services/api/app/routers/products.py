@@ -413,6 +413,8 @@ def _validate_operation(
         raise HTTPException(status_code=422, detail="Printing services can only contain printing products.")
     if operation_kind in {"photocopy", "scan"} and service.category != "photocopy":
         raise HTTPException(status_code=422, detail="Scan and photocopy products require the Scan or Photocopy service category.")
+    if operation_kind == "adhoc" and service.category != "custom":
+        raise HTTPException(status_code=422, detail="Ad Hoc products require a Custom service category.")
     if operation_kind == "scan":
         # A product-level price is now optional: unset, it falls back to the
         # global scan rate for this product's print type (see
@@ -431,7 +433,7 @@ def _validate_photocopy_materials(
     material_assignments: list[dict],
     db: Session,
 ) -> None:
-    if operation_kind != "photocopy":
+    if operation_kind not in {"photocopy", "adhoc"}:
         return
     assignment_ids = [entry["inventory_item_id"] for entry in material_assignments]
     has_paper = db.query(InventoryItem).filter(
@@ -439,4 +441,5 @@ def _validate_photocopy_materials(
         InventoryItem.paper_size.isnot(None),
     ).first()
     if not has_paper:
-        raise HTTPException(status_code=422, detail="Assign at least one priced paper material to a photocopy product.")
+        label = "an Ad Hoc" if operation_kind == "adhoc" else "a photocopy"
+        raise HTTPException(status_code=422, detail=f"Assign at least one priced paper material to {label} product.")

@@ -98,6 +98,7 @@ class ProductOperationKind(str, enum.Enum):
     printing = "printing"
     photocopy = "photocopy"
     scan = "scan"
+    adhoc = "adhoc"
 
 
 class DocumentPricingScope(str, enum.Enum):
@@ -262,7 +263,7 @@ class PricingCategory(TimestampMixin, Base):
     __tablename__ = "pricing_categories"
     __table_args__ = (
         CheckConstraint(
-            "operation_kind IN ('printing', 'photocopy')",
+            "operation_kind IN ('printing', 'photocopy', 'adhoc')",
             name="ck_pricing_categories_operation_kind",
         ),
     )
@@ -359,7 +360,7 @@ class ScanPricingTier(TimestampMixin, Base):
 class Product(TimestampMixin, Base):
     __tablename__ = "products"
     __table_args__ = (
-        CheckConstraint("operation_kind IN ('printing', 'photocopy', 'scan')", name="ck_products_operation_kind"),
+        CheckConstraint("operation_kind IN ('printing', 'photocopy', 'scan', 'adhoc')", name="ck_products_operation_kind"),
         CheckConstraint("standalone_price_per_page IS NULL OR standalone_price_per_page >= 0", name="ck_products_standalone_price"),
     )
 

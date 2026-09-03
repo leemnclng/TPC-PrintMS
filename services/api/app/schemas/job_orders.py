@@ -120,7 +120,7 @@ class JobOrderItemRead(CamelModel):
     product_id: str
     product_name: str
     service_name: str
-    operation_kind: Literal["printing", "photocopy", "scan"]
+    operation_kind: Literal["printing", "photocopy", "scan", "adhoc"]
     status: Literal["queued", "printing", "ready"]
     reprocess_count: int
     print_type: str

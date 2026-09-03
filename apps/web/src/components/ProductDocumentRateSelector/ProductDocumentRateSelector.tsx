@@ -108,7 +108,7 @@ export function ProductDocumentRateSelector({
                     disabled={disabled || !rule.isActive}
                     onChange={(event) => updateRateSource(rule, event.target.value as "global" | "custom")}
                   >
-                    <option value="global">{pricingCategoryName ?? (operationKind === "photocopy" ? "Scan or Photocopy" : "Printing")} global · {formatCurrency(rule.pricePerPage)}</option>
+                    <option value="global">{pricingCategoryName ?? (operationKind === "photocopy" ? "Scan or Photocopy" : operationKind === "adhoc" ? "Ad Hoc" : "Printing")} global · {formatCurrency(rule.pricePerPage)}</option>
                     <option value="custom">Custom price</option>
                   </select>
                 </label>

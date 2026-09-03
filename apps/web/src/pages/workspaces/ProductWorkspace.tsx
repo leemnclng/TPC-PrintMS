@@ -115,8 +115,8 @@ export function ProductWorkspace() {
     } else if (data) {
       const defaultPrintType = data.printTypes.find((printType) => printType.isActive && printType.key === "black_and_white")
         ?? data.printTypes.find((printType) => printType.isActive);
-      const operationKind = data.service.category === "photocopy" ? "photocopy" : "printing";
-      setForm({ ...BLANK, printType: defaultPrintType?.key ?? BLANK.printType, operationKind, pricingCategoryKey: data.pricingCategories.find((category) => category.isActive && category.operationKind === operationKind)?.key ?? operationKind });
+      const operationKind = data.service.category === "photocopy" ? "photocopy" : data.service.category === "custom" ? "adhoc" : "printing";
+      setForm({ ...BLANK, printType: defaultPrintType?.key ?? BLANK.printType, operationKind, pricingCategoryKey: data.pricingCategories.find((category) => category.isActive && category.operationKind === operationKind)?.key ?? null });
     }
   }, [data]);
 
@@ -138,11 +138,11 @@ export function ProductWorkspace() {
         setSaveError("Every material assignment must reference an inventory item.");
         return;
       }
-      if (form.operationKind === "photocopy") {
+      if (["photocopy", "adhoc"].includes(form.operationKind)) {
         const hasPaperAssignment = (data?.pricingRules ?? []).some((rule) =>
           rule.printType === form.printType && rule.pricingScope === (form.pricingCategoryKey ?? form.operationKind) && form.materialAssignments.some((entry) => entry.inventoryItemId === rule.inventoryItemId));
         if (!hasPaperAssignment) {
-          setSaveError("Select at least one paper material for this photocopy product.");
+          setSaveError(`Select at least one paper material for this ${form.operationKind === "adhoc" ? "Ad Hoc" : "photocopy"} product.`);
           return;
         }
       }
@@ -263,7 +263,7 @@ export function ProductWorkspace() {
               onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
           </label>
-          {data?.service.category === "photocopy" ? (
+          {data?.service.category === "photocopy" || data?.service.category === "custom" ? (
             <label className="form-field">
               <span>Operation</span>
               <select
@@ -278,10 +278,12 @@ export function ProductWorkspace() {
                   documentRates: [],
                 }))}
               >
-                <option value="photocopy">Photocopy</option>
-                <option value="scan">Scan to softcopy</option>
+                {data.service.category === "photocopy" ? <option value="photocopy">Photocopy</option> : null}
+                {data.service.category === "photocopy" ? <option value="scan">Scan to softcopy</option> : null}
+                {data.service.category === "custom" ? <option value="adhoc">Ad Hoc tracking</option> : null}
+                {data.service.category === "custom" ? <option value="printing">Printing</option> : null}
               </select>
-              <span className="form-field__message">Changing operation clears incompatible printing configuration.</span>
+              <span className="form-field__message">Ad Hoc tracks work completed outside the app without controlling a device.</span>
             </label>
           ) : null}
           {!isScan ? (

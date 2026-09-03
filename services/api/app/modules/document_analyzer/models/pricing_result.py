@@ -77,7 +77,7 @@ class PricingRulesUpdate(CamelModel):
 class PricingCategoryBase(CamelModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
-    operation_kind: Literal["printing", "photocopy"]
+    operation_kind: Literal["printing", "photocopy", "adhoc"]
     material_ids: list[str] = Field(default_factory=list)
 
 

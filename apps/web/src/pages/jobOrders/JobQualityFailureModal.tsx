@@ -18,7 +18,7 @@ export function JobQualityFailureModal({ open, order, item, onClose, onReprocess
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const action = item.operationKind === "scan" ? "Start re-scan" : item.operationKind === "photocopy" ? "Reprocess photocopy" : "Queue reprint";
+  const action = item.operationKind === "scan" ? "Start re-scan" : item.operationKind === "photocopy" ? "Reprocess photocopy" : item.operationKind === "adhoc" ? "Start external rework" : "Queue reprint";
 
   useEffect(() => {
     if (!open) return;

@@ -353,3 +353,6 @@ Track notable app changes by date.
 - Changed: Each pricing category contains only paper materials explicitly selected by the owner; new inventory paper no longer appears in every pricing table automatically.
 - Added: Physical products select a compatible pricing category, and job/analyzer pricing follows that category through to the transaction.
 - Preserved: Existing Printing and Scan or Photocopy rates and product links are migrated without losing configured prices.
+- Added: Pricing categories may use an Ad Hoc compatible workflow for Custom-service products completed outside Printing-MS.
+- Added: Ad Hoc job lines require no uploaded file or printer/scanner action; owners record units and material, then mark external work complete from the product pane.
+- Added: Completing or reprocessing Ad Hoc work uses the existing inventory deduction, combined payment, quality, and history mechanisms.

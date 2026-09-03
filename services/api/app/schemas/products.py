@@ -47,7 +47,7 @@ class ProductBase(CamelModel):
     name: str
     description: str | None = None
     print_type: str = ProductPrintType.black_and_white.value
-    operation_kind: Literal["printing", "photocopy", "scan"] = "printing"
+    operation_kind: Literal["printing", "photocopy", "scan", "adhoc"] = "printing"
     pricing_category_key: str | None = None
     standalone_price_per_page: float | None = Field(default=None, ge=0)
     is_active: bool = True

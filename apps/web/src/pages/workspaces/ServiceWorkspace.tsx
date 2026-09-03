@@ -142,7 +142,7 @@ export function ServiceWorkspace() {
               {
                 key: "operation",
                 header: "Operation",
-                render: (product) => product.operationKind === "scan" ? "Scan" : product.operationKind === "photocopy" ? "Photocopy" : "Printing",
+                render: (product) => product.operationKind === "scan" ? "Scan" : product.operationKind === "photocopy" ? "Photocopy" : product.operationKind === "adhoc" ? "Ad Hoc" : "Printing",
               },
               {
                 key: "printType",
