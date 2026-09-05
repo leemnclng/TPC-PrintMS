@@ -368,3 +368,5 @@ Track notable app changes by date.
 - Added: Reports can generate daily, Monday–Sunday weekly, or calendar-month operational summaries for any selected date.
 - Added: Each report shows verified-payment sales and payment methods, failed-quality re-attempts by product, and a timestamped inventory snapshot with Healthy, Low, and Out-of-stock classifications.
 - Added: Previous/next period navigation, regeneration, validation, loading, retry, responsive tables, and honest no-sales/no-re-attempt/no-inventory states.
+- Changed: Report dates are now an explicit From/To interval instead of one calendar anchor.
+- Changed: Daily, Weekly, and Monthly act as immediate current-period shortcuts for today, Monday-to-today, and month-to-today; manually editing either boundary creates a custom interval.

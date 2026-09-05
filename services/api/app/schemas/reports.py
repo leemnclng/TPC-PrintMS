@@ -6,7 +6,7 @@ from typing import Literal
 from .common import CamelModel
 
 
-ReportPeriod = Literal["daily", "weekly", "monthly"]
+ReportPeriod = Literal["daily", "weekly", "monthly", "custom"]
 InventoryReportStatus = Literal["healthy", "low", "out"]
 
 
@@ -60,7 +60,6 @@ class ReportInventoryRead(CamelModel):
 
 class OperationalReportRead(CamelModel):
     period: ReportPeriod
-    anchor_date: date
     period_start: date
     period_end: date
     generated_at: datetime

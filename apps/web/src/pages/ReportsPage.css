@@ -1,6 +1,6 @@
 .report-generator {
   display: grid;
-  grid-template-columns: minmax(20rem, 1fr) minmax(12rem, .42fr) auto;
+  grid-template-columns: minmax(18rem, .8fr) minmax(24rem, 1fr) auto;
   align-items: end;
   gap: var(--space-3);
   padding: var(--space-4);
@@ -11,15 +11,22 @@
 
 .report-generator fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .report-generator legend,
-.report-generator label > span { display: block; margin-bottom: var(--space-1); color: var(--color-ink-soft); font-size: var(--text-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.report-generator label > span,
+.report-generator__interval > span { display: block; margin-bottom: var(--space-1); color: var(--color-ink-soft); font-size: var(--text-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .report-generator__periods { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--color-hairline-strong); }
-.report-generator__periods button { min-height: var(--control-height); padding: 0 var(--space-3); border: 0; border-right: 1px solid var(--color-hairline-strong); background: var(--color-paper); font-size: var(--text-sm); font-weight: 600; text-transform: capitalize; }
+.report-generator__periods button { display: grid; min-height: var(--control-height); align-content: center; gap: 1px; padding: var(--space-1) var(--space-3); border: 0; border-right: 1px solid var(--color-hairline-strong); background: var(--color-paper); text-align: left; }
+.report-generator__periods button strong { font-size: var(--text-sm); text-transform: capitalize; }
+.report-generator__periods button small { color: var(--color-ink-faint); font-size: .625rem; font-weight: 400; white-space: nowrap; }
 .report-generator__periods button:last-child { border-right: 0; }
 .report-generator__periods button:hover { background: var(--color-paper-3); }
 .report-generator__periods button.is-selected { background: var(--color-accent); color: var(--color-ink-on-accent); }
+.report-generator__periods button.is-selected small { color: color-mix(in oklch, var(--color-ink-on-accent) 75%, transparent); }
 .report-generator label { min-width: 0; }
 .report-generator label input { width: 100%; }
-.report-generator label.is-invalid input { border-color: var(--color-danger); }
+.report-generator__interval > div { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: var(--space-2); }
+.report-generator__interval > div > i { display: grid; min-height: var(--control-height); place-items: center; color: var(--color-ink-faint); font-family: var(--font-mono); font-style: normal; }
+.report-generator__interval label > span { font-size: .625rem; }
+.report-generator__interval.is-invalid input { border-color: var(--color-danger); }
 .report-generator__error { grid-column: 2 / -1; color: var(--color-danger); font-size: var(--text-xs); }
 
 .report-sheet { display: grid; gap: var(--space-5); }
@@ -27,7 +34,7 @@
 .report-sheet__header .numeric { color: var(--color-accent); font-size: var(--text-xs); letter-spacing: .06em; }
 .report-sheet__header h2 { margin-top: var(--space-1); font-size: var(--text-display-s); }
 .report-sheet__header p { color: var(--color-ink-faint); font-size: var(--text-xs); }
-.report-sheet__header nav { display: flex; gap: var(--space-1); }
+.report-sheet__interval-note { padding: var(--space-2) var(--space-3); border: 1px solid var(--color-hairline-strong); color: var(--color-ink-soft); font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; }
 
 .report-scoreboard { display: grid; grid-template-columns: 1.35fr repeat(3, 1fr); border: 1px solid var(--color-hairline-strong); background: var(--color-paper-2); }
 .report-scoreboard article { display: grid; align-content: start; min-height: 8.5rem; padding: var(--space-4); border-right: 1px solid var(--color-hairline); }

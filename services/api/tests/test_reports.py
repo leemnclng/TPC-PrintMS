@@ -97,7 +97,7 @@ def test_period_reports_use_verified_sales_reprocess_events_and_live_inventory(t
     headers = {"X-Print-MS-Token": settings.token}
 
     daily_response = client.get(
-        "/reports?period=daily&anchor_date=2026-09-03&timezone_offset_minutes=-480",
+        "/reports?period=daily&start_date=2026-09-03&end_date=2026-09-03&timezone_offset_minutes=-480",
         headers=headers,
     )
     assert daily_response.status_code == 200, daily_response.text
@@ -124,19 +124,19 @@ def test_period_reports_use_verified_sales_reprocess_events_and_live_inventory(t
     assert [item["status"] for item in daily["inventory"]["items"]] == ["out", "low", "healthy"]
 
     weekly = client.get(
-        "/reports?period=weekly&anchor_date=2026-09-03&timezone_offset_minutes=-480",
+        "/reports?period=weekly&start_date=2026-08-31&end_date=2026-09-03&timezone_offset_minutes=-480",
         headers=headers,
     ).json()
     assert weekly["periodStart"] == "2026-08-31"
-    assert weekly["periodEnd"] == "2026-09-06"
+    assert weekly["periodEnd"] == "2026-09-03"
     assert weekly["sales"]["totalSales"] == 300
 
     monthly = client.get(
-        "/reports?period=monthly&anchor_date=2026-09-03&timezone_offset_minutes=-480",
+        "/reports?period=monthly&start_date=2026-09-01&end_date=2026-09-03&timezone_offset_minutes=-480",
         headers=headers,
     ).json()
     assert monthly["periodStart"] == "2026-09-01"
-    assert monthly["periodEnd"] == "2026-09-30"
+    assert monthly["periodEnd"] == "2026-09-03"
     assert monthly["sales"]["totalSales"] == 250
 
 
@@ -155,5 +155,12 @@ def test_report_query_rejects_invalid_period_and_timezone(tmp_path) -> None:
     client = TestClient(app)
     headers = {"X-Print-MS-Token": settings.token}
 
-    assert client.get("/reports?period=yearly&anchor_date=2026-09-03", headers=headers).status_code == 422
-    assert client.get("/reports?period=daily&anchor_date=2026-09-03&timezone_offset_minutes=900", headers=headers).status_code == 422
+    assert client.get("/reports?period=custom", headers=headers).status_code == 422
+    assert client.get("/reports?period=yearly&start_date=2026-09-03&end_date=2026-09-03", headers=headers).status_code == 422
+    assert client.get("/reports?period=daily&start_date=2026-09-03&end_date=2026-09-03&timezone_offset_minutes=900", headers=headers).status_code == 422
+    reversed_interval = client.get(
+        "/reports?period=custom&start_date=2026-09-04&end_date=2026-09-03",
+        headers=headers,
+    )
+    assert reversed_interval.status_code == 422
+    assert reversed_interval.json()["detail"] == "Report end date must be on or after its start date."

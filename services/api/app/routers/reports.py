@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -22,18 +22,7 @@ from ..schemas.reports import (
 )
 
 router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(require_token)])
-ReportPeriod = Literal["daily", "weekly", "monthly"]
-
-
-def _period_dates(period: ReportPeriod, anchor: date) -> tuple[date, date]:
-    if period == "daily":
-        return anchor, anchor
-    if period == "weekly":
-        start = anchor - timedelta(days=anchor.weekday())
-        return start, start + timedelta(days=6)
-    start = anchor.replace(day=1)
-    next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    return start, next_month - timedelta(days=1)
+ReportPeriod = Literal["daily", "weekly", "monthly", "custom"]
 
 
 def _utc_query_bounds(start: date, end: date, timezone_offset_minutes: int) -> tuple[datetime, datetime]:
@@ -57,13 +46,15 @@ def _inventory_status(item: InventoryItem) -> Literal["healthy", "low", "out"]:
 
 @router.get("", response_model=OperationalReportRead)
 def get_operational_report(
-    period: ReportPeriod = Query(default="daily"),
-    anchor_date: date = Query(default_factory=date.today),
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    period: ReportPeriod = Query(default="custom"),
     timezone_offset_minutes: int = Query(default=0, ge=-840, le=840),
     db: Session = Depends(get_db),
 ) -> OperationalReportRead:
-    period_start, period_end = _period_dates(period, anchor_date)
-    query_start, query_end = _utc_query_bounds(period_start, period_end, timezone_offset_minutes)
+    if end_date < start_date:
+        raise HTTPException(status_code=422, detail="Report end date must be on or after its start date.")
+    query_start, query_end = _utc_query_bounds(start_date, end_date, timezone_offset_minutes)
     generated_at = datetime.now(timezone.utc)
 
     payments = (
@@ -164,9 +155,8 @@ def get_operational_report(
 
     return OperationalReportRead(
         period=period,
-        anchor_date=anchor_date,
-        period_start=period_start,
-        period_end=period_end,
+        period_start=start_date,
+        period_end=end_date,
         generated_at=generated_at,
         sales=sales,
         re_attempts=re_attempts,

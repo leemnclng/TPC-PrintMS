@@ -14,6 +14,8 @@ import "./ReportsPage.css";
 const dateFormatter = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const quantityFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+type QuickPeriod = Exclude<ReportPeriod, "custom">;
+interface ReportSelection { period: ReportPeriod; startDate: string; endDate: string }
 
 function localDateValue(value = new Date()): string {
   const year = value.getFullYear();
@@ -33,15 +35,18 @@ function periodLabel(report: OperationalReport): string {
   return `${start} – ${dateFormatter.format(parseCalendarDate(report.periodEnd))}`;
 }
 
-function shiftAnchor(value: string, period: ReportPeriod, direction: -1 | 1): string {
-  const shifted = parseCalendarDate(value);
-  if (period === "daily") shifted.setDate(shifted.getDate() + direction);
-  if (period === "weekly") shifted.setDate(shifted.getDate() + (direction * 7));
-  if (period === "monthly") {
-    shifted.setDate(1);
-    shifted.setMonth(shifted.getMonth() + direction);
+function currentInterval(period: QuickPeriod): ReportSelection {
+  const today = new Date();
+  const endDate = localDateValue(today);
+  if (period === "daily") return { period, startDate: endDate, endDate };
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (period === "weekly") {
+    const daysFromMonday = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - daysFromMonday);
+  } else {
+    start.setDate(1);
   }
-  return localDateValue(shifted);
+  return { period, startDate: localDateValue(start), endDate };
 }
 
 function methodLabel(method: string): string {
@@ -55,33 +60,53 @@ function inventoryStatusLabel(status: ReportInventoryStatus): string {
 }
 
 export function ReportsPage() {
-  const today = localDateValue();
-  const [draftPeriod, setDraftPeriod] = useState<ReportPeriod>("daily");
-  const [draftAnchor, setDraftAnchor] = useState(today);
-  const [selection, setSelection] = useState({ period: "daily" as ReportPeriod, anchor: today });
+  const initialSelection = currentInterval("daily");
+  const [activeQuickFilter, setActiveQuickFilter] = useState<QuickPeriod | null>("daily");
+  const [draftStartDate, setDraftStartDate] = useState(initialSelection.startDate);
+  const [draftEndDate, setDraftEndDate] = useState(initialSelection.endDate);
+  const [selection, setSelection] = useState<ReportSelection>(initialSelection);
   const [validationError, setValidationError] = useState<string | null>(null);
   const { data, state, error, reload } = useResource(
-    () => api.get<OperationalReport>(`/reports?period=${selection.period}&anchor_date=${selection.anchor}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
-    [selection.period, selection.anchor],
+    () => api.get<OperationalReport>(`/reports?period=${selection.period}&start_date=${selection.startDate}&end_date=${selection.endDate}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
+    [selection.period, selection.startDate, selection.endDate],
   );
 
   function generateReport(event: FormEvent) {
     event.preventDefault();
-    if (!draftAnchor) {
-      setValidationError("Choose a date for the report period.");
+    if (!draftStartDate || !draftEndDate) {
+      setValidationError("Choose both the start and end dates.");
+      return;
+    }
+    if (draftEndDate < draftStartDate) {
+      setValidationError("The end date must be on or after the start date.");
       return;
     }
     setValidationError(null);
-    if (draftPeriod === selection.period && draftAnchor === selection.anchor) reload();
-    else setSelection({ period: draftPeriod, anchor: draftAnchor });
+    const nextSelection: ReportSelection = { period: "custom", startDate: draftStartDate, endDate: draftEndDate };
+    if (selection.period === "custom" && selection.startDate === draftStartDate && selection.endDate === draftEndDate) reload();
+    else setSelection(nextSelection);
   }
 
-  function moveReport(direction: -1 | 1) {
-    const anchor = shiftAnchor(selection.anchor, selection.period, direction);
-    setDraftPeriod(selection.period);
-    setDraftAnchor(anchor);
+  function applyQuickFilter(period: QuickPeriod) {
+    const nextSelection = currentInterval(period);
+    setActiveQuickFilter(period);
+    setDraftStartDate(nextSelection.startDate);
+    setDraftEndDate(nextSelection.endDate);
     setValidationError(null);
-    setSelection({ period: selection.period, anchor });
+    if (selection.period === period && selection.startDate === nextSelection.startDate && selection.endDate === nextSelection.endDate) reload();
+    else setSelection(nextSelection);
+  }
+
+  function updateStartDate(value: string) {
+    setActiveQuickFilter(null);
+    setDraftStartDate(value);
+    setValidationError(null);
+  }
+
+  function updateEndDate(value: string) {
+    setActiveQuickFilter(null);
+    setDraftEndDate(value);
+    setValidationError(null);
   }
 
   const stockAttention = data ? data.inventory.lowStockCount + data.inventory.outOfStockCount : 0;
@@ -96,17 +121,21 @@ export function ReportsPage() {
 
       <form className="report-generator" onSubmit={generateReport} noValidate>
         <fieldset>
-          <legend>Report period</legend>
+          <legend>Quick interval</legend>
           <div className="report-generator__periods">
-            {(["daily", "weekly", "monthly"] as ReportPeriod[]).map((period) => (
-              <button type="button" aria-pressed={draftPeriod === period} className={draftPeriod === period ? "is-selected" : ""} onClick={() => setDraftPeriod(period)} key={period}>{period}</button>
+            {(["daily", "weekly", "monthly"] as QuickPeriod[]).map((period) => (
+              <button type="button" aria-pressed={activeQuickFilter === period} className={activeQuickFilter === period ? "is-selected" : ""} onClick={() => applyQuickFilter(period)} key={period}><strong>{period}</strong><small>{period === "daily" ? "Today" : period === "weekly" ? "Week to date" : "Month to date"}</small></button>
             ))}
           </div>
         </fieldset>
-        <label className={validationError ? "is-invalid" : ""}>
-          <span>{draftPeriod === "daily" ? "Report date" : draftPeriod === "weekly" ? "Week containing" : "Month containing"}</span>
-          <input type="date" value={draftAnchor} onChange={(event) => { setDraftAnchor(event.target.value); setValidationError(null); }} aria-invalid={Boolean(validationError)} aria-describedby={validationError ? "report-date-error" : undefined} required />
-        </label>
+        <div className={`report-generator__interval${validationError ? " is-invalid" : ""}`}>
+          <span>Date interval</span>
+          <div>
+            <label><span>From</span><input type="date" value={draftStartDate} max={draftEndDate || undefined} onChange={(event) => updateStartDate(event.target.value)} aria-invalid={Boolean(validationError)} aria-describedby={validationError ? "report-date-error" : undefined} required /></label>
+            <i aria-hidden="true">→</i>
+            <label><span>To</span><input type="date" value={draftEndDate} min={draftStartDate || undefined} onChange={(event) => updateEndDate(event.target.value)} aria-invalid={Boolean(validationError)} aria-describedby={validationError ? "report-date-error" : undefined} required /></label>
+          </div>
+        </div>
         <Button type="submit" variant="primary" loading={state === "loading"}>Generate report</Button>
         {validationError ? <small id="report-date-error" className="report-generator__error" role="alert">{validationError}</small> : null}
       </form>
@@ -117,7 +146,7 @@ export function ReportsPage() {
         <div className="report-sheet">
           <header className="report-sheet__header">
             <div><span className="numeric">{data.period.toUpperCase()} REPORT</span><h2>{periodLabel(data)}</h2><p>Generated {dateTimeFormatter.format(new Date(data.generatedAt))}</p></div>
-            <nav aria-label="Move report period"><Button type="button" size="sm" variant="ghost" onClick={() => moveReport(-1)} aria-label={`Previous ${data.period} report`}>← Previous</Button><Button type="button" size="sm" variant="ghost" onClick={() => moveReport(1)} aria-label={`Next ${data.period} report`}>Next →</Button></nav>
+            <span className="report-sheet__interval-note">{data.period === "custom" ? "Custom interval" : data.period === "daily" ? "Today" : data.period === "weekly" ? "Week to date" : "Month to date"}</span>
           </header>
 
           <section className="report-scoreboard" aria-label="Report summary">

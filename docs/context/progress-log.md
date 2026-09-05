@@ -629,3 +629,9 @@ Chronological notes about app progress.
 - Summary: Replaced the Reports scaffold with real daily, weekly, and monthly operations reporting.
 - Completed: Added a timezone-aware reporting API and an interactive ledger showing verified sales, payment-method totals, Ready-to-Queued re-attempts by product, and the current active-inventory health snapshot. Period generation, date validation, previous/next navigation, loading, retry, empty, keyboard, and responsive states are included.
 - Verified: All 55 API tests, renderer/desktop TypeScript checks, renderer lint/build, desktop build, Python compilation, and diff validation pass. Report coverage includes period boundaries, local-time conversion, verified-payment filtering, re-attempt events, inventory classification, and invalid query handling.
+
+## 2026-09-05 (report interval filters)
+
+- Summary: Replaced single-date report anchoring with explicit date intervals and current-period shortcuts.
+- Completed: Reports now expose accessible From/To fields with missing/reversed-date validation. Daily, Weekly, and Monthly immediately set and generate today, Monday-to-today, or month-to-today; manual date edits switch the output to Custom interval.
+- Verified: All 55 API tests, renderer/desktop TypeScript checks, renderer lint/build, desktop build, Python compilation, and diff validation pass.

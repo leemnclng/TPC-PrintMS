@@ -703,8 +703,8 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Rationale: Owners need to reference live prices while keeping an in-progress transaction or production workspace untouched.
 - Impact: Pricing remains the configuration/detail workspace. The separate price book provides search, service filtering, inactive visibility, refresh, and effective product/material/variant rates; switching app environments reloads it against the newly selected database.
 
-### Anchor Operational Reports to Auditable Events
+### Anchor Operational Reports to Auditable Events and Explicit Intervals
 
-- Decision: Recognize report sales from verified payments at their recorded timestamp and count a production re-attempt from each product status event that moves Ready back to Queued. Interpret daily, Monday–Sunday weekly, and calendar-month boundaries using the renderer workstation's timezone. Include inventory as a clearly timestamped current snapshot rather than pretending it is historical.
+- Decision: Recognize report sales from verified payments at their recorded timestamp and count a production re-attempt from each product status event that moves Ready back to Queued. Query explicit inclusive From/To dates using the renderer workstation's timezone. Daily, Weekly, and Monthly shortcuts resolve to today, Monday-to-today, and month-to-today. Include inventory as a clearly timestamped current snapshot rather than pretending it is historical.
 - Rationale: Job totals may still be unpaid, and a product's lifetime reprocess counter cannot place each retry in a reporting period. The app does not yet retain historical inventory snapshots.
-- Impact: Daily, weekly, and monthly totals reconcile to recorded payment and quality events. Current Healthy/Low/Out stock remains operationally useful in every generated report without being mislabeled as past inventory state.
+- Impact: Owners can generate arbitrary intervals or reset instantly to current daily, week-to-date, or month-to-date views. Totals reconcile to recorded payment and quality events; current Healthy/Low/Out stock remains useful without being mislabeled as past inventory state.

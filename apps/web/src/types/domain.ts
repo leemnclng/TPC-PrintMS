@@ -586,7 +586,7 @@ export interface OverviewSnapshot {
   printQueueDepth: number;
 }
 
-export type ReportPeriod = "daily" | "weekly" | "monthly";
+export type ReportPeriod = "daily" | "weekly" | "monthly" | "custom";
 export type ReportInventoryStatus = "healthy" | "low" | "out";
 
 export interface ReportPaymentMethod {
@@ -639,7 +639,6 @@ export interface ReportInventorySummary {
 
 export interface OperationalReport {
   period: ReportPeriod;
-  anchorDate: string;
   periodStart: string;
   periodEnd: string;
   generatedAt: string;
