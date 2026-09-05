@@ -635,3 +635,9 @@ Chronological notes about app progress.
 - Summary: Replaced single-date report anchoring with explicit date intervals and current-period shortcuts.
 - Completed: Reports now expose accessible From/To fields with missing/reversed-date validation. Daily, Weekly, and Monthly immediately set and generate today, Monday-to-today, or month-to-today; manual date edits switch the output to Custom interval.
 - Verified: All 55 API tests, renderer/desktop TypeScript checks, renderer lint/build, desktop build, Python compilation, and diff validation pass.
+
+## 2026-09-05 (complete report periods)
+
+- Summary: Corrected report quick filters and interval labeling.
+- Completed: Weekly now covers Monday through Sunday, Monthly covers the first through final day of the selected calendar month, and the result header identifies the exact inclusive date interval.
+- Verified: All 55 API tests, renderer/desktop TypeScript checks, renderer lint/build, desktop build, Python compilation, and diff validation pass.

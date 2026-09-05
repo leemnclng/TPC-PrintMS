@@ -37,16 +37,20 @@ function periodLabel(report: OperationalReport): string {
 
 function currentInterval(period: QuickPeriod): ReportSelection {
   const today = new Date();
-  const endDate = localDateValue(today);
-  if (period === "daily") return { period, startDate: endDate, endDate };
+  const todayValue = localDateValue(today);
+  if (period === "daily") return { period, startDate: todayValue, endDate: todayValue };
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const end = new Date(start);
   if (period === "weekly") {
     const daysFromMonday = (start.getDay() + 6) % 7;
     start.setDate(start.getDate() - daysFromMonday);
+    end.setTime(start.getTime());
+    end.setDate(end.getDate() + 6);
   } else {
     start.setDate(1);
+    end.setMonth(end.getMonth() + 1, 0);
   }
-  return { period, startDate: localDateValue(start), endDate };
+  return { period, startDate: localDateValue(start), endDate: localDateValue(end) };
 }
 
 function methodLabel(method: string): string {
@@ -124,7 +128,7 @@ export function ReportsPage() {
           <legend>Quick interval</legend>
           <div className="report-generator__periods">
             {(["daily", "weekly", "monthly"] as QuickPeriod[]).map((period) => (
-              <button type="button" aria-pressed={activeQuickFilter === period} className={activeQuickFilter === period ? "is-selected" : ""} onClick={() => applyQuickFilter(period)} key={period}><strong>{period}</strong><small>{period === "daily" ? "Today" : period === "weekly" ? "Week to date" : "Month to date"}</small></button>
+              <button type="button" aria-pressed={activeQuickFilter === period} className={activeQuickFilter === period ? "is-selected" : ""} onClick={() => applyQuickFilter(period)} key={period}><strong>{period}</strong><small>{period === "daily" ? "Today" : period === "weekly" ? "Full week" : "Full month"}</small></button>
             ))}
           </div>
         </fieldset>
@@ -146,7 +150,7 @@ export function ReportsPage() {
         <div className="report-sheet">
           <header className="report-sheet__header">
             <div><span className="numeric">{data.period.toUpperCase()} REPORT</span><h2>{periodLabel(data)}</h2><p>Generated {dateTimeFormatter.format(new Date(data.generatedAt))}</p></div>
-            <span className="report-sheet__interval-note">{data.period === "custom" ? "Custom interval" : data.period === "daily" ? "Today" : data.period === "weekly" ? "Week to date" : "Month to date"}</span>
+            <span className="report-sheet__interval-note" aria-label={`Selected interval: ${periodLabel(data)}`}>Selected · {periodLabel(data)}</span>
           </header>
 
           <section className="report-scoreboard" aria-label="Report summary">

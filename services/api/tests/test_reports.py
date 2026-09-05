@@ -70,6 +70,7 @@ def test_period_reports_use_verified_sales_reprocess_events_and_live_inventory(t
             item,
             Payment(job_order=first_order, amount=200, method=PaymentMethod.cash, verified=True, recorded_at=datetime(2026, 9, 2, 16, 0)),
             Payment(job_order=second_order, amount=50, method=PaymentMethod.bank_transfer, verified=True, recorded_at=datetime(2026, 9, 3, 15, 59)),
+            Payment(job_order=second_order, amount=75, method=PaymentMethod.cash, verified=True, recorded_at=datetime(2026, 9, 20, 6, 0)),
             Payment(job_order=prior_order, amount=50, method=PaymentMethod.cash, verified=True, recorded_at=datetime(2026, 8, 31, 8, 0)),
             Payment(job_order=first_order, amount=999, method=PaymentMethod.cash, verified=False, recorded_at=datetime(2026, 9, 3, 3, 0)),
             JobOrderItemStatusEvent(
@@ -124,20 +125,20 @@ def test_period_reports_use_verified_sales_reprocess_events_and_live_inventory(t
     assert [item["status"] for item in daily["inventory"]["items"]] == ["out", "low", "healthy"]
 
     weekly = client.get(
-        "/reports?period=weekly&start_date=2026-08-31&end_date=2026-09-03&timezone_offset_minutes=-480",
+        "/reports?period=weekly&start_date=2026-08-31&end_date=2026-09-06&timezone_offset_minutes=-480",
         headers=headers,
     ).json()
     assert weekly["periodStart"] == "2026-08-31"
-    assert weekly["periodEnd"] == "2026-09-03"
+    assert weekly["periodEnd"] == "2026-09-06"
     assert weekly["sales"]["totalSales"] == 300
 
     monthly = client.get(
-        "/reports?period=monthly&start_date=2026-09-01&end_date=2026-09-03&timezone_offset_minutes=-480",
+        "/reports?period=monthly&start_date=2026-09-01&end_date=2026-09-30&timezone_offset_minutes=-480",
         headers=headers,
     ).json()
     assert monthly["periodStart"] == "2026-09-01"
-    assert monthly["periodEnd"] == "2026-09-03"
-    assert monthly["sales"]["totalSales"] == 250
+    assert monthly["periodEnd"] == "2026-09-30"
+    assert monthly["sales"]["totalSales"] == 325
 
 
 def test_report_query_rejects_invalid_period_and_timezone(tmp_path) -> None:
