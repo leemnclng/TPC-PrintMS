@@ -365,3 +365,6 @@ Track notable app changes by date.
 - Added: Pricing can open a separate live Product Price Overview window without navigating away from the current app workflow.
 - Added: The read-only price book groups products by service and exposes search, service filtering, inactive-product visibility, effective material rates, variant adjustments, refresh, retry, and empty states.
 - Changed: Reopening the overview focuses the existing window, and an environment change reloads it against that environment's pricing data.
+- Added: Reports can generate daily, Monday–Sunday weekly, or calendar-month operational summaries for any selected date.
+- Added: Each report shows verified-payment sales and payment methods, failed-quality re-attempts by product, and a timestamped inventory snapshot with Healthy, Low, and Out-of-stock classifications.
+- Added: Previous/next period navigation, regeneration, validation, loading, retry, responsive tables, and honest no-sales/no-re-attempt/no-inventory states.

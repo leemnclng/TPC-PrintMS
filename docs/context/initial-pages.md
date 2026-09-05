@@ -14,7 +14,7 @@ Define the first visible application structure for Printing-MS. The initial crea
 | Inventory | Register and monitor materials consumed during production. | Material register, current stock, reorder levels, audited adjustments, product links, and job-order usage traceability. |
 | Services | Organize sellable products by the service the business provides. | Service list and settings; each service opens its product inventory, with in-context product creation and dedicated product editing. |
 | Customers | Maintain the customer information required by orders. | Contact details, source channel, order history, notes, and customer editor. |
-| Reports | Review business and production performance. | Date filters, sales summary, payment summary, product performance, job throughput, customer activity, and CSV/PDF export points. |
+| Reports | Review business and production performance. | Active daily, weekly, and monthly verified-sales totals, payment-method breakdown, failed-quality re-attempt counts, and current inventory health. Product/customer performance and CSV/PDF export remain planned extensions. |
 | Settings | Configure the business, desktop application, and printers. | Business profile, order numbering, document templates, default printer, printer discovery, backup/restore, diagnostics, and application preferences. |
 
 ## Nested Workspaces

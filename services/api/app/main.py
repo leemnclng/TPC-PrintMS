@@ -32,6 +32,7 @@ from .routers import (
     printers,
     products,
     quotations,
+    reports,
     services,
     settings as settings_router,
     variants,
@@ -206,6 +207,7 @@ app.include_router(document_analyzer_router)
 app.include_router(products.router)
 app.include_router(inventory.router)
 app.include_router(quotations.router)
+app.include_router(reports.router)
 app.include_router(job_orders.router)
 app.include_router(printers.router)
 app.include_router(settings_router.router)

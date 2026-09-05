@@ -585,3 +585,65 @@ export interface OverviewSnapshot {
   upcomingDeadlines: number;
   printQueueDepth: number;
 }
+
+export type ReportPeriod = "daily" | "weekly" | "monthly";
+export type ReportInventoryStatus = "healthy" | "low" | "out";
+
+export interface ReportPaymentMethod {
+  method: string;
+  amount: number;
+  paymentCount: number;
+}
+
+export interface ReportSalesSummary {
+  totalSales: number;
+  transactionCount: number;
+  verifiedPaymentCount: number;
+  byPaymentMethod: ReportPaymentMethod[];
+}
+
+export interface ReportReattemptProduct {
+  productId: string;
+  productName: string;
+  reAttemptCount: number;
+  affectedJobCount: number;
+}
+
+export interface ReportReattemptSummary {
+  totalReAttempts: number;
+  affectedJobCount: number;
+  affectedProductCount: number;
+  byProduct: ReportReattemptProduct[];
+}
+
+export interface ReportInventoryItem {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  quantityOnHand: number;
+  reorderLevel: number;
+  paperSize?: string | null;
+  status: ReportInventoryStatus;
+}
+
+export interface ReportInventorySummary {
+  asOf: string;
+  activeItemCount: number;
+  inactiveItemCount: number;
+  healthyCount: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  items: ReportInventoryItem[];
+}
+
+export interface OperationalReport {
+  period: ReportPeriod;
+  anchorDate: string;
+  periodStart: string;
+  periodEnd: string;
+  generatedAt: string;
+  sales: ReportSalesSummary;
+  reAttempts: ReportReattemptSummary;
+  inventory: ReportInventorySummary;
+}

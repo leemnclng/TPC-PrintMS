@@ -623,3 +623,9 @@ Chronological notes about app progress.
 - Summary: Added a live read-only product price book that stays separate from the operational app window.
 - Completed: Pricing launches or focuses one dedicated Electron window. It groups all effective rates by service and product, shows material and variant details, and supports search, service/inactive filters, refresh, retry, empty, and responsive states without changing the main route.
 - Verified: Renderer and desktop TypeScript checks, renderer lint/build, desktop build, and diff validation pass.
+
+## 2026-09-03 (operational period reports)
+
+- Summary: Replaced the Reports scaffold with real daily, weekly, and monthly operations reporting.
+- Completed: Added a timezone-aware reporting API and an interactive ledger showing verified sales, payment-method totals, Ready-to-Queued re-attempts by product, and the current active-inventory health snapshot. Period generation, date validation, previous/next navigation, loading, retry, empty, keyboard, and responsive states are included.
+- Verified: All 55 API tests, renderer/desktop TypeScript checks, renderer lint/build, desktop build, Python compilation, and diff validation pass. Report coverage includes period boundaries, local-time conversion, verified-payment filtering, re-attempt events, inventory classification, and invalid query handling.

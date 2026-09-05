@@ -1,55 +1,153 @@
-import { PageHeader } from "../components/PageHeader/PageHeader";
-import { Card, CardHeader } from "../components/Card/Card";
+import { FormEvent, useState } from "react";
 import { Button } from "../components/Button/Button";
 import { EmptyState } from "../components/EmptyState/EmptyState";
-import { PlannedNotice } from "../components/PlannedNotice/PlannedNotice";
+import { ErrorState } from "../components/ErrorState/ErrorState";
+import { LoadingState } from "../components/LoadingState/LoadingState";
+import { PageHeader } from "../components/PageHeader/PageHeader";
+import { StatusPill } from "../components/StatusPill/StatusPill";
+import { useResource } from "../hooks/useResource";
+import { api } from "../lib/apiClient";
+import { formatCurrency } from "../lib/format";
+import type { OperationalReport, ReportInventoryStatus, ReportPeriod } from "../types/domain";
 import "./ReportsPage.css";
 
-const REPORT_CARDS = [
-  { title: "Sales summary", description: "Revenue by product, period, and customer." },
-  { title: "Payment summary", description: "Verified vs. pending payments across job orders." },
-  { title: "Product performance", description: "Volume and revenue by product and variant." },
-  { title: "Job throughput", description: "Cycle time from paid to completed, by production stage." },
-];
+const dateFormatter = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const quantityFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+
+function localDateValue(value = new Date()): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseCalendarDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function periodLabel(report: OperationalReport): string {
+  const start = dateFormatter.format(parseCalendarDate(report.periodStart));
+  if (report.periodStart === report.periodEnd) return start;
+  return `${start} – ${dateFormatter.format(parseCalendarDate(report.periodEnd))}`;
+}
+
+function shiftAnchor(value: string, period: ReportPeriod, direction: -1 | 1): string {
+  const shifted = parseCalendarDate(value);
+  if (period === "daily") shifted.setDate(shifted.getDate() + direction);
+  if (period === "weekly") shifted.setDate(shifted.getDate() + (direction * 7));
+  if (period === "monthly") {
+    shifted.setDate(1);
+    shifted.setMonth(shifted.getMonth() + direction);
+  }
+  return localDateValue(shifted);
+}
+
+function methodLabel(method: string): string {
+  return method.replace(/_/g, " ").replace(/\b\w/g, (letter: string) => letter.toUpperCase());
+}
+
+function inventoryStatusLabel(status: ReportInventoryStatus): string {
+  if (status === "out") return "Out of stock";
+  if (status === "low") return "Low stock";
+  return "Healthy";
+}
 
 export function ReportsPage() {
+  const today = localDateValue();
+  const [draftPeriod, setDraftPeriod] = useState<ReportPeriod>("daily");
+  const [draftAnchor, setDraftAnchor] = useState(today);
+  const [selection, setSelection] = useState({ period: "daily" as ReportPeriod, anchor: today });
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const { data, state, error, reload } = useResource(
+    () => api.get<OperationalReport>(`/reports?period=${selection.period}&anchor_date=${selection.anchor}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
+    [selection.period, selection.anchor],
+  );
+
+  function generateReport(event: FormEvent) {
+    event.preventDefault();
+    if (!draftAnchor) {
+      setValidationError("Choose a date for the report period.");
+      return;
+    }
+    setValidationError(null);
+    if (draftPeriod === selection.period && draftAnchor === selection.anchor) reload();
+    else setSelection({ period: draftPeriod, anchor: draftAnchor });
+  }
+
+  function moveReport(direction: -1 | 1) {
+    const anchor = shiftAnchor(selection.anchor, selection.period, direction);
+    setDraftPeriod(selection.period);
+    setDraftAnchor(anchor);
+    setValidationError(null);
+    setSelection({ period: selection.period, anchor });
+  }
+
+  const stockAttention = data ? data.inventory.lowStockCount + data.inventory.outOfStockCount : 0;
+
   return (
     <>
       <PageHeader
-        eyebrow="REPORTS"
-        title="Reports"
-        description="Sales, payment, product, and throughput reporting, derived from real quotation, job-order, and payment data — not invented figures."
-        actions={<PlannedNotice phase="Phase 6 — Tracking & Reports" />}
+        eyebrow="REPORTS / OPERATIONS LEDGER"
+        title="Business reports"
+        description="Generate an accountable sales, production re-attempt, and live inventory report for a day, week, or month."
       />
 
-      <div className="reports-filter-row">
-        <span className="reports-filter-row__label">Date range</span>
-        <Button variant="secondary" size="sm" disabled>
-          This month
-        </Button>
-        <Button variant="ghost" size="sm" disabled>
-          Custom range…
-        </Button>
-        <div className="reports-filter-row__spacer" />
-        <Button variant="secondary" size="sm" disabled>
-          Export CSV
-        </Button>
-        <Button variant="secondary" size="sm" disabled>
-          Export PDF
-        </Button>
-      </div>
+      <form className="report-generator" onSubmit={generateReport} noValidate>
+        <fieldset>
+          <legend>Report period</legend>
+          <div className="report-generator__periods">
+            {(["daily", "weekly", "monthly"] as ReportPeriod[]).map((period) => (
+              <button type="button" aria-pressed={draftPeriod === period} className={draftPeriod === period ? "is-selected" : ""} onClick={() => setDraftPeriod(period)} key={period}>{period}</button>
+            ))}
+          </div>
+        </fieldset>
+        <label className={validationError ? "is-invalid" : ""}>
+          <span>{draftPeriod === "daily" ? "Report date" : draftPeriod === "weekly" ? "Week containing" : "Month containing"}</span>
+          <input type="date" value={draftAnchor} onChange={(event) => { setDraftAnchor(event.target.value); setValidationError(null); }} aria-invalid={Boolean(validationError)} aria-describedby={validationError ? "report-date-error" : undefined} required />
+        </label>
+        <Button type="submit" variant="primary" loading={state === "loading"}>Generate report</Button>
+        {validationError ? <small id="report-date-error" className="report-generator__error" role="alert">{validationError}</small> : null}
+      </form>
 
-      <div className="reports-grid">
-        {REPORT_CARDS.map((r) => (
-          <Card key={r.title}>
-            <CardHeader title={r.title} />
-            <EmptyState
-              title="No data recorded yet"
-              description={`${r.description} Populates once job orders and payments exist.`}
-            />
-          </Card>
-        ))}
-      </div>
+      {state === "loading" ? <LoadingState label={`Generating ${selection.period} report…`} /> : null}
+      {state === "error" ? <ErrorState title="The report could not be generated" description={error ?? undefined} onRetry={reload} /> : null}
+      {state === "ready" && data ? (
+        <div className="report-sheet">
+          <header className="report-sheet__header">
+            <div><span className="numeric">{data.period.toUpperCase()} REPORT</span><h2>{periodLabel(data)}</h2><p>Generated {dateTimeFormatter.format(new Date(data.generatedAt))}</p></div>
+            <nav aria-label="Move report period"><Button type="button" size="sm" variant="ghost" onClick={() => moveReport(-1)} aria-label={`Previous ${data.period} report`}>← Previous</Button><Button type="button" size="sm" variant="ghost" onClick={() => moveReport(1)} aria-label={`Next ${data.period} report`}>Next →</Button></nav>
+          </header>
+
+          <section className="report-scoreboard" aria-label="Report summary">
+            <article className="report-scoreboard__sales"><span>Total sales</span><strong>{formatCurrency(data.sales.totalSales)}</strong><small>Verified payments received</small></article>
+            <article><span>Paid transactions</span><strong className="numeric">{data.sales.transactionCount}</strong><small>{data.sales.verifiedPaymentCount} verified {data.sales.verifiedPaymentCount === 1 ? "payment" : "payments"}</small></article>
+            <article className={data.reAttempts.totalReAttempts ? "has-attention" : ""}><span>Re-attempts</span><strong className="numeric">{data.reAttempts.totalReAttempts}</strong><small>{data.reAttempts.affectedJobCount} affected {data.reAttempts.affectedJobCount === 1 ? "job" : "jobs"}</small></article>
+            <article className={stockAttention ? "has-warning" : ""}><span>Stock attention</span><strong className="numeric">{stockAttention}</strong><small>{data.inventory.outOfStockCount} out · {data.inventory.lowStockCount} low</small></article>
+          </section>
+
+          <div className="report-sheet__columns">
+            <section className="report-panel report-panel--sales">
+              <header><div><span className="numeric">01 / SALES</span><h3>Verified receipts</h3></div><strong>{formatCurrency(data.sales.totalSales)}</strong></header>
+              {data.sales.byPaymentMethod.length ? <ul className="report-sales-methods">{data.sales.byPaymentMethod.map((method) => <li key={method.method}><span><strong>{methodLabel(method.method)}</strong><small>{method.paymentCount} {method.paymentCount === 1 ? "payment" : "payments"}</small></span><b>{formatCurrency(method.amount)}</b></li>)}</ul> : <EmptyState title="No verified sales" description="No verified payment was recorded inside this period." />}
+              <p className="report-panel__note">Sales are recognized on the date a verified payment is recorded—not when an unpaid transaction is created.</p>
+            </section>
+
+            <section className="report-panel report-panel--reattempts">
+              <header><div><span className="numeric">02 / QUALITY</span><h3>Production re-attempts</h3></div><strong className="numeric">{data.reAttempts.totalReAttempts}</strong></header>
+              {data.reAttempts.byProduct.length ? <ul className="report-reattempt-list">{data.reAttempts.byProduct.map((product) => <li key={product.productId}><span><strong>{product.productName}</strong><small>{product.affectedJobCount} affected {product.affectedJobCount === 1 ? "job" : "jobs"}</small></span><b className="numeric">{product.reAttemptCount}</b></li>)}</ul> : <div className="report-clear-state"><span aria-hidden="true">✓</span><div><strong>No re-attempts recorded</strong><p>No product returned from Ready to Queued during this period.</p></div></div>}
+              <p className="report-panel__note">A re-attempt is counted when failed quality sends a product line from Ready back to Queued.</p>
+            </section>
+          </div>
+
+          <section className="report-panel report-panel--inventory">
+            <header><div><span className="numeric">03 / LIVE STOCK</span><h3>Current inventory status</h3><p>Snapshot as of {dateTimeFormatter.format(new Date(data.inventory.asOf))}</p></div><div className="report-inventory-totals"><span><b className="numeric">{data.inventory.healthyCount}</b> healthy</span><span><b className="numeric">{data.inventory.lowStockCount}</b> low</span><span><b className="numeric">{data.inventory.outOfStockCount}</b> out</span></div></header>
+            {data.inventory.items.length ? <div className="report-inventory-table" role="region" aria-label="Current inventory status" tabIndex={0}><table><thead><tr><th>Material</th><th>Category</th><th>Available</th><th>Reorder at</th><th>Status</th></tr></thead><tbody>{data.inventory.items.map((item) => <tr key={item.id}><th scope="row"><strong>{item.name}</strong>{item.paperSize ? <small>{item.paperSize}</small> : null}</th><td>{item.category}</td><td className="numeric">{quantityFormatter.format(item.quantityOnHand)} {item.unit}</td><td className="numeric">{quantityFormatter.format(item.reorderLevel)} {item.unit}</td><td><StatusPill label={inventoryStatusLabel(item.status)} tone={item.status === "healthy" ? "success" : item.status === "low" ? "warning" : "danger"} /></td></tr>)}</tbody></table></div> : <EmptyState title="No active inventory" description="Add or activate materials in Inventory to include a live stock snapshot." />}
+            {data.inventory.inactiveItemCount ? <p className="report-panel__note">{data.inventory.inactiveItemCount} inactive {data.inventory.inactiveItemCount === 1 ? "material is" : "materials are"} excluded from operational stock status.</p> : null}
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }
