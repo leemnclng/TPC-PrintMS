@@ -103,6 +103,8 @@ export function JobOrdersPage() {
     const dateDifference = createdDate(b.createdAt).getTime() - createdDate(a.createdAt).getTime();
     if (sort === "oldest") return -dateDifference || a.number.localeCompare(b.number);
     if (sort === "name") return a.name.localeCompare(b.name) || dateDifference;
+    if (sort === "name-desc") return b.name.localeCompare(a.name) || dateDifference;
+    if (sort === "due-desc") return !a.dueDate ? (b.dueDate ? 1 : dateDifference) : !b.dueDate ? -1 : b.dueDate.localeCompare(a.dueDate) || dateDifference;
     if (sort === "total-high") return b.total - a.total || dateDifference;
     if (sort === "total-low") return a.total - b.total || dateDifference;
     if (sort === "due") return (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || dateDifference;
@@ -141,6 +143,18 @@ export function JobOrdersPage() {
     { key: "due", header: "Due", render: (r) => formatDate(r.dueDate) },
   ];
 
+  for (const column of columns) {
+    if (column.key === "name") column.filter = <input type="search" aria-label="Search job, customer or product" placeholder="Search orders…" value={query} onChange={(event) => setQuery(event.target.value)} />;
+    if (column.key === "created") column.filter = <><label>From<input type="date" value={fromDate} max={toDate || undefined} aria-invalid={invalidInterval} aria-describedby={invalidInterval ? "job-date-error" : undefined} onChange={(event) => setFromDate(event.target.value)} /></label><label>Through<input type="date" value={toDate} min={fromDate || undefined} aria-invalid={invalidInterval} onChange={(event) => setToDate(event.target.value)} /></label></>;
+    if (column.key === "status") column.filter = <select aria-label="Filter status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{Object.entries(jobOrderStatusMeta).filter(([key]) => !attaching || ["queued", "printing", "ready"].includes(key)).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}</select>;
+    if (column.key === "reprocess") column.filter = <select aria-label="Filter reprocess" value={reprocess} onChange={(event) => setReprocess(event.target.value)}><option value="">All orders</option><option value="yes">Reprocessed</option><option value="no">No reprocess</option></select>;
+    const options = column.key === "created" ? ["newest", "oldest"] : column.key === "total" ? ["total-high", "total-low"] : column.key === "name" ? ["name", "name-desc"] : column.key === "due" ? ["due", "due-desc"] : null;
+    if (options) {
+      column.onSort = () => setSort(sort === options[0] ? options[1] : options[0]);
+      if (options.includes(sort)) column.sortDirection = ["newest", "total-high", "name-desc", "due-desc"].includes(sort) ? "descending" : "ascending";
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -153,16 +167,8 @@ export function JobOrdersPage() {
       {state === "loading" && <LoadingState label="Loading job orders…" />}
       {state === "error" && <ErrorState description={error ?? undefined} onRetry={reload} />}
 
-      {state === "ready" && data && data.orders.length > 0 && <section className="job-orders-filters" aria-label="Filter and sort job orders">
-        <label className="job-orders-filters__search">Search orders<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Job name, ID, customer or product" /></label>
-        <label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{Object.entries(jobOrderStatusMeta).filter(([key]) => !attaching || ["queued", "printing", "ready"].includes(key)).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}</select></label>
-        <label>Reprocess<select value={reprocess} onChange={(event) => setReprocess(event.target.value)}><option value="">All orders</option><option value="yes">Reprocessed</option><option value="no">No reprocess</option></select></label>
-        <label>Created from<input type="date" value={fromDate} max={toDate || undefined} aria-invalid={invalidInterval} aria-describedby={invalidInterval ? "job-date-error" : undefined} onChange={(event) => setFromDate(event.target.value)} /></label>
-        <label>Created through<input type="date" value={toDate} min={fromDate || undefined} aria-invalid={invalidInterval} aria-describedby={invalidInterval ? "job-date-error" : undefined} onChange={(event) => setToDate(event.target.value)} /></label>
-        <label>Sort by<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="name">Job name A–Z</option><option value="total-high">Total: high to low</option><option value="total-low">Total: low to high</option><option value="due">Due date: earliest</option></select></label>
-        <div className="job-orders-filters__summary"><span role="status">{filteredOrders.length} of {eligibleOrders.length} orders · dates in local time</span><Button variant="ghost" onClick={clearFilters}>Clear filters</Button></div>
-        {invalidInterval && <p id="job-date-error" role="alert">The end date must be on or after the start date.</p>}
-      </section>}
+      {state === "ready" && data && <div className="job-orders-filters__summary"><span role="status">{filteredOrders.length} of {eligibleOrders.length} orders</span><Button variant="ghost" onClick={clearFilters}>Clear filters</Button></div>}
+      {invalidInterval && <p id="job-date-error" role="alert">The end date must be on or after the start date.</p>}
 
       {state === "ready" && data && attaching && (() => {
         const attachJob = data.spoolerMonitor?.jobs.find((job) => job.id === attachSpoolerJobId && job.reviewStatus === "unreviewed") ?? null;
@@ -195,8 +201,6 @@ export function JobOrdersPage() {
                 description="Every existing order is already paid, completed, or cancelled."
                 action={<Button variant="primary" onClick={createInsteadOfAttach}>Create a new order instead</Button>}
               />
-            ) : filteredOrders.length === 0 ? (
-              <EmptyState title="No matching orders" description="Change the filters to find an open order." action={<Button variant="secondary" onClick={clearFilters}>Clear filters</Button>} />
             ) : (
               <DataTable
                 columns={columns}
@@ -217,7 +221,7 @@ export function JobOrdersPage() {
       )}
 
       {state === "ready" && data && !attaching && data.orders.length > 0 && (
-        filteredOrders.length > 0 ? <DataTable columns={columns} rows={filteredOrders} onRowClick={(row) => navigate(`/job-orders/${row.id}`)} /> : <EmptyState title="No matching orders" description="Try another search, status, or date interval." action={<Button variant="secondary" onClick={clearFilters}>Clear filters</Button>} />
+        <DataTable columns={columns} rows={filteredOrders} onRowClick={(row) => navigate(`/job-orders/${row.id}`)} />
       )}
 
       {data && (

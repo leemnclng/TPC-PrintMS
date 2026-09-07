@@ -1,5 +1,9 @@
 # Decisions
 
+## 2026-09-07 — Table-local filtering
+
+- Use compact filter cells below headings for Job Orders and material history. Keep native inputs/selects, accessible sorting buttons, and an always-present filter row during no-match states; retain a small count/clear strip instead of a separate configuration pane.
+
 ## 2026-09-07 — Audit inventory from recorded movements
 
 - Use the existing immutable movement quantities and job/product foreign keys for material history. Group job-linked negative/positive changes as deductions/returns and show net usage separately so reconciliation is not double-counted.

@@ -1,5 +1,7 @@
 # Change Log
 
+- 2026-09-07: Job Orders and material-history ledger filters now sit under their table headings. Job, creation date, total, and due-date headers toggle sorting; empty results retain the filters.
+
 - 2026-09-07: Inventory materials now have a History page linking stock deductions and reconciliation adjustments to job orders and products, with per-transaction totals, searchable movement ledger, and a stock-versus-ledger balance check.
 
 - 2026-09-07: Printing Job Orders now shows Date created and supports search, status/reprocess filters, inclusive creation-date intervals, and sorting by creation date, job name, total, or due date.

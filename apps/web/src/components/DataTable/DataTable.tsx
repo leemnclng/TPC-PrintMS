@@ -4,6 +4,9 @@ import "./DataTable.css";
 export interface DataTableColumn<T> {
   key: string;
   header: string;
+  filter?: ReactNode;
+  onSort?: () => void;
+  sortDirection?: "ascending" | "descending";
   render: (row: T) => ReactNode;
   align?: "left" | "right";
   numeric?: boolean;
@@ -25,13 +28,15 @@ export function DataTable<T extends { id: string }>({
         <thead>
           <tr>
             {columns.map((col) => (
-              <th key={col.key} style={{ width: col.width, textAlign: col.align ?? "left" }}>
-                {col.header}
+              <th scope="col" aria-sort={col.onSort ? col.sortDirection || "none" : undefined} key={col.key} style={{ width: col.width, textAlign: col.align ?? "left" }}>
+                {col.onSort ? <button className="data-table__sort" type="button" onClick={col.onSort} aria-label={`Sort by ${col.header}`}>{col.header}<span aria-hidden="true">{col.sortDirection === "ascending" ? "↑" : col.sortDirection === "descending" ? "↓" : "↕"}</span></button> : col.header}
               </th>
             ))}
           </tr>
+          {columns.some((col) => col.filter) && <tr className="data-table__filters">{columns.map((col) => <td key={col.key}>{col.filter}</td>)}</tr>}
         </thead>
         <tbody>
+          {!rows.length && <tr><td colSpan={columns.length}>No matching records. Adjust or clear the column filters.</td></tr>}
           {rows.map((row) => (
             <tr
               key={row.id}

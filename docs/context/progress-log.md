@@ -1,5 +1,9 @@
 # Progress Log
 
+## 2026-09-07 — Compact column filters
+
+- Replaced detached filter panels in Job Orders and material history with shared table filter rows. Added keyboard-operable sort headers with aria-sort, preserved clear/count controls, and kept inputs available when no rows match.
+
 ## 2026-09-07 — Material transaction audit
 
 - Added Inventory → History for each material, with current stock, lifetime net job usage, grouped transaction deductions/returns, and detailed timestamped movements with job/product identities and audit notes.

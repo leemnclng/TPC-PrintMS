@@ -35,6 +35,8 @@ The application structure consists of Overview, Printing Job Orders, Print Cente
 
 ## Business Workflow Context
 
+Job Orders and material-history ledger filters are embedded beneath column headings. Job Orders exposes direction-toggle sorting on Job, Date created, Total, and Due; filters remain available in empty results.
+
 Inventory's per-material History page shows lifetime transaction deductions, returns, net consumption, linked current job status/product names, and the full stock ledger with running balances and audit notes. A ledger-total comparison flags differences against current stock. Job links support backtracking; movement quantities remain historical while names/status reflect current records.
 
 The Printing Job Orders list displays creation dates in local time and supports search by job name/number, customer, or product; status/reprocess and inclusive creation-date filters; and newest/oldest, name, total, or due-date sorting. The same controls apply to eligible orders when attaching a tracked print.

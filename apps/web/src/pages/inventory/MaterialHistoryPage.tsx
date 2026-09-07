@@ -50,6 +50,8 @@ export function MaterialHistoryPage() {
     { key: "balance", header: "Balance after", numeric: true, render: (row) => quantity(row.balanceAfter) },
     { key: "note", header: "Audit note", render: (row) => row.note || "—" },
   ];
+  columns.find((column) => column.key === "job")!.filter = <input type="search" aria-label="Search job, product or note" placeholder="Search history…" value={query} onChange={(event) => setQuery(event.target.value)} />;
+  columns.find((column) => column.key === "kind")!.filter = <select aria-label="Filter movement type" value={kind} onChange={(event) => setKind(event.target.value)}><option value="">All movements</option><option value="jobs">Linked to a job</option>{["opening_balance", "stock_in", "stock_out", "job_usage", "adjustment"].map((value) => <option key={value} value={value}>{value.replace(/_/g, " ")}</option>)}</select>;
   return <>
     <Link to="/inventory">← Back to inventory</Link>
     <PageHeader eyebrow="MATERIAL AUDIT" title={data?.item.name || "Material history"} description="Trace stock changes to their job orders and products. Quantities include failed output, reprints, and owner-confirmed adjustments." actions={<Button variant="secondary" disabled={state === "loading"} onClick={reload}>Refresh</Button>} />
@@ -73,13 +75,8 @@ export function MaterialHistoryPage() {
         { key: "net", header: "Net used", numeric: true, render: (row) => quantity(row.deducted - row.returned) },
       ]} rows={[...transactions.values()]} /> : <EmptyState title="No linked transactions" description="Job-linked material usage will appear here when recorded." />}
       <h2>Stock movement ledger</h2>
-      <section className="job-orders-filters" aria-label="Filter stock ledger">
-        <label>Search job, product or note<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-        <label>Movement type<select value={kind} onChange={(event) => setKind(event.target.value)}><option value="">All movements</option><option value="jobs">Linked to a job</option>{["opening_balance", "stock_in", "stock_out", "job_usage", "adjustment"].map((value) => <option key={value} value={value}>{value.replace(/_/g, " ")}</option>)}</select></label>
-        <Button variant="ghost" onClick={() => { setQuery(""); setKind(""); }}>Clear filters</Button>
-        <span role="status">{visible.length} of {movements.length} movements · {data.item.unit}</span>
-      </section>
-      {visible.length ? <DataTable columns={columns} rows={visible} /> : <EmptyState title="No movements to display" description="Change the filters or refresh after recording stock usage." />}
+      <div className="job-orders-filters__summary"><span role="status">{visible.length} of {movements.length} movements · {data.item.unit}</span><Button variant="ghost" onClick={() => { setQuery(""); setKind(""); }}>Clear filters</Button></div>
+      <DataTable columns={columns} rows={visible} />
     </>}
   </>;
 }
