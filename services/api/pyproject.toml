@@ -1,7 +1,7 @@
 [project]
 name = "printing-ms-api"
 version = "0.1.0"
-description = "Printing-MS local backend — FastAPI + SQLite, managed by the Electron shell."
+description = "OMS local backend — FastAPI + SQLite, managed by the Electron shell."
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115.0",

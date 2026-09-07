@@ -1,5 +1,11 @@
 # Change Log
 
+- 2026-09-07: Inventory materials now have a History page linking stock deductions and reconciliation adjustments to job orders and products, with per-transaction totals, searchable movement ledger, and a stock-versus-ledger balance check.
+
+- 2026-09-07: Printing Job Orders now shows Date created and supports search, status/reprocess filters, inclusive creation-date intervals, and sorting by creation date, job name, total, or due date.
+
+- 2026-09-07: Manual duplex now records paper after the front submission. Completing or cancelling a transaction requires actual paper usage, including waste/reprints, and adjusts only the difference from tracked deductions with an inventory audit entry.
+
 Track notable app changes by date.
 
 ## 2026-09-01 (desktop backend startup reliability)
@@ -371,3 +377,9 @@ Track notable app changes by date.
 - Changed: Report dates are now an explicit From/To interval instead of one calendar anchor.
 - Changed: Daily, Weekly, and Monthly act as immediate shortcuts for today, the complete Monday-Sunday week, and the complete calendar month; manually editing either boundary creates a custom interval.
 - Fixed: Report results now label the exact selected interval, and monthly totals include the entire selected calendar month instead of stopping at the present date.
+
+## 2026-09-07
+
+- Changed: Renamed the user-facing application from Printing-MS to OMS across desktop/window titles, navigation, operational copy, launcher output, backup filenames, API metadata, and setup documentation.
+- Preserved: Existing package IDs, environment variables, database names, stored settings, and backup archive identifiers remain compatible. New spooler markers use OMS while legacy markers are still recognized.
+- Fixed: Not now on an external Windows print hides only its global notification; the print remains Unlinked and can still be added to an existing job or used to create a job from Print Center.

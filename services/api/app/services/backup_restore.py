@@ -193,7 +193,7 @@ def _managed_files() -> list[Path]:
     )
 
 
-def create_backup(*, prefix: str = "printing-ms") -> Path:
+def create_backup(*, prefix: str = "oms") -> Path:
     with _storage_lock, tempfile.TemporaryDirectory(dir=settings.resolved_data_dir) as temporary_dir:
         temporary_root = Path(temporary_dir)
         database_snapshot = temporary_root / "database.sqlite3"
@@ -314,7 +314,7 @@ def _read_manifest(archive: zipfile.ZipFile) -> dict[str, Any]:
     try:
         manifest = json.loads(archive.read("manifest.json"))
     except (KeyError, json.JSONDecodeError) as error:
-        raise BackupValidationError("This is not a valid Printing-MS backup.") from error
+        raise BackupValidationError("This is not a valid OMS backup.") from error
     if manifest.get("archiveFormat") != ARCHIVE_FORMAT or manifest.get("formatVersion") != ARCHIVE_VERSION:
         raise BackupValidationError("This backup format is not supported by this app version.")
     if manifest.get("stage") != settings.stage:

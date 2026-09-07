@@ -117,7 +117,7 @@ def download_backup() -> FileResponse:
 @router.post("/restore", response_model=RestoreResultRead)
 def restore_environment_backup(file: UploadFile = File(...)) -> dict:
     if not file.filename or not file.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=415, detail="Choose a Printing-MS .zip backup.")
+        raise HTTPException(status_code=415, detail="Choose an OMS .zip backup.")
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(

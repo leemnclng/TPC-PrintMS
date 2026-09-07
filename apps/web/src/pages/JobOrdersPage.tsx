@@ -16,11 +16,27 @@ import { JobServiceChooserModal } from "./jobOrders/JobServiceChooserModal";
 import { TransactionCreateModal } from "./jobOrders/TransactionCreateModal";
 import "./JobOrdersPage.css";
 
+// Backend timestamps without an offset are stored in UTC.
+function createdDate(value: string) {
+  return new Date(/[zZ]|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`);
+}
+
+function localDay(value: string) {
+  const date = createdDate(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 export function JobOrdersPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [chooserOpen, setChooserOpen] = useState(searchParams.get("create") === "1");
   const [selectedService, setSelectedService] = useState<Service | null>(null);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("");
+  const [reprocess, setReprocess] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [sort, setSort] = useState("newest");
   const sourceSpoolerJobId = searchParams.get("spoolerJobId");
   const attachSpoolerJobId = searchParams.get("attachSpoolerJobId");
   const attaching = Boolean(attachSpoolerJobId);
@@ -73,8 +89,33 @@ export function JobOrdersPage() {
     navigate(`/job-orders?create=1&spoolerJobId=${encodeURIComponent(attachSpoolerJobId)}`, { replace: true });
   }
 
+  const invalidInterval = Boolean(fromDate && toDate && fromDate > toDate);
+  const eligibleOrders = (data?.orders ?? []).filter((order) => !attaching || ["queued", "printing", "ready"].includes(order.status));
+  const filteredOrders = eligibleOrders.filter((order) => {
+    const search = query.trim().toLowerCase();
+    const day = localDay(order.createdAt);
+    const retried = order.items.some((item) => item.reprocessCount > 0);
+    return !invalidInterval && (!status || order.status === status)
+      && (!reprocess || (reprocess === "yes" ? retried : !retried))
+      && (!fromDate || day >= fromDate) && (!toDate || day <= toDate)
+      && (!search || [order.name, order.number, order.customerName || "Walk-in", ...order.items.map((item) => item.productName)].some((value) => value.toLowerCase().includes(search)));
+  }).sort((a, b) => {
+    const dateDifference = createdDate(b.createdAt).getTime() - createdDate(a.createdAt).getTime();
+    if (sort === "oldest") return -dateDifference || a.number.localeCompare(b.number);
+    if (sort === "name") return a.name.localeCompare(b.name) || dateDifference;
+    if (sort === "total-high") return b.total - a.total || dateDifference;
+    if (sort === "total-low") return a.total - b.total || dateDifference;
+    if (sort === "due") return (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || dateDifference;
+    return dateDifference || b.number.localeCompare(a.number);
+  });
+
+  function clearFilters() {
+    setQuery(""); setStatus(""); setReprocess(""); setFromDate(""); setToDate(""); setSort("newest");
+  }
+
   const columns: DataTableColumn<JobOrder>[] = [
     { key: "name", header: "Job", render: (r) => <span className="job-order-identity"><strong>{r.name}</strong><small className="numeric">{r.number}</small></span>, width: "16rem" },
+    { key: "created", header: "Date created", render: (r) => <time dateTime={createdDate(r.createdAt).toISOString()}>{formatDate(createdDate(r.createdAt).toISOString())}</time> },
     { key: "customer", header: "Customer", render: (r) => r.customerName || "Walk-in" },
     {
       key: "status",
@@ -112,6 +153,17 @@ export function JobOrdersPage() {
       {state === "loading" && <LoadingState label="Loading job orders…" />}
       {state === "error" && <ErrorState description={error ?? undefined} onRetry={reload} />}
 
+      {state === "ready" && data && data.orders.length > 0 && <section className="job-orders-filters" aria-label="Filter and sort job orders">
+        <label className="job-orders-filters__search">Search orders<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Job name, ID, customer or product" /></label>
+        <label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{Object.entries(jobOrderStatusMeta).filter(([key]) => !attaching || ["queued", "printing", "ready"].includes(key)).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}</select></label>
+        <label>Reprocess<select value={reprocess} onChange={(event) => setReprocess(event.target.value)}><option value="">All orders</option><option value="yes">Reprocessed</option><option value="no">No reprocess</option></select></label>
+        <label>Created from<input type="date" value={fromDate} max={toDate || undefined} aria-invalid={invalidInterval} aria-describedby={invalidInterval ? "job-date-error" : undefined} onChange={(event) => setFromDate(event.target.value)} /></label>
+        <label>Created through<input type="date" value={toDate} min={fromDate || undefined} aria-invalid={invalidInterval} aria-describedby={invalidInterval ? "job-date-error" : undefined} onChange={(event) => setToDate(event.target.value)} /></label>
+        <label>Sort by<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="name">Job name A–Z</option><option value="total-high">Total: high to low</option><option value="total-low">Total: low to high</option><option value="due">Due date: earliest</option></select></label>
+        <div className="job-orders-filters__summary"><span role="status">{filteredOrders.length} of {eligibleOrders.length} orders · dates in local time</span><Button variant="ghost" onClick={clearFilters}>Clear filters</Button></div>
+        {invalidInterval && <p id="job-date-error" role="alert">The end date must be on or after the start date.</p>}
+      </section>}
+
       {state === "ready" && data && attaching && (() => {
         const attachJob = data.spoolerMonitor?.jobs.find((job) => job.id === attachSpoolerJobId && job.reviewStatus === "unreviewed") ?? null;
         if (!attachJob) {
@@ -123,7 +175,6 @@ export function JobOrdersPage() {
             />
           );
         }
-        const eligibleOrders = data.orders.filter((order) => ["queued", "printing", "ready"].includes(order.status));
         return (
           <>
             <div className="job-orders-attach-banner" role="status">
@@ -144,10 +195,12 @@ export function JobOrdersPage() {
                 description="Every existing order is already paid, completed, or cancelled."
                 action={<Button variant="primary" onClick={createInsteadOfAttach}>Create a new order instead</Button>}
               />
+            ) : filteredOrders.length === 0 ? (
+              <EmptyState title="No matching orders" description="Change the filters to find an open order." action={<Button variant="secondary" onClick={clearFilters}>Clear filters</Button>} />
             ) : (
               <DataTable
                 columns={columns}
-                rows={eligibleOrders}
+                rows={filteredOrders}
                 onRowClick={(row) => navigate(`/job-orders/${row.id}?attachSpoolerJobId=${encodeURIComponent(attachSpoolerJobId!)}`)}
               />
             )}
@@ -164,7 +217,7 @@ export function JobOrdersPage() {
       )}
 
       {state === "ready" && data && !attaching && data.orders.length > 0 && (
-        <DataTable columns={columns} rows={data.orders} onRowClick={(row) => navigate(`/job-orders/${row.id}`)} />
+        filteredOrders.length > 0 ? <DataTable columns={columns} rows={filteredOrders} onRowClick={(row) => navigate(`/job-orders/${row.id}`)} /> : <EmptyState title="No matching orders" description="Try another search, status, or date interval." action={<Button variant="secondary" onClick={clearFilters}>Clear filters</Button>} />
       )}
 
       {data && (

@@ -34,7 +34,7 @@ export function Sidebar({ connectionState }: { connectionState: ConnectionState 
         </span>
         <span className="sidebar__brand-text">
           <span className="sidebar__brand-name">The Paper Club</span>
-          <span className="sidebar__brand-system">Printing-MS</span>
+          <span className="sidebar__brand-system">OMS</span>
         </span>
       </div>
 

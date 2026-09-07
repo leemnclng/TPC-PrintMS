@@ -1,4 +1,4 @@
-# Creates a Desktop shortcut for Printing-MS, with The Paper Club logo as its
+# Creates a Desktop shortcut for OMS, with The Paper Club logo as its
 # icon, that launches scripts/run.sh through Git Bash — the same way this
 # repo's own dev workflow runs it. Run this once:
 #
@@ -8,7 +8,7 @@
 # double-click it directly — Windows opens .ps1 files in a text editor
 # instead of running them, which silently does nothing.
 #
-# After that, use the "Printing-MS" icon it adds to the Desktop instead of
+# After that, use the "OMS" icon it adds to the Desktop instead of
 # re-running this script. Requires Git for Windows (the same Git Bash you'd
 # use to run scripts/run.sh by hand).
 
@@ -56,7 +56,7 @@ try {
   $icon = [IO.Path]::GetFullPath((Join-Path $repoRoot "apps\desktop\build\icon.ico"))
 
   if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
-    throw "Couldn't find $target — run this script from inside the Printing-MS repo."
+    throw "Couldn't find $target — run this script from inside the OMS repo."
   }
   if (-not (Test-Path -LiteralPath $icon -PathType Leaf)) {
     throw "Couldn't find $icon."
@@ -71,7 +71,8 @@ try {
   if ([string]::IsNullOrWhiteSpace($desktop) -or -not (Test-Path -LiteralPath $desktop -PathType Container)) {
     throw "Windows did not return a usable Desktop folder."
   }
-  $shortcutPath = Join-Path $desktop "Printing-MS.lnk"
+  $shortcutPath = Join-Path $desktop "OMS.lnk"
+  $legacyShortcutPath = Join-Path $desktop "Printing-MS.lnk"
 
   $shell = New-Object -ComObject WScript.Shell
   $shortcut = $shell.CreateShortcut($shortcutPath)
@@ -79,17 +80,20 @@ try {
   $shortcut.Arguments = $launcher.ArgumentFormat -f $target
   $shortcut.WorkingDirectory = $repoRoot
   $shortcut.IconLocation = "$icon,0"
-  $shortcut.Description = "Printing-MS - The Paper Club"
+  $shortcut.Description = "OMS - The Paper Club"
   $shortcut.WindowStyle = 1
   $shortcut.Save()
 
   if (-not (Test-Path -LiteralPath $shortcutPath -PathType Leaf)) {
     throw "Windows did not create the shortcut at $shortcutPath."
   }
+  if ((Test-Path -LiteralPath $legacyShortcutPath -PathType Leaf) -and $legacyShortcutPath -ne $shortcutPath) {
+    Remove-Item -LiteralPath $legacyShortcutPath -Force
+  }
 
   Write-Host "Created desktop shortcut: $shortcutPath"
   Write-Host "Launcher: $($launcher.Path)"
-  Write-Host "Double-click the Desktop icon any time to launch Printing-MS through Git Bash. Closing the app also closes its launcher terminal."
+  Write-Host "Double-click the Desktop icon any time to launch OMS through Git Bash. Closing the app also closes its launcher terminal."
 }
 catch {
   Write-Host ""

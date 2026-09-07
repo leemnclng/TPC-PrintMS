@@ -1,12 +1,12 @@
 """Vendor-neutral printer adapter.
 
-Per docs/context/decisions.md, Printing-MS must not couple to the Canon
+Per docs/context/decisions.md, OMS must not couple to the Canon
 PIXMA G4770 (the first validation target) or any Canon-specific API. This
 module reads whatever printers the operating system already has installed
 and queued — CUPS on macOS/Linux, the Windows print spooler on Windows — and
 never talks to a printer driver directly. Canon PRINT and other vendor apps
 can therefore remain setup/maintenance companions without becoming required
-runtime dependencies of Printing-MS.
+runtime dependencies of OMS.
 """
 
 from __future__ import annotations
@@ -413,7 +413,7 @@ def _windows_print_error(stderr: str, stdout: str) -> str:
 def _render_windows_print_pages(file_path: Path, output_directory: Path, grayscale: bool) -> int:
     """Create the page images consumed by the Windows GDI print helper.
 
-    Rendering inside Printing-MS means submission does not depend on whichever
+    Rendering inside OMS means submission does not depend on whichever
     desktop application happens to own the PDF ``PrintTo`` file association.
     """
 

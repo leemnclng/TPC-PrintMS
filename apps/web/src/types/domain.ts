@@ -1,4 +1,4 @@
-// Shared domain types for Printing-MS.
+// Shared domain types for OMS.
 //
 // Status literals mirror the lifecycle strings agreed in
 // docs/context/build-plan.md. They are implemented as-is because they are
@@ -299,6 +299,7 @@ export interface ObservedPrintJob {
   releasedAt?: string | null;
   reviewStatus: "unreviewed" | "dismissed" | "linked";
   reviewedAt?: string | null;
+  notificationDismissedAt?: string | null;
   linkedJobOrderId?: string | null;
 }
 

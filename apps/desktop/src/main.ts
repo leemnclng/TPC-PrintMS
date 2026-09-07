@@ -5,6 +5,8 @@ import path from "node:path";
 import { BackendConfig, BackendManager, KNOWN_STAGES } from "./backendManager";
 import { acquireScannerPage, inspectScannerDevices } from "./scannerAcquisition";
 
+app.setName("OMS");
+
 const backend = new BackendManager((level, event, details) => logDesktopEvent(level, event, details));
 const useSoftwareRendering = process.platform === "win32" && process.env.PRINTING_MS_ENABLE_HARDWARE_ACCELERATION !== "1";
 if (useSoftwareRendering) app.disableHardwareAcceleration();
@@ -65,7 +67,7 @@ async function showRendererFailure(window: BrowserWindow, detail: string, route 
   try {
     const result = await dialog.showMessageBox(window, {
       type: "error",
-      title: "Printing-MS display recovery",
+      title: "OMS display recovery",
       message: "The application screen stopped rendering.",
       detail: `${detail}\n\nSoftware rendering is enabled on Windows. Diagnostics were saved to ${desktopLogPath ?? "the Electron log folder"}.`,
       buttons: ["Try again", "Close app"],
@@ -150,7 +152,7 @@ function createWindow(): void {
     minWidth: 1040,
     minHeight: 680,
     backgroundColor: "#faf9f6", // matches --color-paper — avoids a white/black flash before CSS loads
-    title: "Printing-MS — The Paper Club",
+    title: "OMS — The Paper Club",
     icon: appIconPath,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -201,7 +203,7 @@ function openPricingOverviewWindow(): void {
     minWidth: 820,
     minHeight: 560,
     backgroundColor: "#faf9f6",
-    title: "Price Overview — Printing-MS",
+    title: "Price Overview — OMS",
     icon: appIconPath,
     autoHideMenuBar: true,
     webPreferences: {

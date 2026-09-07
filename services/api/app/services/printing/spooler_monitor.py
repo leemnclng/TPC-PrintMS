@@ -1,6 +1,6 @@
 """Persistent Windows print-spooler observation.
 
-The monitor records jobs created by any Windows application while Printing-MS
+The monitor records jobs created by any Windows application while OMS
 is running. It deliberately labels disappearance as ``released`` rather than
 ``completed`` because the spooler cannot prove that paper physically exited
 the printer.
@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from ...db.models import ObservedPrintJob, PrintJob
 from ...db.session import SessionLocal
 
-_INTERNAL_PREFIX = "Printing-MS|"
+_INTERNAL_PREFIXES = ("OMS|", "Printing-MS|")
 
 
 def _as_int(value: Any) -> int | None:
@@ -56,7 +56,7 @@ def _normalized_status(event: dict[str, Any]) -> str:
 
 
 def _internal_attempt_id(document_name: str) -> str | None:
-    if not document_name.startswith(_INTERNAL_PREFIX):
+    if not document_name.startswith(_INTERNAL_PREFIXES):
         return None
     parts = document_name.split("|", 2)
     return parts[1] if len(parts) == 3 and parts[1] else None

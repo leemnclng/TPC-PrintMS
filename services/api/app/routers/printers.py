@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -128,7 +128,7 @@ def list_spooler_jobs(db: Session = Depends(get_db)) -> SpoolerMonitorRead:
     if not supported:
         message = "External job monitoring is available on the Windows desktop app."
     elif spooler_monitor.active:
-        message = "Watching the Windows spooler while Printing-MS is open."
+        message = "Watching the Windows spooler while OMS is open."
     elif spooler_monitor.error:
         message = spooler_monitor.error
     else:
@@ -150,6 +150,18 @@ def dismiss_spooler_job(observed_job_id: str, db: Session = Depends(get_db)) -> 
         raise HTTPException(status_code=409, detail="This Windows print job is already linked to a job order.")
     observed.review_status = "dismissed"
     observed.reviewed_at = datetime.utcnow()
+    db.commit()
+    return list_spooler_jobs(db)
+
+
+@router.post("/spooler-jobs/{observed_job_id}/defer-notification", response_model=SpoolerMonitorRead)
+def defer_spooler_job_notification(observed_job_id: str, db: Session = Depends(get_db)) -> SpoolerMonitorRead:
+    observed = db.get(ObservedPrintJob, observed_job_id)
+    if not observed:
+        raise HTTPException(status_code=404, detail="Observed Windows print job not found.")
+    if observed.review_status != "unreviewed":
+        raise HTTPException(status_code=409, detail="This Windows print job has already been reviewed.")
+    observed.notification_dismissed_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
     return list_spooler_jobs(db)
 

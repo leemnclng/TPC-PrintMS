@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pymupdf
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -80,7 +81,7 @@ def test_ad_hoc_transaction_tracks_external_work_and_material_usage(tmp_path, mo
         headers=headers,
         json={
             "name": "Ad Hoc counter work",
-            "description": "Work completed outside Printing-MS.",
+            "description": "Work completed outside OMS.",
             "operationKind": "adhoc",
             "materialIds": [paper["id"]],
         },
@@ -162,7 +163,8 @@ def test_ad_hoc_transaction_tracks_external_work_and_material_usage(tmp_path, mo
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 34
 
 
-def test_photo_duplex_combines_files_and_consumes_one_sheet_per_pair(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("cancel_after_front", [None, 1, 0])
+def test_photo_duplex_combines_files_and_consumes_one_sheet_per_pair(tmp_path, monkeypatch, cancel_after_front) -> None:
     engine = create_engine(
         f"sqlite:///{tmp_path / 'photo-duplex.db'}",
         connect_args={"check_same_thread": False},
@@ -321,8 +323,19 @@ def test_photo_duplex_combines_files_and_consumes_one_sheet_per_pair(tmp_path, m
         json={**print_payload, "duplexPass": "front"},
     )
     assert front_pass.status_code == 201, front_pass.text
-    assert front_pass.json()["items"][0]["materials"][0]["consumedQuantity"] == 0
-    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 40
+    assert front_pass.json()["items"][0]["materials"][0]["consumedQuantity"] == 1
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 39
+
+    if cancel_after_front is not None:
+        plan = front_pass.json()["items"][0]["materials"][0]
+        cancelled = client.post(f"/job-orders/{order['id']}/cancel", headers=headers, json={
+            "reason": "Front printed poorly; stop here.",
+            "paperUsage": [{"materialPlanId": plan["id"], "trackedQuantity": 1, "actualQuantity": cancel_after_front}],
+        })
+        assert cancelled.status_code == 200, cancelled.text
+        assert cancelled.json()["status"] == "cancelled"
+        assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 40 - cancel_after_front
+        return
 
     back_pass = client.post(
         f"/job-orders/{order['id']}/print-attempts",
@@ -332,6 +345,23 @@ def test_photo_duplex_combines_files_and_consumes_one_sheet_per_pair(tmp_path, m
     assert back_pass.status_code == 201, back_pass.text
     assert back_pass.json()["items"][0]["materials"][0]["consumedQuantity"] == 1
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 39
+
+    plan = back_pass.json()["items"][0]["materials"][0]
+    cancel_url = f"/job-orders/{order['id']}/cancel"
+    assert client.post(cancel_url, headers=headers, json={"reason": "Damaged output"}).status_code == 422
+    confirmation = {"materialPlanId": plan["id"], "trackedQuantity": 0, "actualQuantity": 2}
+    assert client.post(cancel_url, headers=headers, json={"reason": "Damaged output", "paperUsage": [confirmation]}).status_code == 409
+    confirmation["trackedQuantity"] = 1
+    confirmation["actualQuantity"] = 100
+    assert client.post(cancel_url, headers=headers, json={"reason": "Damaged output", "paperUsage": [confirmation]}).status_code == 422
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 39
+    confirmation["actualQuantity"] = 2
+    cancelled = client.post(cancel_url, headers=headers, json={"reason": "Damaged output", "paperUsage": [confirmation]})
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["items"][0]["materials"][0]["consumedQuantity"] == 2
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 38
+    assert client.post(cancel_url, headers=headers, json={"reason": "Damaged output", "paperUsage": [confirmation]}).status_code == 409
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 38
 
 
 def test_automatic_print_color_follows_analyzed_content_not_product_type() -> None:
@@ -1164,6 +1194,14 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert len(auto_movements) == 1
     assert auto_movements[0]["kind"] == "job_usage"
     assert auto_movements[0]["quantityDelta"] == -2
+    assert auto_movements[0]["jobOrderNumber"] == order["number"]
+    assert auto_movements[0]["jobOrderName"] == order["name"]
+    assert auto_movements[0]["jobOrderStatus"] == "printing"
+    assert auto_movements[0]["productName"] == printed.json()["items"][0]["productName"]
+    material_history = client.get(f"/inventory-movements?inventory_item_id={paper['id']}", headers=headers).json()
+    assert all(row["inventoryItemId"] == paper["id"] for row in material_history)
+    assert any(row["jobOrderId"] == order["id"] for row in material_history)
+    assert any(row["kind"] == "opening_balance" and row["jobOrderName"] is None for row in material_history)
     assert "Automatically deducted" in auto_movements[0]["note"]
 
     manual_variant = client.post(
@@ -1228,7 +1266,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert front_pass.json()["status"] == "queued"
     assert front_pass.json()["printAttempts"][0]["duplexPass"] == "front"
     assert stub_adapter.calls[-1][1]["duplex_pass"] == "front"
-    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == stock_before_front
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == stock_before_front - 2
     wrong_printer_pass = client.post(
         f"/job-orders/{manual_order['id']}/print-attempts",
         headers=headers,
@@ -1307,7 +1345,10 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     completed_transition = client.post(
         f"/job-orders/{order['id']}/transitions",
         headers=headers,
-        json={"toStatus": "completed"},
+        json={"toStatus": "completed", "paperUsage": [
+            {"materialPlanId": plan["id"], "trackedQuantity": plan["consumedQuantity"], "actualQuantity": plan["consumedQuantity"]}
+            for item in paid.json()["items"] for plan in item["materials"] if plan["paperSize"]
+        ]},
     )
     assert completed_transition.status_code == 200
     assert completed_transition.json()["status"] == "completed"
@@ -1388,7 +1429,10 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     cancelled = client.post(
         f"/job-orders/{suggested_order['id']}/cancel",
         headers=headers,
-        json={"reason": "Customer no longer needs the replacement output."},
+        json={"reason": "Customer no longer needs the replacement output.", "paperUsage": [
+            {"materialPlanId": plan["id"], "trackedQuantity": plan["consumedQuantity"], "actualQuantity": plan["consumedQuantity"]}
+            for item in second_pass.json()["items"] for plan in item["materials"] if plan["paperSize"]
+        ]},
     )
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
@@ -1461,7 +1505,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
 
 
 def test_transaction_lines_from_observed_prints_are_recorded_ready_and_combined(tmp_path, monkeypatch) -> None:
-    """Ad-hoc recording of work already printed outside Printing-MS (e.g. Canon
+    """Ad-hoc recording of work already printed outside OMS (e.g. Canon
     PRINT): each tagged line starts (and stays) 'ready' instead of 'queued',
     several separately-tracked prints can combine into one transaction, and
     each one's material usage is deducted immediately since there is no live
@@ -1574,7 +1618,7 @@ def test_transaction_lines_from_observed_prints_are_recorded_ready_and_combined(
     order = response.json()
     assert order["status"] == "ready"
     assert [item["status"] for item in order["items"]] == ["ready", "ready"]
-    assert order["statusEvents"][0]["note"] == "Transaction created from Windows print(s) already completed outside Printing-MS."
+    assert order["statusEvents"][0]["note"] == "Transaction created from Windows print(s) already completed outside OMS."
 
     with test_session() as db:
         linked_first = db.get(ObservedPrintJob, first_id)

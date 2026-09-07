@@ -1,6 +1,6 @@
-# Printing-MS
+# OMS
 
-The Paper Club's printing-management desktop app — Electron + React/TypeScript
+The Paper Club's OMS desktop app — Electron + React/TypeScript
 renderer, FastAPI + SQLite backend. See [docs/context](docs/context) for the
 full product and engineering history; this file only covers running it.
 
@@ -20,7 +20,7 @@ for Canon network selection, verification, and future installer requirements.
 
 ## First run
 
-The easiest way to run Printing-MS is the scripts in [`scripts/`](scripts):
+The easiest way to run OMS is the scripts in [`scripts/`](scripts):
 they check for Node.js and `uv`, install `uv` automatically if it's missing,
 run `npm install` on first use, then start everything.
 
@@ -33,7 +33,7 @@ backend both running; close the app window (or `Ctrl+C` the terminal) to
 stop everything.
 
 **Windows desktop shortcut:** a `.sh` file can't carry a custom icon on its
-own, so run this once to add a "Printing-MS" shortcut to the Desktop, using
+own, so run this once to add an "OMS" shortcut to the Desktop, using
 The Paper Club logo, that launches `scripts/run.sh` through Git Bash — the
 same way you'd run it by hand:
 

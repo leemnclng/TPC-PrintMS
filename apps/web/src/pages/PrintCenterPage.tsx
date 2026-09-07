@@ -171,7 +171,7 @@ export function PrintCenterPage() {
   async function handleOpenPrinterSettings() {
     setSettingsError(null);
     if (!window.paperClub) {
-      setSettingsError("Printer settings can only be opened from the Printing-MS desktop app.");
+      setSettingsError("Printer settings can only be opened from the OMS desktop app.");
       return;
     }
     setOpeningSettings(true);
@@ -187,7 +187,7 @@ export function PrintCenterPage() {
   async function handleOpenPrinterPreferences() {
     setSettingsError(null);
     if (!window.paperClub || !selectedPrinter) {
-      setSettingsError("Select a printer in the Printing-MS desktop app first.");
+      setSettingsError("Select a printer in the OMS desktop app first.");
       return;
     }
     setOpeningSettings(true);
@@ -271,7 +271,7 @@ export function PrintCenterPage() {
           <h2 id="printer-connection-title">Connect through {platformLabel} once</h2>
           <p>
             Canon PRINT remains available for setup, ink checks, scanning, and maintenance.
-            Printing-MS uses the installed {platformLabel} queue, which is also how Epson, Brother,
+            OMS uses the installed {platformLabel} queue, which is also how Epson, Brother,
             HP, AirPrint, and IPP printers remain compatible.
           </p>
           <div className="printer-platform" aria-live="polite">
@@ -305,7 +305,7 @@ export function PrintCenterPage() {
           </li>
           <li>
             <span className="printer-connection__number numeric">03</span>
-            <div><strong>Refresh Printing-MS</strong><small>The installed queue appears below and stays vendor-neutral.</small></div>
+            <div><strong>Refresh OMS</strong><small>The installed queue appears below and stays vendor-neutral.</small></div>
           </li>
         </ol>
       </section>
@@ -462,7 +462,7 @@ export function PrintCenterPage() {
           <div>
             <span className="numeric">EXTERNAL WINDOWS ACTIVITY</span>
             <h2 id="spooler-activity-title">Windows spooler jobs</h2>
-            <p>Captures jobs sent through Windows by Canon PRINT and other desktop applications while Printing-MS is open.</p>
+            <p>Captures jobs sent through Windows by Canon PRINT and other desktop applications while OMS is open.</p>
           </div>
           <div className={`spooler-monitor-state${spoolerInfo?.active ? " is-active" : ""}`} role="status" aria-live="polite">
             <span aria-hidden="true" />
@@ -514,9 +514,9 @@ export function PrintCenterPage() {
             })}
           </div>
         ) : spoolerInfo?.supported ? (
-          <EmptyState title="No external Windows jobs observed" description="Keep Printing-MS open, then print through Canon PRINT or another Windows application. New spooler jobs will appear here automatically." />
+          <EmptyState title="No external Windows jobs observed" description="Keep OMS open, then print through Canon PRINT or another Windows application. New spooler jobs will appear here automatically." />
         ) : (
-          <EmptyState title="Windows spooler monitoring is unavailable" description="This computer is not using the Windows printer host. Printing-MS does not fabricate external activity on macOS or Linux." />
+          <EmptyState title="Windows spooler monitoring is unavailable" description="This computer is not using the Windows printer host. OMS does not fabricate external activity on macOS or Linux." />
         )}
 
         <p className="spooler-activity__boundary"><strong>Direct printer actions are outside the Windows queue.</strong> Copies, scans, USB-host prints, and mobile/cloud jobs started on the printer may expose device activity, but Windows cannot provide their document name, owner, or reliable job completion.</p>

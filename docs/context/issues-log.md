@@ -23,6 +23,8 @@ Track known issues, blockers, risks, and follow-up work.
 
 ## Resolved Issues
 
+- 2026-09-07 — Manual duplex previously missed paper consumption when cancelled after only the front pass. Front submission now deducts paper; completion/cancellation reconciles owner-confirmed total usage against tracked deductions.
+
 | Date | Area | Issue | Resolution |
 | --- | --- | --- | --- |
 | 2026-09-01 | Print Center | “Add to existing job” was available only from the transient external-print notification, so closing the prompt removed the visible path to link the tracked print. | Every unreviewed Windows spooler row now exposes Add to existing job and Create job. The existing order picker and eligibility checks are reused; linked rows expose View job and dismissed history has no mutation actions. |
@@ -77,6 +79,7 @@ Track known issues, blockers, risks, and follow-up work.
 | 2026-09-03 | Workflow | Custom products completed outside the app had to impersonate Printing or Photocopy and inherited irrelevant file/device steps. | Added an Ad Hoc operation with its own compatible pricing categories. Intake records quantities and materials without an upload; the owner explicitly records external completion, which deducts stock and preserves payment, rework, and audit behavior. |
 | 2026-09-03 | Pricing | Analyzer recommendations could retain fractional pesos or use standard rounding, allowing the displayed suggestion to fall below the calculated amount. | The analyzer now rounds its final recommendation upward to the next whole peso and records the difference as a visible rounding adjustment without changing configured rates or owner overrides. |
 | 2026-09-03 | Photo Print | Back-to-back photo sides could not be supplied as separate files, and pricing by sides risked being confused with paper usage by sheets. | Photo duplex now combines ordered one-side files for existing supervised printing, prices all printed sides, and reserves/deducts only one physical sheet per front/back pair after the back pass. |
+| 2026-09-07 | Print Center | Choosing Not now on a tracked Windows print permanently marked it reviewed and removed the later job-creation actions. | Notification deferral now has its own timestamp and leaves the print Unreviewed, so Print Center continues offering Add to existing job and Create job. |
 
 ## Template
 

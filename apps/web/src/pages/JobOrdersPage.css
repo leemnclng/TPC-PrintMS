@@ -5,6 +5,23 @@
   gap: var(--space-1);
 }
 
+.job-orders-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+}
+.job-orders-filters label { display: grid; gap: var(--space-2); min-width: 0; font-size: var(--text-xs); color: var(--color-ink-soft); }
+.job-orders-filters input, .job-orders-filters select { width: 100%; min-width: 0; min-height: 44px; }
+.job-orders-filters__summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-2); font-size: var(--text-xs); }
+.job-orders-filters > p { grid-column: 1 / -1; margin: 0; color: var(--color-danger); }
+@media (max-width: 768px) { .job-orders-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 414px) { .job-orders-filters { grid-template-columns: minmax(0, 1fr); } }
+
 .job-order-identity strong {
   overflow: hidden;
   font-size: var(--text-sm);

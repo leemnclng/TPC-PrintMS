@@ -60,6 +60,7 @@ from ..schemas.job_orders import (
     JobOrderRead,
     JobOrderItemTransitionCreate,
     JobOrderTransitionCreate,
+    PaperUsageConfirmation,
     PaymentCreate,
     PhotocopyJobOrderCreate,
     PrintSubmissionCreate,
@@ -693,7 +694,7 @@ async def _save_transaction_lines(
             detail="Products can only be added before the transaction is paid or completed.",
         )
     # A line tagged with an observed print job records work already printed
-    # outside Printing-MS (e.g. Canon PRINT) — several such lines can now
+    # outside OMS (e.g. Canon PRINT) — several such lines can now
     # combine into one transaction, so this is per-line rather than
     # transaction-wide. Keyed by client_key, not the observed job's id, since
     # the same dict is consulted per line below.
@@ -886,7 +887,7 @@ async def _save_transaction_lines(
         line_total = suggested if line.price_mode == "suggested" else round(line.custom_price or 0, 2)
         any_override = any_override or line.price_mode == "custom"
         observed_print_job = observed_jobs_by_client_key.get(line.client_key)
-        # Printing already happened outside Printing-MS for this line — there
+        # Printing already happened outside OMS for this line — there
         # is no live submission to wait on, so it starts (and effectively
         # stays) at "ready" rather than going through queued -> printing.
         initial_status = "ready" if observed_print_job else "queued"
@@ -905,7 +906,7 @@ async def _save_transaction_lines(
         item.status_events.append(JobOrderItemStatusEvent(
             from_status=None,
             to_status=initial_status,
-            note="Already printed outside Printing-MS; recorded from a tracked Windows print event." if observed_print_job else "Product added to transaction.",
+            note="Already printed outside OMS; recorded from a tracked Windows print event." if observed_print_job else "Product added to transaction.",
         ))
         item.material_plans = [
             JobOrderMaterialPlan(inventory_item_id=material_id, planned_quantity=quantity)
@@ -931,7 +932,7 @@ async def _save_transaction_lines(
     else:
         job_order.status = _aggregate_transaction_status(job_order)
         creation_note = (
-            "Transaction created from Windows print(s) already completed outside Printing-MS."
+            "Transaction created from Windows print(s) already completed outside OMS."
             if job_order.status == JobOrderStatus.ready
             else "Transaction created."
         )
@@ -980,7 +981,7 @@ async def _save_transaction_lines(
                 job_order,
                 _remaining_planned_materials(job_order, item),
                 db,
-                note=f"Recorded for {job_order.number} from a Windows print already completed outside Printing-MS.",
+                note=f"Recorded for {job_order.number} from a Windows print already completed outside OMS.",
             )
         db.commit()
         db.refresh(job_order)
@@ -1412,6 +1413,8 @@ def transition_job_order(
         JobOrderStatus.completed: "Owner completed the job order.",
     }
     note = payload.note.strip() if payload.note else default_notes[target]
+    if target == JobOrderStatus.completed:
+        _reconcile_paper_usage(job_order, payload.paper_usage, db)
     if len(job_order.items) == 1 and target in {JobOrderStatus.ready, JobOrderStatus.queued}:
         if target == JobOrderStatus.queued:
             cycle = _plan_item_reprocess(job_order.items[0])
@@ -1450,6 +1453,7 @@ def cancel_job_order(
         for attempt in job_order.print_jobs
     )
     note = f"Transaction cancelled by owner: {reason}"
+    _reconcile_paper_usage(job_order, payload.paper_usage, db)
     if active_attempt:
         note += " Active operating-system print submissions may continue and require printer-queue review."
     _record_status(job_order, JobOrderStatus.cancelled, note)
@@ -1673,6 +1677,12 @@ async def submit_print_attempt(
     attempt.external_job_id = submission.external_job_id
     job_order.assigned_printer_id = printer.id
     if duplex_pass == "front":
+        _deduct_planned_materials(
+            job_order,
+            [(plan, quantity) for plan, quantity in pending_materials if plan.inventory_item.paper_size],
+            db,
+            note=f"Paper consumed by front-side pass for {job_order.number}; back sides reuse these sheets.",
+        )
         db.commit()
         db.refresh(job_order)
         return _to_read(job_order)
@@ -1842,6 +1852,35 @@ def _validate_material_stock(pending_materials: list[tuple[JobOrderMaterialPlan,
                     f"available {inventory_item.quantity_on_hand:g}. Restock it and try again."
                 ),
             )
+
+
+def _reconcile_paper_usage(job_order: JobOrder, confirmations: list[PaperUsageConfirmation] | None, db: Session) -> None:
+    plans = {plan.id: plan for item in job_order.items for plan in item.material_plans if plan.inventory_item.paper_size}
+    entries = confirmations or []
+    if len(entries) != len(plans) or {entry.material_plan_id for entry in entries} != set(plans):
+        raise HTTPException(status_code=422, detail="Confirm actual paper usage for every paper material before closing this transaction.")
+    deltas = defaultdict(float)
+    for entry in entries:
+        plan = plans[entry.material_plan_id]
+        if abs(plan.consumed_quantity - entry.tracked_quantity) > 1e-6:
+            raise HTTPException(status_code=409, detail="Tracked paper usage changed. Refresh the job and confirm the updated quantities.")
+        deltas[plan.inventory_item_id] += entry.actual_quantity - plan.consumed_quantity
+    for plan in plans.values():
+        if deltas[plan.inventory_item_id] > plan.inventory_item.quantity_on_hand + 1e-6:
+            raise HTTPException(status_code=422, detail=f"Not enough {plan.inventory_item.name} to record actual usage. Correct inventory stock and retry.")
+    for entry in entries:
+        plan = plans[entry.material_plan_id]
+        tracked = plan.consumed_quantity
+        delta = entry.actual_quantity - tracked
+        inventory = plan.inventory_item
+        inventory.quantity_on_hand -= delta
+        plan.consumed_quantity = entry.actual_quantity
+        db.add(InventoryMovement(
+            inventory_item_id=inventory.id, kind=InventoryMovementKind.adjustment,
+            quantity_delta=-delta, balance_after=inventory.quantity_on_hand,
+            job_order_id=job_order.id, product_id=plan.job_order_item.product_id,
+            note=f"Owner confirmed total paper usage: tracked {tracked:g}, actual {entry.actual_quantity:g} {inventory.unit} (includes waste/reprints).",
+        ))
 
 
 def _deduct_planned_materials(

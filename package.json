@@ -2,7 +2,7 @@
   "name": "printing-ms",
   "private": true,
   "version": "0.1.0",
-  "description": "The Paper Club — Printing-MS desktop application (Electron + React/TS renderer, FastAPI backend).",
+  "description": "The Paper Club — OMS desktop application (Electron + React/TS renderer, FastAPI backend).",
   "workspaces": [
     "apps/*"
   ],

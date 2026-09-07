@@ -1,5 +1,20 @@
 # Decisions
 
+## 2026-09-07 — Audit inventory from recorded movements
+
+- Use the existing immutable movement quantities and job/product foreign keys for material history. Group job-linked negative/positive changes as deductions/returns and show net usage separately so reconciliation is not double-counted.
+- Show current job names/status and product names explicitly as current metadata. Do not claim snapshots of historical names or reconstruct unrecorded consumption. Compare all recorded deltas against current inventory and flag discrepancies without automatically changing stock.
+
+## 2026-09-07 — Order table dates and filters
+
+- Date created is separate from Due. Display and inclusive date filtering use the workstation's local calendar, interpreting offset-free backend creation timestamps as UTC. Default order is newest first; missing due dates sort last. Filters operate on the existing loaded order list and preserve tracked-print attachment eligibility.
+
+## 2026-09-07 — Reconcile paper at closure
+
+- Paper is consumed upon successful front-side submission for manual duplex. The back submission must not deduct the same sheets again. This supersedes the earlier back-pass timing decision.
+- Completion/cancellation requires the owner to confirm total actual usage per product paper plan, including failed output and reprocess cycles. The backend validates the displayed tracked count and applies only the difference, retaining an audited adjustment even when the count matches.
+- Counts use the material's inventory unit. Owners must stop active printer queues before final counting; cancelling an OMS transaction does not stop an OS queue.
+
 Track product and technical decisions that affect future development.
 
 ## 2026-06-06
@@ -708,3 +723,17 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Recognize report sales from verified payments at their recorded timestamp and count a production re-attempt from each product status event that moves Ready back to Queued. Query explicit inclusive From/To dates using the renderer workstation's timezone. Daily, Weekly, and Monthly shortcuts resolve to today, the complete Monday-Sunday week, and the complete calendar month. Include inventory as a clearly timestamped current snapshot rather than pretending it is historical.
 - Rationale: Job totals may still be unpaid, and a product's lifetime reprocess counter cannot place each retry in a reporting period. The app does not yet retain historical inventory snapshots.
 - Impact: Owners can generate arbitrary intervals or reset instantly to current daily, full-week, or full-month views. The report header exposes the exact inclusive interval. Totals reconcile to recorded payment and quality events; current Healthy/Low/Out stock remains useful without being mislabeled as past inventory state.
+
+## 2026-09-07
+
+### Rename the User-Facing System to OMS
+
+- Decision: Use OMS for the application name across the Electron shell, navigation, price window, operational messages, installer/shortcut surfaces, API title, backups, launchers, and current setup documentation. Retain existing npm package names, application ID, environment variables, database filenames, storage keys, and backup archive format as compatibility identifiers. New Windows spooler markers use `OMS|`, while the monitor continues accepting the legacy marker.
+- Rationale: The owner selected OMS as the product name. Renaming only visible branding avoids breaking installed data, environment configuration, restored backups, and existing spooler reconciliation.
+- Impact: Rebuilding or relaunching displays OMS consistently. Re-running the Windows shortcut script creates `OMS.lnk` and removes the former branded shortcut without changing application data.
+
+### Defer External-Print Notifications Without Reviewing the Print
+
+- Decision: Treat Not now as a durable notification dismissal only. Keep the observed Windows print's review status Unreviewed until the owner links it to an existing job, creates a job, or explicitly dismisses the record.
+- Rationale: Declining an interruption does not mean the owner has decided the print should never become a transaction.
+- Impact: The global prompt stays hidden for that print, while Print Center continues to expose Add to existing job and Create job.

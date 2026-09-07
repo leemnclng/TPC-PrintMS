@@ -319,3 +319,5 @@
     transition-duration: var(--dur-fast);
   }
 }
+.material-history-detail { display: block; color: var(--color-ink-soft); font-size: var(--text-xs); }
+.inventory-register__actions > a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: var(--space-2); }

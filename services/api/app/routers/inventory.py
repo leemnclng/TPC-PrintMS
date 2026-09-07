@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..core.security import require_token
 from ..db.models import (
@@ -55,6 +55,10 @@ def _item_to_read(item: InventoryItem) -> InventoryItemRead:
 
 def _movement_to_read(movement: InventoryMovement) -> InventoryMovementRead:
     return InventoryMovementRead(
+        job_order_name=movement.job_order.name if movement.job_order else None,
+        job_order_number=movement.job_order.number if movement.job_order else None,
+        job_order_status=movement.job_order.status.value if movement.job_order else None,
+        product_name=movement.product.name if movement.product else None,
         id=movement.id,
         inventory_item_id=movement.inventory_item_id,
         inventory_item_name=movement.inventory_item.name,
@@ -246,7 +250,11 @@ def list_inventory_movements(
     job_order_id: str | None = None,
     db: Session = Depends(get_db),
 ) -> list[InventoryMovementRead]:
-    query = db.query(InventoryMovement)
+    query = db.query(InventoryMovement).options(
+        joinedload(InventoryMovement.inventory_item),
+        joinedload(InventoryMovement.job_order),
+        joinedload(InventoryMovement.product),
+    )
     if inventory_item_id:
         query = query.filter(InventoryMovement.inventory_item_id == inventory_item_id)
     if job_order_id:

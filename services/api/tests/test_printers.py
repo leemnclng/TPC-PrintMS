@@ -85,7 +85,7 @@ def test_windows_adapter_submits_file_through_selected_queue(tmp_path, monkeypat
     document = tmp_path / "approved file.pdf"
     pdf = pymupdf.open()
     page = pdf.new_page(width=595, height=842)
-    page.insert_text((72, 72), "Printing-MS Windows queue test")
+    page.insert_text((72, 72), "OMS Windows queue test")
     pdf.save(document)
     pdf.close()
     captured: dict[str, object] = {}
@@ -260,7 +260,7 @@ def test_spooler_monitor_persists_external_jobs_and_links_internal_attempts(tmp_
                 **external_event,
                 "spoolerKey": "Canon G4770 series, 42|2026-08-29T01:03:03Z",
                 "osJobId": "42",
-                "documentName": f"Printing-MS|{attempt.id}|approved.pdf",
+                "documentName": f"OMS|{attempt.id}|approved.pdf",
             },
             db,
         )
@@ -358,8 +358,18 @@ def test_spooler_jobs_endpoint_returns_persisted_external_activity(tmp_path, mon
     assert response.json()["jobs"][0]["documentName"] == "canon-print-photo.jpg"
     assert response.json()["jobs"][0]["status"] == "printing"
     assert response.json()["jobs"][0]["reviewStatus"] == "unreviewed"
+    assert response.json()["jobs"][0]["notificationDismissedAt"] is None
 
     observed_id = response.json()["jobs"][0]["id"]
+    deferred = client.post(
+        f"/printers/spooler-jobs/{observed_id}/defer-notification",
+        headers={"X-Print-MS-Token": settings.token},
+    )
+    assert deferred.status_code == 200
+    assert deferred.json()["jobs"][0]["reviewStatus"] == "unreviewed"
+    assert deferred.json()["jobs"][0]["reviewedAt"] is None
+    assert deferred.json()["jobs"][0]["notificationDismissedAt"] is not None
+
     dismissed = client.post(
         f"/printers/spooler-jobs/{observed_id}/dismiss",
         headers={"X-Print-MS-Token": settings.token},
@@ -367,6 +377,11 @@ def test_spooler_jobs_endpoint_returns_persisted_external_activity(tmp_path, mon
     assert dismissed.status_code == 200
     assert dismissed.json()["jobs"][0]["reviewStatus"] == "dismissed"
     assert dismissed.json()["jobs"][0]["reviewedAt"] is not None
+    already_reviewed = client.post(
+        f"/printers/spooler-jobs/{observed_id}/defer-notification",
+        headers={"X-Print-MS-Token": settings.token},
+    )
+    assert already_reviewed.status_code == 409
 
 
 def test_print_activity_returns_queued_and_attention_jobs(tmp_path) -> None:

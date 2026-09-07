@@ -39,7 +39,7 @@ interface TransactionLine {
   priceMode: PriceMode;
   customPrice: string;
   /** Set when this line records a Windows print already completed outside
-   *  Printing-MS (e.g. Canon PRINT) — it skips the live print queue and is
+   *  OMS (e.g. Canon PRINT) — it skips the live print queue and is
    *  recorded as already done. See the "other tracked prints" checklist. */
   observedPrintJobId: string | null;
 }
@@ -309,7 +309,7 @@ export function TransactionCreateModal({
 
           {otherObservedPrintJobs.length > 0 ? (
             <section className="transaction-create__observed" aria-label="Other tracked Windows prints">
-              <header><span className="numeric">OTHER TRACKED PRINTS</span><p>Already printed outside Printing-MS and waiting to be recorded — check any that belong with this transaction.</p></header>
+              <header><span className="numeric">OTHER TRACKED PRINTS</span><p>Already printed outside OMS and waiting to be recorded — check any that belong with this transaction.</p></header>
               <ul className="transaction-observed-list">
                 {otherObservedPrintJobs.map((job) => {
                   const checked = lines.some((line) => line.observedPrintJobId === job.id);
@@ -351,7 +351,7 @@ export function TransactionCreateModal({
                     {product && product.operationKind !== "scan" ? <label className={`form-field form-field--required${line.copies < 1 ? " is-awaiting-input" : ""}`}><span>Copies</span><input type="number" min={1} value={line.copies} onChange={(event) => updateLine(line.key, { copies: Number(event.target.value) })} aria-invalid={submitted && line.copies < 1} required /></label> : null}
                     {product && product.operationKind !== "scan" && product.variants.length ? <label className="form-field"><span>Variant</span><select value={line.variantId} onChange={(event) => { const variant = product.variants.find((candidate) => candidate.variantId === event.target.value); const backToBack = Boolean(variant?.requiresManualDuplex); updateLine(line.key, { variantId: event.target.value, backToBack, files: product.printType === "photo_print" && !backToBack ? line.files.slice(0, 1) : line.files, analysis: null }); }}><option value="">No variant</option>{product.variants.map((variant) => <option key={variant.variantId} value={variant.variantId}>{variant.label}</option>)}</select></label> : null}
                   </div>
-                  {product?.operationKind === "printing" ? <div className={`transaction-line__analysis${!line.analysis ? " is-awaiting-action" : ""}`}><Button type="button" variant="secondary" disabled={line.analyzing || !hasRequiredFiles || !line.paperId} onClick={() => analyzeLine(line)}>{line.analyzing ? "Analyzing…" : line.analysis ? "Analyze again" : photoDuplex ? "Analyze front/back set" : "Analyze document"}</Button><p>{line.analysis ? photoDuplex ? `${line.analysis.analysis.pageCount} ordered sides · ${reservedSheets} physical ${reservedSheets === 1 ? "sheet" : "sheets"} reserved. Paper is deducted once after the back pass.` : "Analysis complete. The detected size is guidance; your selected paper controls production." : hasRequiredFiles && line.paperId ? "Required · Analyze the document to calculate pricing and continue." : photoDuplex ? "Choose at least two ordered files and paper to enable analysis." : "Choose the required file and paper to enable analysis."}</p></div> : null}
+                  {product?.operationKind === "printing" ? <div className={`transaction-line__analysis${!line.analysis ? " is-awaiting-action" : ""}`}><Button type="button" variant="secondary" disabled={line.analyzing || !hasRequiredFiles || !line.paperId} onClick={() => analyzeLine(line)}>{line.analyzing ? "Analyzing…" : line.analysis ? "Analyze again" : photoDuplex ? "Analyze front/back set" : "Analyze document"}</Button><p>{line.analysis ? photoDuplex ? `${line.analysis.analysis.pageCount} ordered sides · ${reservedSheets} physical ${reservedSheets === 1 ? "sheet" : "sheets"} reserved. Paper is deducted once after the front pass.` : "Analysis complete. The detected size is guidance; your selected paper controls production." : hasRequiredFiles && line.paperId ? "Required · Analyze the document to calculate pricing and continue." : photoDuplex ? "Choose at least two ordered files and paper to enable analysis." : "Choose the required file and paper to enable analysis."}</p></div> : null}
                   {product?.operationKind === "printing" && line.files.length > 0 && line.analysis ? <TransactionLineDocumentPreview files={line.files} analysis={line.analysis} /> : null}
                   {product?.operationKind === "scan" ? <p className="transaction-line__notice">Create the job now. Scanning and page detection happen later inside this product line.</p> : null}
                   {product?.operationKind === "scan" && !scanConfigured ? <p className="workspace-form__error" role="alert">Set a price for {product.name} — either on the product itself or a global page-count tier in Settings.</p> : null}

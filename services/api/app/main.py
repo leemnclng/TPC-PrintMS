@@ -153,7 +153,7 @@ async def lifespan(_: FastAPI):
         logger.info("shutdown.complete duration_ms=%.1f", (time.perf_counter() - shutdown_started_at) * 1000)
 
 
-app = FastAPI(title="Printing-MS API", version=settings.version, lifespan=lifespan)
+app = FastAPI(title="OMS API", version=settings.version, lifespan=lifespan)
 
 
 @app.middleware("http")

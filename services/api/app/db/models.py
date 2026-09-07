@@ -721,7 +721,7 @@ class Printer(Base):
 
 class ObservedPrintJob(Base):
     """A job seen in the host OS spooler, including work submitted outside
-    Printing-MS. These records are intentionally not job-order attempts until
+    OMS. These records are intentionally not job-order attempts until
     the owner can establish a trustworthy relationship."""
 
     __tablename__ = "observed_print_jobs"
@@ -744,6 +744,7 @@ class ObservedPrintJob(Base):
     released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     review_status: Mapped[str] = mapped_column(String, default="unreviewed", nullable=False)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    notification_dismissed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Not unique: several observed prints can now be recorded under one job
     # order (see linked_job_order_item_id below, which is the true 1:1 side).
     linked_job_order_id: Mapped[str | None] = mapped_column(

@@ -5,6 +5,7 @@ import { ApiError, api } from "../../lib/apiClient";
 import type { JobOrder } from "../../types/domain";
 import "../workspaceForm.css";
 import "./JobOrderModals.css";
+import { usePaperUsage } from "./PaperUsageConfirmation";
 
 type TargetStatus = "queued" | "ready" | "paid" | "completed";
 
@@ -44,6 +45,7 @@ interface Props {
 }
 
 export function JobTransitionModal({ open, order, targetStatus, onClose, onTransitioned }: Props) {
+  const paper = usePaperUsage(order, open);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const copy = TRANSITION_COPY[targetStatus];
@@ -53,11 +55,11 @@ export function JobTransitionModal({ open, order, targetStatus, onClose, onTrans
   }, [open, targetStatus]);
 
   async function handleConfirm() {
-    if (saving) return;
+    if (saving || (targetStatus === "completed" && !paper.valid)) return;
     setSaving(true);
     setError(null);
     try {
-      onTransitioned(await api.post<JobOrder>(`/job-orders/${order.id}/transitions`, { toStatus: targetStatus }));
+      onTransitioned(await api.post<JobOrder>(`/job-orders/${order.id}/transitions`, { toStatus: targetStatus, ...(targetStatus === "completed" ? { paperUsage: paper.payload } : {}) }));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "The job status could not be updated.");
     } finally {
@@ -72,9 +74,10 @@ export function JobTransitionModal({ open, order, targetStatus, onClose, onTrans
         <p>{copy.note}</p>
       </div>
       {error && <p className="workspace-form__error job-transition-error" role="alert">{error}</p>}
+      {targetStatus === "completed" && paper.fields}
       <footer className="job-order-form__actions">
         <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button autoFocus type="button" variant="primary" onClick={handleConfirm} loading={saving}>{copy.action}</Button>
+        <Button autoFocus type="button" variant="primary" onClick={handleConfirm} loading={saving} disabled={targetStatus === "completed" && !paper.valid}>{copy.action}</Button>
       </footer>
     </Modal>
   );

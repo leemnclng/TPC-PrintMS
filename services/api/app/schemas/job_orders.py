@@ -80,7 +80,7 @@ class TransactionItemCreate(CamelModel):
     custom_price: float | None = Field(default=None, ge=0)
     other_materials: list[JobOrderMaterialPlanCreate] = Field(default_factory=list)
     # Set when this line records a Windows print already completed outside
-    # Printing-MS (e.g. Canon PRINT) — per line, not per transaction, so
+    # OMS (e.g. Canon PRINT) — per line, not per transaction, so
     # several already-tracked prints can be recorded together.
     observed_print_job_id: str | None = None
 
@@ -168,9 +168,16 @@ class PaymentRead(CamelModel):
     recorded_at: datetime
 
 
+class PaperUsageConfirmation(CamelModel):
+    material_plan_id: str
+    tracked_quantity: float = Field(ge=0, allow_inf_nan=False)
+    actual_quantity: float = Field(ge=0, allow_inf_nan=False)
+
+
 class JobOrderTransitionCreate(CamelModel):
     to_status: Literal["queued", "ready", "paid", "completed"]
     note: str | None = None
+    paper_usage: list[PaperUsageConfirmation] | None = None
 
 
 class JobOrderItemTransitionCreate(CamelModel):
@@ -180,6 +187,7 @@ class JobOrderItemTransitionCreate(CamelModel):
 
 class JobOrderCancelCreate(CamelModel):
     reason: str = Field(min_length=3, max_length=500)
+    paper_usage: list[PaperUsageConfirmation] | None = None
 
 
 class PrintSubmissionCreate(CamelModel):

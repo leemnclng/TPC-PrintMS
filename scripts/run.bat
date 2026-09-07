@@ -1,5 +1,5 @@
 @echo off
-REM Runs Printing-MS in dev mode on Windows: starts the Vite renderer, then
+REM Runs OMS in dev mode on Windows: starts the Vite renderer, then
 REM launches Electron, which itself spawns the FastAPI backend via `uv`.
 REM One window, frontend + backend both running - nothing else to start by hand.
 setlocal enabledelayedexpansion
@@ -7,7 +7,7 @@ setlocal enabledelayedexpansion
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
-echo == Printing-MS - starting dev (frontend + backend) ==
+echo == OMS - starting dev (frontend + backend) ==
 echo.
 
 REM --- Node.js / npm ---
@@ -57,7 +57,7 @@ if not exist "node_modules" (
 )
 
 echo.
-echo Launching Printing-MS - Electron will spawn the FastAPI backend itself.
+echo Launching OMS - Electron will spawn the FastAPI backend itself.
 echo Electron will validate the backend environment and repair locked dependencies when needed.
 echo Close the app window ^(or press Ctrl+C here^) to stop everything.
 echo.

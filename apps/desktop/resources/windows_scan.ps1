@@ -400,7 +400,7 @@ try {
     Write-Result ([pscustomobject]@{ status = "error"; code = "unsupported_scan_setting"; message = $settingsResult.issue })
     exit 0
   }
-  # Printing-MS owns source/profile selection, so do not call ShowSelectItems
+  # OMS owns source/profile selection, so do not call ShowSelectItems
   # (that is the redundant Windows settings window). ShowTransfer is retained
   # because some Canon WIA drivers only start their hardware transfer through
   # the common transfer path; it displays transfer progress, not settings.

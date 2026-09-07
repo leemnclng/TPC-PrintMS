@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs Printing-MS in dev mode on macOS/Linux: starts the Vite renderer, then
+# Runs OMS in dev mode on macOS/Linux: starts the Vite renderer, then
 # launches Electron, which itself spawns the FastAPI backend via `uv`.
 # One window, frontend + backend both running — nothing else to start by hand.
 set -euo pipefail
@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
-echo "== Printing-MS — starting dev (frontend + backend) =="
+echo "== OMS — starting dev (frontend + backend) =="
 echo
 
 # --- Node.js / npm ---
@@ -49,7 +49,7 @@ if [ ! -d "$ROOT_DIR/node_modules" ]; then
 fi
 
 echo
-echo "Launching Printing-MS — Electron will spawn the FastAPI backend itself."
+echo "Launching OMS — Electron will spawn the FastAPI backend itself."
 echo "The first backend start is slower while uv resolves the Python environment."
 echo "Close the app window (or press Ctrl+C here) to stop everything."
 echo

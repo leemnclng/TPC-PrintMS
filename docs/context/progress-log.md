@@ -1,5 +1,23 @@
 # Progress Log
 
+## 2026-09-07 — Material transaction audit
+
+- Added Inventory → History for each material, with current stock, lifetime net job usage, grouped transaction deductions/returns, and detailed timestamped movements with job/product identities and audit notes.
+- Enriched movement responses using eager-loaded existing relationships; no historical quantities are reconstructed or rewritten. Included search/type filtering, refresh, empty/error states, and job navigation.
+
+## 2026-09-07 — Job order table controls
+
+- Added local Date created, newest-first sorting, search across job/customer/product, status and reprocess filters, and inclusive From/Through creation dates.
+- Reused controls in the tracked-print attachment picker while retaining open-order eligibility. Included result counts, interval validation, clear/reset, responsive controls, and no-match recovery.
+
+## 2026-09-07 — Confirm paper consumption at transaction closure
+
+- Moved manual duplex paper deduction to the front pass; the back pass reuses its recorded sheets.
+- Added required per-product paper counts to completion/cancellation modals, with tracked-versus-actual feedback and atomic inventory reconciliation in the closing request.
+- Reject missing/duplicate plans, stale tracked counts, non-finite/negative amounts, and insufficient stock; preserve existing movement history.
+- Added regression coverage for front-only cancellation, matching usage, unused stock returns, extra usage, stale/missing confirmations, and repeat cancellation.
+- Verification: 57 API tests passed; TypeScript checks, frontend lint, web build, and diff whitespace checks passed. Physical Windows printer behavior and interactive modal checks remain unverified on this workstation.
+
 Chronological notes about app progress.
 
 ## 2026-09-01 (desktop startup, display, and backend diagnostics reliability)
@@ -641,3 +659,15 @@ Chronological notes about app progress.
 - Summary: Corrected report quick filters and interval labeling.
 - Completed: Weekly now covers Monday through Sunday, Monthly covers the first through final day of the selected calendar month, and the result header identifies the exact inclusive date interval.
 - Verified: All 55 API tests, renderer/desktop TypeScript checks, renderer lint/build, desktop build, Python compilation, and diff validation pass.
+
+## 2026-09-07 (OMS product rename)
+
+- Summary: Replaced the user-facing Printing-MS name with OMS.
+- Completed: Updated desktop and price-window titles, sidebar branding, prompts, launchers, packaged product metadata, Windows shortcut naming, API metadata, backup naming, and current installation documentation. Compatibility-sensitive internal identifiers remain unchanged, and legacy spooler markers remain readable.
+- Verified: All 55 API tests, renderer/desktop TypeScript checks, renderer lint/build, desktop build, Python compilation, and diff validation pass.
+
+## 2026-09-07 (deferred external-print notification)
+
+- Summary: Separated global prompt dismissal from external-print review.
+- Completed: Not now now records only that the notification was hidden. The observed print remains Unreviewed and retains its Add to existing job and Create job actions in Print Center.
+- Verified: All 55 API tests, renderer/desktop TypeScript checks, renderer lint/build, desktop build, migration-head validation, Python compilation, and diff validation pass.

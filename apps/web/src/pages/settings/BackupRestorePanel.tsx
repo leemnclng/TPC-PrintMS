@@ -35,7 +35,7 @@ export function BackupRestorePanel({ onRestored }: BackupRestorePanelProps) {
       const link = document.createElement("a");
       const downloadUrl = URL.createObjectURL(blob);
       link.href = downloadUrl;
-      link.download = `printing-ms-${data?.stage ?? "environment"}-${timestamp}.zip`;
+      link.download = `oms-${data?.stage ?? "environment"}-${timestamp}.zip`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -59,7 +59,7 @@ export function BackupRestorePanel({ onRestored }: BackupRestorePanelProps) {
     const file = event.target.files?.[0] ?? null;
     setMessage(null);
     if (file && !file.name.toLowerCase().endsWith(".zip")) {
-      setMessage({ tone: "error", text: "Choose a Printing-MS ZIP backup." });
+      setMessage({ tone: "error", text: "Choose an OMS ZIP backup." });
       event.target.value = "";
       return;
     }

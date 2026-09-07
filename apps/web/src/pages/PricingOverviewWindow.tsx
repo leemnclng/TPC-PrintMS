@@ -66,7 +66,7 @@ export function PricingOverviewWindow() {
   });
 
   useEffect(() => {
-    document.title = "Price Overview — Printing-MS";
+    document.title = "Price Overview — OMS";
   }, []);
 
   const visibleProducts = useMemo(() => {

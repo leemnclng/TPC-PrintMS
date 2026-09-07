@@ -387,7 +387,7 @@ function ManualDuplexReload({
         <li><span>03</span><div><strong>Reload printed side facing down</strong><p>{canon ? "Place it in the Canon rear tray, align both paper guides, and confirm the paper setting on the printer." : "Use the same input tray. If its loading diagram differs, follow the installed printer driver's manual-duplex direction."}</p></div></li>
       </ol>
       <label className="duplex-reload__confirm"><input type="checkbox" checked={paperReinserted} onChange={(event) => onPaperReinserted(event.target.checked)} /><span><strong>The front pass is physically finished and the stack is reinserted correctly.</strong><small>The back-side button stays locked until this is confirmed.</small></span></label>
-      <p className="duplex-reload__warning"><strong>Stay near the printer.</strong> The back pass is intentionally a separate submission. Inventory is deducted only after it is accepted.</p>
+      <p className="duplex-reload__warning"><strong>Stay near the printer.</strong> The back pass is intentionally a separate submission. Paper is recorded after the front pass; the back pass reuses those sheets.</p>
     </section>
   );
 }

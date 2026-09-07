@@ -89,7 +89,7 @@ public static class PrintingMsMediaHint
 $document = New-Object System.Drawing.Printing.PrintDocument
 $useBorderless = ($Borderless -eq "true")
 $useCollation = ($Collate -eq "true")
-$document.DocumentName = if ([string]::IsNullOrWhiteSpace($TrackingId)) { $DocumentName } else { "Printing-MS|$TrackingId|$DocumentName" }
+$document.DocumentName = if ([string]::IsNullOrWhiteSpace($TrackingId)) { $DocumentName } else { "OMS|$TrackingId|$DocumentName" }
 $document.PrinterSettings.PrinterName = $PrinterName
 if (-not $document.PrinterSettings.IsValid) {
     $document.Dispose()
@@ -137,7 +137,7 @@ if ($null -eq $paperSize) {
     # Canon and other drivers do not expose every regional/photo name through
     # PaperSizes even when they accept the dimensions. Use a per-job custom
     # PaperSize and let the installed driver reject it if truly unsupported.
-    $paperSize = [System.Drawing.Printing.PaperSize]::new("Printing-MS $MediaSize", $targetWidth, $targetHeight)
+    $paperSize = [System.Drawing.Printing.PaperSize]::new("OMS $MediaSize", $targetWidth, $targetHeight)
 }
 
 $document.DefaultPageSettings.PaperSize = $paperSize

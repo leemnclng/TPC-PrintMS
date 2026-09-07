@@ -40,6 +40,7 @@ class ObservedPrintJobRead(CamelModel):
     released_at: datetime | None
     review_status: Literal["unreviewed", "dismissed", "linked"]
     reviewed_at: datetime | None
+    notification_dismissed_at: datetime | None
     linked_job_order_id: str | None
 
 

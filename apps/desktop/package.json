@@ -18,7 +18,7 @@
   },
   "build": {
     "appId": "com.thepaperclub.printingms",
-    "productName": "Printing-MS",
+    "productName": "OMS",
     "files": [
       "dist/**/*",
       "build/icon.png",

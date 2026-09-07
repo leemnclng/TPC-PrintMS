@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "../../components/Button/Button";
 import { EmptyState } from "../../components/EmptyState/EmptyState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
@@ -202,6 +203,7 @@ export function InventoryPage() {
                         <td data-label="Products" className="numeric">{item.linkedProductCount}</td>
                         <td data-label="Status"><StatusPill label={status.label} tone={status.tone} /></td>
                         <td className="inventory-register__actions">
+                          <Link to={`/inventory/${item.id}/history`}>History</Link>
                           <Button type="button" variant="secondary" size="sm" onClick={() => setAdjustingItem(item)}>Adjust</Button>
                           <Button type="button" variant="ghost" size="sm" onClick={() => openEdit(item)}>Edit</Button>
                           <Button

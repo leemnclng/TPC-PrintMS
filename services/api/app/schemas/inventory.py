@@ -61,6 +61,10 @@ class InventoryAdjustmentCreate(CamelModel):
 
 
 class InventoryMovementRead(CamelModel):
+    job_order_name: str | None = None
+    job_order_number: str | None = None
+    job_order_status: str | None = None
+    product_name: str | None = None
     id: str
     inventory_item_id: str
     inventory_item_name: str
