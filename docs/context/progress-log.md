@@ -1,5 +1,11 @@
 # Progress Log
 
+## 2026-09-07 — Compact date-range filter
+
+- Replaced the stacked Job Orders date inputs with one active-state range trigger and a viewport-aware anchored panel.
+- Added outside-click, Escape, resize/scroll dismissal, focus handling, clear/done actions, interval validation, and a compact applied-range label.
+- Verification: TypeScript checks, frontend lint, and the production web build passed with only the existing PDF chunk warnings.
+
 ## 2026-09-07 — Compact column filters
 
 - Replaced detached filter panels in Job Orders and material history with shared table filter rows. Added keyboard-operable sort headers with aria-sort, preserved clear/count controls, and kept inputs available when no rows match.

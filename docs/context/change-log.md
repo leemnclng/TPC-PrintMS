@@ -1,5 +1,7 @@
 # Change Log
 
+- 2026-09-07: The Job Orders creation-date filter is now one compact column control; its From/Through fields open in a dismissible anchored panel instead of permanently increasing the filter-row height.
+
 - 2026-09-07: Job Orders and material-history ledger filters now sit under their table headings. Job, creation date, total, and due-date headers toggle sorting; empty results retain the filters.
 
 - 2026-09-07: Inventory materials now have a History page linking stock deductions and reconciliation adjustments to job orders and products, with per-transaction totals, searchable movement ledger, and a stock-versus-ledger balance check.

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "../components/Button/Button";
 import { PageHeader } from "../components/PageHeader/PageHeader";
 import { DataTable, DataTableColumn } from "../components/DataTable/DataTable";
+import { DateRangeFilter } from "../components/DataTable/DateRangeFilter";
 import { StatusPill } from "../components/StatusPill/StatusPill";
 import { EmptyState } from "../components/EmptyState/EmptyState";
 import { LoadingState } from "../components/LoadingState/LoadingState";
@@ -145,7 +146,7 @@ export function JobOrdersPage() {
 
   for (const column of columns) {
     if (column.key === "name") column.filter = <input type="search" aria-label="Search job, customer or product" placeholder="Search orders…" value={query} onChange={(event) => setQuery(event.target.value)} />;
-    if (column.key === "created") column.filter = <><label>From<input type="date" value={fromDate} max={toDate || undefined} aria-invalid={invalidInterval} aria-describedby={invalidInterval ? "job-date-error" : undefined} onChange={(event) => setFromDate(event.target.value)} /></label><label>Through<input type="date" value={toDate} min={fromDate || undefined} aria-invalid={invalidInterval} onChange={(event) => setToDate(event.target.value)} /></label></>;
+    if (column.key === "created") column.filter = <DateRangeFilter from={fromDate} through={toDate} invalid={invalidInterval} onFromChange={setFromDate} onThroughChange={setToDate} />;
     if (column.key === "status") column.filter = <select aria-label="Filter status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{Object.entries(jobOrderStatusMeta).filter(([key]) => !attaching || ["queued", "printing", "ready"].includes(key)).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}</select>;
     if (column.key === "reprocess") column.filter = <select aria-label="Filter reprocess" value={reprocess} onChange={(event) => setReprocess(event.target.value)}><option value="">All orders</option><option value="yes">Reprocessed</option><option value="no">No reprocess</option></select>;
     const options = column.key === "created" ? ["newest", "oldest"] : column.key === "total" ? ["total-high", "total-low"] : column.key === "name" ? ["name", "name-desc"] : column.key === "due" ? ["due", "due-desc"] : null;
@@ -168,7 +169,6 @@ export function JobOrdersPage() {
       {state === "error" && <ErrorState description={error ?? undefined} onRetry={reload} />}
 
       {state === "ready" && data && <div className="job-orders-filters__summary"><span role="status">{filteredOrders.length} of {eligibleOrders.length} orders</span><Button variant="ghost" onClick={clearFilters}>Clear filters</Button></div>}
-      {invalidInterval && <p id="job-date-error" role="alert">The end date must be on or after the start date.</p>}
 
       {state === "ready" && data && attaching && (() => {
         const attachJob = data.spoolerMonitor?.jobs.find((job) => job.id === attachSpoolerJobId && job.reviewStatus === "unreviewed") ?? null;
