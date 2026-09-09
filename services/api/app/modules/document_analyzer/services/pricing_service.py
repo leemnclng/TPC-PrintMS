@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     DocumentPricingRule,
+    GlobalPricingVariable,
     PricingCategory,
     PricingCategoryMaterial,
     PrintType,
@@ -139,6 +140,13 @@ class PricingService:
             variant.label if variant is not None else None,
             variant.price_adjustment if variant is not None else 0,
             pricing_paper_size,
+            [
+                (variable.name, variable.calculation_type, variable.value)
+                for variable in db.query(GlobalPricingVariable)
+                .filter(GlobalPricingVariable.is_active.is_(True))
+                .order_by(GlobalPricingVariable.sort_order, GlobalPricingVariable.name)
+                .all()
+            ],
         )
 
     @staticmethod

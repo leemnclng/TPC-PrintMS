@@ -1,5 +1,14 @@
 # Decisions
 
+## 2026-09-09 — Match inventory searches by independent words
+
+- Normalize case, accents, and punctuation, then require every query word to occur somewhere in the combined material name, category, unit, notes, or paper-size description. Preserve partial-word matching so short practical inputs such as `A4 photo pap` remain useful.
+
+## 2026-09-09 — Preserve and expose product production configuration
+
+- Snapshot the print-type key, label, and color mode on each job product line. Continue storing device settings per print attempt because reprints may intentionally use different printers or settings.
+- Present the configuration as a collapsed native details section inside each product pane. Separate transaction setup, materials, analyzed files, and driver submissions; describe driver values as requested settings because the installed driver may apply private device corrections.
+
 ## 2026-09-07 — Collapse multi-field column filters
 
 - Keep a column filter row compact when one filter needs multiple values. Date created exposes one summary trigger and renders From/Through controls in a viewport-aware portal so the table's horizontal overflow does not clip them.
@@ -745,3 +754,8 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Treat Not now as a durable notification dismissal only. Keep the observed Windows print's review status Unreviewed until the owner links it to an existing job, creates a job, or explicitly dismisses the record.
 - Rationale: Declining an interruption does not mean the owner has decided the print should never become a transaction.
 - Impact: The global prompt stays hidden for that print, while Print Center continues to expose Add to existing job and Create job.
+## 2026-09-09 — Global pricing variables are non-compounding adjustments
+
+- Every percentage variable uses the product subtotal before global variables, so variable order cannot change the price.
+- Fixed variables apply once per priced product/copy. Owner-entered final prices remain explicit overrides.
+- Configuration changes affect new calculations only; existing job totals remain unchanged.

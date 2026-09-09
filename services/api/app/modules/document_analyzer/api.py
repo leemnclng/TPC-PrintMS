@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.security import require_token
 from app.db.models import (
     DocumentPricingRule,
+    GlobalPricingVariable,
     InventoryItem,
     PricingCategory,
     PricingCategoryMaterial,
@@ -30,6 +31,9 @@ from .models.pricing_result import (
     PricingCategoryUpdate,
     PricingRuleRead,
     PricingRulesUpdate,
+    GlobalPricingVariableCreate,
+    GlobalPricingVariableRead,
+    GlobalPricingVariableUpdate,
     ScanPricingTierCreate,
     ScanPricingTierRead,
     ScanPricingTierUpdate,
@@ -283,6 +287,53 @@ def update_pricing_rules(
         )
     )
     return [pricing_service.to_read(rule) for rule in all_rules]
+
+
+@router.get("/pricing-variables", response_model=list[GlobalPricingVariableRead])
+def list_pricing_variables(db: Session = Depends(get_db)) -> list[GlobalPricingVariable]:
+    return db.query(GlobalPricingVariable).order_by(GlobalPricingVariable.sort_order, GlobalPricingVariable.name).all()
+
+
+@router.post("/pricing-variables", response_model=GlobalPricingVariableRead, status_code=201)
+def create_pricing_variable(payload: GlobalPricingVariableCreate, db: Session = Depends(get_db)) -> GlobalPricingVariable:
+    name = payload.name.strip()
+    if db.query(GlobalPricingVariable).filter(func.lower(GlobalPricingVariable.name) == name.lower()).first():
+        raise HTTPException(status_code=409, detail="A global pricing variable with this name already exists.")
+    variable = GlobalPricingVariable(
+        name=name, calculation_type=payload.calculation_type, value=payload.value,
+        is_active=payload.is_active,
+        sort_order=(db.query(func.max(GlobalPricingVariable.sort_order)).scalar() or 0) + 1,
+    )
+    db.add(variable)
+    db.commit()
+    db.refresh(variable)
+    return variable
+
+
+@router.put("/pricing-variables/{variable_id}", response_model=GlobalPricingVariableRead)
+def update_pricing_variable(variable_id: str, payload: GlobalPricingVariableUpdate, db: Session = Depends(get_db)) -> GlobalPricingVariable:
+    variable = db.get(GlobalPricingVariable, variable_id)
+    if variable is None:
+        raise HTTPException(status_code=404, detail="Global pricing variable not found.")
+    name = payload.name.strip()
+    duplicate = db.query(GlobalPricingVariable).filter(
+        func.lower(GlobalPricingVariable.name) == name.lower(), GlobalPricingVariable.id != variable_id
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A global pricing variable with this name already exists.")
+    variable.name, variable.calculation_type, variable.value, variable.is_active = name, payload.calculation_type, payload.value, payload.is_active
+    db.commit()
+    db.refresh(variable)
+    return variable
+
+
+@router.delete("/pricing-variables/{variable_id}", status_code=204)
+def delete_pricing_variable(variable_id: str, db: Session = Depends(get_db)) -> None:
+    variable = db.get(GlobalPricingVariable, variable_id)
+    if variable is None:
+        raise HTTPException(status_code=404, detail="Global pricing variable not found.")
+    db.delete(variable)
+    db.commit()
 
 
 def _category_to_read(category: PricingCategory, db: Session) -> PricingCategoryRead:

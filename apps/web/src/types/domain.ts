@@ -521,7 +521,7 @@ export interface DocumentPricingResult {
 }
 
 export interface DocumentPricingAdjustment {
-  kind: "inkCoverage" | "colorCoverage" | "variant" | "rounding";
+  kind: "inkCoverage" | "colorCoverage" | "variant" | "globalVariable" | "rounding";
   label: string;
   basis: string;
   amount: number;

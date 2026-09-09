@@ -305,6 +305,23 @@ class PricingCategoryMaterial(Base):
     )
 
 
+class GlobalPricingVariable(TimestampMixin, Base):
+    """Reusable surcharge applied to every newly calculated product price."""
+
+    __tablename__ = "global_pricing_variables"
+    __table_args__ = (
+        CheckConstraint("calculation_type IN ('percentage', 'fixed')", name="ck_global_pricing_variable_type"),
+        CheckConstraint("value >= 0", name="ck_global_pricing_variable_value"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    calculation_type: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
 class DocumentPricingRule(TimestampMixin, Base):
     """Workflow-scoped global rate for one real paper-stock item and print type."""
 
@@ -603,6 +620,9 @@ class JobOrderItem(Base):
     operation_kind: Mapped[str] = mapped_column(
         String, default=ProductOperationKind.printing.value, nullable=False
     )
+    print_type_snapshot: Mapped[str | None] = mapped_column(String, nullable=True)
+    print_type_label_snapshot: Mapped[str | None] = mapped_column(String, nullable=True)
+    print_color_mode_snapshot: Mapped[str | None] = mapped_column(String, nullable=True)
     variant_label: Mapped[str | None] = mapped_column(String, nullable=True)
     pages_per_copy: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     copies: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

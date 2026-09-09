@@ -24,6 +24,7 @@ import { JobTransitionModal } from "../jobOrders/JobTransitionModal";
 import { TransactionCreateModal } from "../jobOrders/TransactionCreateModal";
 import { JobQualityFailureModal } from "../jobOrders/JobQualityFailureModal";
 import { JobCancelModal } from "../jobOrders/JobCancelModal";
+import { JobProductConfiguration } from "../jobOrders/JobProductConfiguration";
 import "./Workspace.css";
 
 type TransitionTarget = "queued" | "ready" | "paid" | "completed";
@@ -236,8 +237,9 @@ export function JobOrderWorkspace() {
             const sourceFile = itemFiles.find((file) => file.kind === "print_ready");
             const scanOutput = itemFiles.find((file) => file.kind === "scan_output");
             const paper = item.materials.find((material) => material.paperSize);
-            const latestPrintAttempt = order.printAttempts
-              .filter((attempt) => attempt.jobOrderItemId === item.id && attempt.result === "succeeded")
+            const itemAttempts = order.printAttempts.filter((attempt) => attempt.jobOrderItemId === item.id);
+            const latestPrintAttempt = itemAttempts
+              .filter((attempt) => attempt.result === "succeeded")
               .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())[0];
             const statusLabel = item.status === "printing" ? "Printing" : item.status === "ready" ? "Ready" : "Queued";
             const tone = item.status === "ready" ? "success" : item.status === "printing" ? "info" : "warning";
@@ -279,6 +281,7 @@ export function JobOrderWorkspace() {
                   <div><dt>Output</dt><dd>{item.operationKind === "scan" ? "Digital file" : item.operationKind === "adhoc" ? "External work" : item.printSides === "double_sided" ? "Back-to-back" : "Single-sided"}</dd></div>
                   <div><dt>Progress records</dt><dd>{item.statusEvents.length} status · {order.printAttempts.filter((attempt) => attempt.jobOrderItemId === item.id).length} attempts</dd></div>
                 </dl>
+                <JobProductConfiguration order={order} item={item} files={itemFiles} attempts={itemAttempts} />
                 <button
                   type="button"
                   className="job-operation-card__step-toggle"

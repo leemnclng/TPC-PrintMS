@@ -22,6 +22,27 @@ function formatQuantity(value: number) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(value);
 }
 
+function searchWords(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .match(/[a-z0-9]+/g) ?? [];
+}
+
+function matchesMaterialSearch(item: InventoryItem, query: string) {
+  const requestedWords = searchWords(query);
+  if (!requestedWords.length) return true;
+  const searchableText = searchWords([
+    item.name,
+    item.category,
+    item.unit,
+    item.notes ?? "",
+    item.paperSize ? paperSizeDisplay(item.paperSize, item.paperWidthMm, item.paperHeightMm) : "",
+  ].join(" ")).join(" ");
+  return requestedWords.every((word) => searchableText.includes(word));
+}
+
 function stockState(item: InventoryItem) {
   if (!item.isActive) return { label: "Inactive", tone: "neutral" as const };
   if (item.quantityOnHand <= 0) return { label: "Out of stock", tone: "danger" as const };
@@ -57,10 +78,8 @@ export function InventoryPage() {
   }, [data]);
 
   const visibleItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
     return items.filter((item) => {
-      const matchesQuery = !normalizedQuery || [item.name, item.category, item.notes ?? ""]
-        .some((value) => value.toLowerCase().includes(normalizedQuery));
+      const matchesQuery = matchesMaterialSearch(item, query);
       const matchesFilter = filter === "all"
         || (filter === "reorder" && item.isActive && item.quantityOnHand <= item.reorderLevel)
         || (filter === "inactive" && !item.isActive);
@@ -148,7 +167,7 @@ export function InventoryPage() {
             <div className="inventory-workbench__filters">
               <label>
                 <span>Search materials</span>
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Paper, ink, supplier…" />
+                <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try: A4 photo paper" />
               </label>
               <label>
                 <span>Stock view</span>

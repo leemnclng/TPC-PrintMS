@@ -1,5 +1,9 @@
 # Change Log
 
+- 2026-09-09: Inventory search now matches every entered word independently across material name, category, unit, notes, and paper size, regardless of word position or punctuation.
+
+- 2026-09-09: Every job product now has an expandable configuration record showing its print type, variant, pricing, quantity, output mode, materials, analyzed files, and each saved printer/driver submission setting.
+
 - 2026-09-07: The Job Orders creation-date filter is now one compact column control; its From/Through fields open in a dismissible anchored panel instead of permanently increasing the filter-row height.
 
 - 2026-09-07: Job Orders and material-history ledger filters now sit under their table headings. Job, creation date, total, and due-date headers toggle sorting; empty results retain the filters.
@@ -387,3 +391,4 @@ Track notable app changes by date.
 - Changed: Renamed the user-facing application from Printing-MS to OMS across desktop/window titles, navigation, operational copy, launcher output, backup filenames, API metadata, and setup documentation.
 - Preserved: Existing package IDs, environment variables, database names, stored settings, and backup archive identifiers remain compatible. New spooler markers use OMS while legacy markers are still recognized.
 - Fixed: Not now on an external Windows print hides only its global notification; the print remains Unlinked and can still be added to an existing job or used to create a job from Print Center.
+- 2026-09-09: Owners can now add reusable tax or surcharge variables in Configuration. Active variables appear in document pricing calculations and new product totals.

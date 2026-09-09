@@ -1,5 +1,18 @@
 # Progress Log
 
+## 2026-09-09 — Position-independent material search
+
+- Tokenized normalized inventory searches and require each entered word to appear anywhere in the material's searchable details.
+- Included name, category, unit, notes, and formatted paper size. For example, `A4 photo paper` matches `A4 No Back Print Waterproof photo paper`.
+- Verification: TypeScript checks, frontend lint, production web build, and diff checks passed; only the existing PDF chunk warnings remain.
+
+## 2026-09-09 — Product production configuration records
+
+- Added an expandable Configuration and output records section to every product line in the job workspace.
+- Shows transaction setup, material plan/consumption, file analysis, and every print attempt's printer, file, copies, color mode, dimensions, media, orientation, scaling, quality, borderless, collation, duplex pass, operator, OS job ID, result, spooler state, and error.
+- New job lines snapshot print type key, label, and color mode. The migration backfills existing lines so later print-type catalog edits do not rewrite transaction history.
+- Verification: web and desktop builds, TypeScript checks, frontend lint, all 57 API tests, migration-head validation, Python compilation, and diff checks passed. The snapshot regression also passed after changing a catalog product's print type.
+
 ## 2026-09-07 — Compact date-range filter
 
 - Replaced the stacked Job Orders date inputs with one active-state range trigger and a viewport-aware anchored panel.
@@ -681,3 +694,6 @@ Chronological notes about app progress.
 - Summary: Separated global prompt dismissal from external-print review.
 - Completed: Not now now records only that the notification was hidden. The observed print remains Unreviewed and retains its Add to existing job and Create job actions in Print Center.
 - Verified: All 55 API tests, renderer/desktop TypeScript checks, renderer lint/build, desktop build, migration-head validation, Python compilation, and diff validation pass.
+## 2026-09-09 — Global pricing variables
+
+- Added CRUD configuration for global percentage/fixed pricing variables and integrated active adjustments into analyzer and transaction estimates.

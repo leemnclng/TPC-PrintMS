@@ -17,6 +17,7 @@ def calculate_price(
     variant_label: str | None = None,
     variant_adjustment: float = 0,
     pricing_paper_size: PaperSize | None = None,
+    global_variables: list[tuple[str, str, float]] | None = None,
 ) -> PricingResult:
     warnings: list[str] = []
     if not rates:
@@ -77,6 +78,17 @@ def calculate_price(
                 amount=round(variant_adjustment * analysis.page_count, 2),
             )
         )
+    adjustment_total = sum(item.amount for item in adjustments)
+    variable_basis = max(0, round(base_subtotal + adjustment_total, 2))
+    for label, calculation_type, value in global_variables or []:
+        amount = round(variable_basis * value / 100, 2) if calculation_type == "percentage" else round(value, 2)
+        if amount:
+            adjustments.append(PricingAdjustment(
+                kind="globalVariable",
+                label=label,
+                basis=f"{value:g}% of product subtotal" if calculation_type == "percentage" else "Fixed amount per priced product",
+                amount=amount,
+            ))
     adjustment_total = sum(item.amount for item in adjustments)
     calculated_price = max(0, round(base_subtotal + adjustment_total, 2))
     suggested_price = float(ceil(calculated_price))

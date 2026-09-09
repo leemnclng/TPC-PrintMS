@@ -23,6 +23,7 @@ import "./TransactionCreateModal.css";
 const PdfViewer = lazy(() => import("../../components/PdfViewer/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
 type PriceMode = "suggested" | "custom";
+type GlobalPricingVariable = { id: string; name: string; calculationType: "percentage" | "fixed"; value: number; isActive: boolean };
 
 interface TransactionLine {
   key: string;
@@ -104,6 +105,7 @@ export function TransactionCreateModal({
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pricingVariables, setPricingVariables] = useState<GlobalPricingVariable[]>([]);
 
   const activeServices = services.filter((service) => service.isActive && service.productCount > 0);
   const inventoryById = new Map(inventoryItems.map((item) => [item.id, item]));
@@ -119,6 +121,10 @@ export function TransactionCreateModal({
     setSaving(false);
     setError(null);
   }, [open, initialService.id, order?.customerId, order?.name, sourceSpoolerJobId]);
+
+  useEffect(() => {
+    if (open) void api.get<GlobalPricingVariable[]>("/document-analyzer/pricing-variables").then(setPricingVariables).catch(() => setPricingVariables([]));
+  }, [open]);
 
   function updateLine(key: string, patch: Partial<TransactionLine>) {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
@@ -183,6 +189,11 @@ export function TransactionCreateModal({
       )?.pricePerPage;
       const rate = customRate ?? globalRate ?? product.pricePerPage;
       suggested = (rate + (variant?.priceAdjustment ?? 0)) * line.pages * line.copies;
+    }
+    if (product && product.operationKind !== "printing") {
+      const basis = suggested;
+      suggested += pricingVariables.filter((item) => item.isActive).reduce((sum, item) => sum + (item.calculationType === "percentage" ? basis * item.value / 100 : item.value * line.copies), 0);
+      suggested = Math.ceil(suggested);
     }
     const parsedCustom = Number(line.customPrice);
     const total = line.priceMode === "custom" && line.customPrice.trim() && Number.isFinite(parsedCustom)

@@ -582,6 +582,27 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     assert priced_order["items"][0]["unitPrice"] == 6
     assert priced_order["items"][0]["lineTotal"] == 300
     assert priced_order["total"] == 300
+    print_type_update = client.put(
+        f"/products/{product['id']}",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": product["name"],
+            "printType": "colored",
+            "isActive": True,
+            "variants": [{"variantId": back_to_back["id"], "priceAdjustment": 2}],
+            "materialAssignments": [
+                {"inventoryItemId": paper["id"]},
+                {"inventoryItemId": alternative_paper["id"]},
+                {"inventoryItemId": ink["id"]},
+            ],
+        },
+    )
+    assert print_type_update.status_code == 200
+    snapshot_order = client.get(f"/job-orders/{order['id']}", headers=headers).json()
+    assert snapshot_order["items"][0]["printType"] == "black_and_white"
+    assert snapshot_order["items"][0]["printTypeLabel"] == "B&W (Black and white)"
+    assert snapshot_order["items"][0]["printColorMode"] == "grayscale"
 
     paper_plan = next(
         plan for plan in order["items"][0]["materials"] if plan["inventoryItemId"] == paper["id"]

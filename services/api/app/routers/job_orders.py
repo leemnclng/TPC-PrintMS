@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 import json
+from math import ceil
 from pathlib import Path
 import shutil
 from uuid import uuid4
@@ -23,6 +24,7 @@ from ..db.models import (
     InventoryMovement,
     InventoryMovementKind,
     InventoryPaperSize,
+    GlobalPricingVariable,
     JobFile,
     JobOrder,
     JobOrderNumberSequence,
@@ -107,9 +109,9 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "operation_kind": item.operation_kind,
                 "status": item.status,
                 "reprocess_count": item.reprocess_count,
-                "print_type": item.product.print_type,
-                "print_type_label": item.product.print_type_definition.label,
-                "print_color_mode": item.product.print_type_definition.color_mode,
+                "print_type": item.print_type_snapshot or item.product.print_type,
+                "print_type_label": item.print_type_label_snapshot or item.product.print_type_definition.label,
+                "print_color_mode": item.print_color_mode_snapshot or item.product.print_type_definition.color_mode,
                 "variant_label": item.variant_label,
                 "pages_per_copy": item.pages_per_copy,
                 "copies": item.copies,
@@ -554,10 +556,19 @@ async def _submit_scan_output(
         # Undo using the item's own stored rate (not the product's current
         # one) in case the override or the global rate changed since this
         # item was created or last scanned.
-        previous_suggested = round(item.unit_price * item.pages_per_copy, 2)
+        previous_suggested = item.line_total
         item.pages_per_copy = analysis.page_count
         item.unit_price = scan_price
         item.line_total = round(item.unit_price * analysis.page_count, 2)
+        variable_basis = item.line_total
+        variables = db.query(GlobalPricingVariable).filter(GlobalPricingVariable.is_active.is_(True)).all()
+        item.line_total += sum(
+            round(variable_basis * variable.value / 100, 2)
+            if variable.calculation_type == "percentage"
+            else round(variable.value, 2)
+            for variable in variables
+        )
+        item.line_total = float(ceil(item.line_total))
         job_order.total = round(sum(value.line_total for value in job_order.items), 2)
         job_order.suggested_total = round(job_order.suggested_total - previous_suggested + item.line_total, 2)
         _record_item_status(item, "ready", "Scanner softcopy attached; this product is ready for delivery.")
@@ -815,6 +826,7 @@ async def _save_transaction_lines(
     file_specs: list[tuple[JobOrderItem, str, bytes, object]] = []
     observed_links: list[tuple[ObservedPrintJob, JobOrderItem]] = []
     any_override = False
+    global_variables = db.query(GlobalPricingVariable).filter(GlobalPricingVariable.is_active.is_(True)).all()
     for line in payload.items:
         product = product_by_id[line.product_id]
         if line.price_mode == "custom" and line.custom_price is None:
@@ -830,6 +842,14 @@ async def _save_transaction_lines(
             # A provisional estimate at the placeholder page count — the real
             # rate is resolved from the actual page count once scanned.
             suggested = round(resolve_scan_price_per_page(product.standalone_price_per_page, pages, db) or 0.0, 2)
+            variable_basis = suggested
+            suggested += sum(
+                round(variable_basis * variable.value / 100, 2)
+                if variable.calculation_type == "percentage"
+                else variable.value
+                for variable in global_variables
+            )
+            suggested = float(ceil(suggested))
         else:
             assignment = next(
                 (
@@ -872,6 +892,14 @@ async def _save_transaction_lines(
                 if base_rate is None:
                     raise HTTPException(status_code=422, detail=f"Set a custom price for {product.name}.")
                 suggested = round((base_rate + (variant.price_adjustment if variant else 0)) * pages * line.copies, 2)
+                variable_basis = suggested
+                suggested += sum(
+                    round(variable_basis * variable.value / 100, 2)
+                    if variable.calculation_type == "percentage"
+                    else round(variable.value * line.copies, 2)
+                    for variable in global_variables
+                )
+                suggested = float(ceil(suggested))
             copies = line.copies
             physical_sheets = (((pages + 1) // 2) if line.back_to_back else pages) * copies
             if "sheet" not in assignment.inventory_item.unit.lower():
@@ -894,6 +922,9 @@ async def _save_transaction_lines(
         item = JobOrderItem(
             product_id=product.id,
             operation_kind=product.operation_kind,
+            print_type_snapshot=product.print_type,
+            print_type_label_snapshot=product.print_type_definition.label,
+            print_color_mode_snapshot=product.print_type_definition.color_mode,
             status=initial_status,
             variant_label=variant.label if variant else None,
             pages_per_copy=pages,
@@ -1316,6 +1347,9 @@ def _create_job_order(
         item = JobOrderItem(
             product_id=item_payload.product_id,
             operation_kind=product.operation_kind,
+            print_type_snapshot=product.print_type,
+            print_type_label_snapshot=product.print_type_definition.label,
+            print_color_mode_snapshot=product.print_type_definition.color_mode,
             variant_label=variant_label,
             pages_per_copy=item_payload.pages_per_copy,
             copies=item_payload.copies,
