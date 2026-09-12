@@ -738,8 +738,10 @@ Chronological notes about app progress.
 - Summary: Added a dedicated Inventory / Stock purchases workspace for logging material purchases and tracking actual spend independently from usable inventory.
 - Completed: Purchase entry captures material, purchase quantity/unit, total cost, date, supplier, receipt/reference, and notes. It tracks expenditure without changing usable inventory, stock movements, or the material's current cost reference. Materials with history expose a Restock shortcut, and immutable purchase snapshots remain if a material is deleted. The responsive ledger includes search, material filtering, per-unit cost, monthly spend, all-time spend, and honest empty/error states.
 - Fixed: Added a forward compatibility migration for development databases that had already applied the earlier stock-purchase draft column names.
+- Completed: Added confirmed deletion for individual purchase entries. Successful deletion immediately recalculates the ledger totals and material purchase-history count while leaving usable inventory and stock movements untouched; request failures keep the confirmation open for retry.
 - Verified: Inventory API tests, renderer typecheck/lint, production build, migration-head validation, and diff checks pass.
 ## 2026-09-12 (audited job-order correction)
 
 - Summary: Added a Void & correct flow for paid and completed transactions.
 - Completed: Voiding retains each payment with its timestamp and reason, excludes it from verified sales, and returns the transaction to Ready. Compatible product and line-price corrections preserve production, files, quantities, material usage, and both product/transaction audit trails before payment is recorded again.
+- Improved: The Complete job dialog now scrolls long paper-reconciliation content inside the viewport while keeping Cancel and Complete job visible.

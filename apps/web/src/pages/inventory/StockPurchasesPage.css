@@ -23,7 +23,13 @@
 .stock-purchase-ledger td small { margin-top: 2px; color: var(--color-ink-faint); }
 .stock-purchase-ledger .numeric { text-align: end; white-space: nowrap; }
 .stock-purchase-ledger__total { color: var(--color-ink) !important; font-weight: 700; }
+.stock-purchase-ledger__actions { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
 .stock-purchase-modal { width: min(calc(100% - var(--space-6)), 42rem); }
+.stock-purchase-delete-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1) var(--space-4); border-block: 1px solid var(--color-hairline); padding: var(--space-4) 0; }
+.stock-purchase-delete-summary strong { color: var(--color-ink); }
+.stock-purchase-delete-summary span { grid-column: 1; color: var(--color-ink-soft); font-size: var(--text-sm); }
+.stock-purchase-delete-summary b { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--color-danger); }
+.stock-purchase-delete-note { margin: var(--space-4) 0; color: var(--color-ink-soft); font-size: var(--text-sm); }
 .stock-purchase-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--color-hairline); background: var(--color-accent-softer); }
 .stock-purchase-preview > div { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); }
 .stock-purchase-preview > div + div { border-inline-start: 1px solid var(--color-hairline); }

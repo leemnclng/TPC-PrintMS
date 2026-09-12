@@ -208,6 +208,18 @@ def create_inventory_stock_purchase(
     return _purchase_to_read(purchase)
 
 
+@router.delete("/inventory-stock-purchases/{purchase_id}", status_code=204)
+def delete_inventory_stock_purchase(
+    purchase_id: str,
+    db: Session = Depends(get_db),
+) -> None:
+    purchase = db.get(InventoryStockPurchase, purchase_id)
+    if not purchase:
+        raise HTTPException(status_code=404, detail="Stock purchase not found.")
+    db.delete(purchase)
+    db.commit()
+
+
 @router.post("/inventory-items", response_model=InventoryItemRead, status_code=201)
 def create_inventory_item(payload: InventoryItemCreate, db: Session = Depends(get_db)) -> InventoryItemRead:
     data = _clean_item_data(payload.model_dump())

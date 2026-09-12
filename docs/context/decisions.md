@@ -793,11 +793,11 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Rationale: Developers need to exercise payment and completion flows without producing physical output, while Production and Test must retain real printer gates.
 - Impact: Simulation deducts planned materials like a successful print, records a clear development-bypass status and inventory note, and creates no print attempt because no OS submission occurred.
 
-### Record stock purchases as an immutable expenditure ledger
+### Record stock purchases as a separate expenditure ledger
 
 - Decision: Store each purchase as a financial record related to a registered material, but keep it independent from production inventory. Recording or restocking never changes `quantity_on_hand`, creates an inventory movement, or updates the material's current purchase-price reference.
 - Rationale: The owner needs purchase and expenditure history without conflating purchased packages with the usable sheets or units consumed by transactions.
-- Impact: Purchases retain material name/unit snapshots, purchase quantity, total and per-unit cost, date, supplier, reference, and notes. The purchase unit follows the material configuration (`ream` for ream-priced sheet materials; otherwise its inventory unit). Restock creates another purchase record with the material preselected. Material deletion preserves expenditure with a detached snapshot. Weighted-average valuation and profit reporting remain future work.
+- Impact: Purchases retain material name/unit snapshots, purchase quantity, total and per-unit cost, date, supplier, reference, and notes. The purchase unit follows the material configuration (`ream` for ream-priced sheet materials; otherwise its inventory unit). Restock creates another purchase record with the material preselected. Material deletion preserves expenditure with a detached snapshot. An owner may permanently delete an incorrect purchase after explicit confirmation; because purchases never mutate production stock, removal only changes expenditure history and purchase counts. Weighted-average valuation and profit reporting remain future work.
 ## 2026-09-12 — Reopen corrections without rewriting operational history
 
 - Decision: Void verified payments in place and return paid/completed transactions to Ready. Allow product identity and price corrections only between products with the same operation workflow, while retaining existing files, print attempts, quantities, material plans, and consumption.

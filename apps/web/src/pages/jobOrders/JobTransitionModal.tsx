@@ -69,12 +69,14 @@ export function JobTransitionModal({ open, order, targetStatus, onClose, onTrans
 
   return (
     <Modal open={open} title={copy.title} description={`${order.name} · ${order.number} · ${copy.description}`} onClose={onClose} busy={saving} status={error ? "error" : saving ? "loading" : "idle"} className="job-transition-modal">
-      <div className="job-transition-confirmation">
-        <span className="job-transition-confirmation__mark numeric" aria-hidden="true">NEXT</span>
-        <p>{copy.note}</p>
+      <div className="job-transition-modal__content" role={targetStatus === "completed" ? "region" : undefined} aria-label={targetStatus === "completed" ? "Job completion details" : undefined}>
+        <div className="job-transition-confirmation">
+          <span className="job-transition-confirmation__mark numeric" aria-hidden="true">NEXT</span>
+          <p>{copy.note}</p>
+        </div>
+        {error && <p className="workspace-form__error job-transition-error" role="alert">{error}</p>}
+        {targetStatus === "completed" && paper.fields}
       </div>
-      {error && <p className="workspace-form__error job-transition-error" role="alert">{error}</p>}
-      {targetStatus === "completed" && paper.fields}
       <footer className="job-order-form__actions">
         <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
         <Button autoFocus type="button" variant="primary" onClick={handleConfirm} loading={saving} disabled={targetStatus === "completed" && !paper.valid}>{copy.action}</Button>

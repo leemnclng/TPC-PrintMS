@@ -10,6 +10,7 @@ import { useResource } from "../../hooks/useResource";
 import { api } from "../../lib/apiClient";
 import { formatCurrency, formatDate } from "../../lib/format";
 import type { InventoryItem, InventoryStockPurchase } from "../../types/domain";
+import { StockPurchaseDeleteModal } from "./StockPurchaseDeleteModal";
 import { StockPurchaseModal } from "./StockPurchaseModal";
 import "./StockPurchasesPage.css";
 
@@ -32,6 +33,7 @@ export function StockPurchasesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [initialItemId, setInitialItemId] = useState<string | null>(null);
   const [templatePurchase, setTemplatePurchase] = useState<InventoryStockPurchase | null>(null);
+  const [deletingPurchase, setDeletingPurchase] = useState<InventoryStockPurchase | null>(null);
   const [query, setQuery] = useState("");
   const [materialId, setMaterialId] = useState("");
   const rows = useMemo(() => purchases ?? data?.purchases ?? [], [data?.purchases, purchases]);
@@ -67,6 +69,12 @@ export function StockPurchasesPage() {
     reload();
   }
 
+  function handleDeleted(purchaseId: string) {
+    setPurchases(rows.filter((purchase) => purchase.id !== purchaseId));
+    setDeletingPurchase(null);
+    reload();
+  }
+
   return (
     <>
       <PageHeader eyebrow="INVENTORY / STOCKS" title="Stock purchases" description="Track material purchases and business spending without changing the production quantities used by transactions." actions={<><LinkButton to="/inventory" variant="secondary">Back to inventory</LinkButton><Button type="button" variant="primary" disabled={!activeItems.length} onClick={() => openPurchase()}>Record purchase</Button></>} />
@@ -83,12 +91,13 @@ export function StockPurchasesPage() {
           {rows.length ? (
             <>
               <div className="stock-purchases__heading"><div><h2 id="stock-purchase-ledger-title">Purchase ledger</h2><p>Entries track purchase quantities and costs independently from production inventory.</p></div><div className="stock-purchases__filters"><label><span>Search purchases</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Material, supplier, receipt…" /></label><label><span>Material</span><select value={materialId} onChange={(event) => setMaterialId(event.target.value)}><option value="">All materials</option>{items.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></div></div>
-              {visibleRows.length ? <div className="stock-purchase-ledger"><table><thead><tr><th>Date</th><th>Material</th><th>Supplier / reference</th><th className="numeric">Quantity</th><th className="numeric">Unit cost</th><th className="numeric">Total spend</th><th>Action</th></tr></thead><tbody>{visibleRows.map((purchase) => <tr key={purchase.id}><td data-label="Date">{formatDate(purchase.purchasedOn)}</td><td data-label="Material"><strong>{purchase.materialName}</strong>{purchase.inventoryItemId ? null : <small>Material removed</small>}</td><td data-label="Supplier / reference"><strong>{purchase.supplier || "Not recorded"}</strong><small>{purchase.reference || purchase.notes || "No reference"}</small></td><td data-label="Quantity" className="numeric">{purchase.quantityPurchased.toLocaleString(undefined, { maximumFractionDigits: 6 })} {purchase.purchaseUnit}</td><td data-label="Unit cost" className="numeric">{formatCurrency(purchase.unitCost)} / {purchase.purchaseUnit}</td><td data-label="Total spend" className="numeric stock-purchase-ledger__total">{formatCurrency(purchase.totalCost)}</td><td data-label="Action">{purchase.inventoryItemId && activeItems.some((item) => item.id === purchase.inventoryItemId) ? <Button type="button" variant="secondary" size="sm" onClick={() => openPurchase(purchase.inventoryItemId ?? null, purchase)}>Restock</Button> : <small>Unavailable</small>}</td></tr>)}</tbody></table></div> : <EmptyState title="No purchases match" description="Change the search or material filter to view other purchase entries." />}
+              {visibleRows.length ? <div className="stock-purchase-ledger"><table><thead><tr><th>Date</th><th>Material</th><th>Supplier / reference</th><th className="numeric">Quantity</th><th className="numeric">Unit cost</th><th className="numeric">Total spend</th><th>Actions</th></tr></thead><tbody>{visibleRows.map((purchase) => <tr key={purchase.id}><td data-label="Date">{formatDate(purchase.purchasedOn)}</td><td data-label="Material"><strong>{purchase.materialName}</strong>{purchase.inventoryItemId ? null : <small>Material removed</small>}</td><td data-label="Supplier / reference"><strong>{purchase.supplier || "Not recorded"}</strong><small>{purchase.reference || purchase.notes || "No reference"}</small></td><td data-label="Quantity" className="numeric">{purchase.quantityPurchased.toLocaleString(undefined, { maximumFractionDigits: 6 })} {purchase.purchaseUnit}</td><td data-label="Unit cost" className="numeric">{formatCurrency(purchase.unitCost)} / {purchase.purchaseUnit}</td><td data-label="Total spend" className="numeric stock-purchase-ledger__total">{formatCurrency(purchase.totalCost)}</td><td data-label="Actions"><div className="stock-purchase-ledger__actions">{purchase.inventoryItemId && activeItems.some((item) => item.id === purchase.inventoryItemId) ? <Button type="button" variant="secondary" size="sm" onClick={() => openPurchase(purchase.inventoryItemId ?? null, purchase)}>Restock</Button> : null}<Button type="button" variant="danger" size="sm" onClick={() => setDeletingPurchase(purchase)}>Delete</Button></div></td></tr>)}</tbody></table></div> : <EmptyState title="No purchases match" description="Change the search or material filter to view other purchase entries." />}
             </>
           ) : activeItems.length ? <EmptyState title="No stock purchases recorded" description="Record the next material purchase to begin tracking spending." action={<Button type="button" variant="secondary" onClick={() => openPurchase()}>Record first purchase</Button>} /> : null}
         </section>
       ) : null}
       <StockPurchaseModal open={modalOpen} items={items} initialItemId={initialItemId} templatePurchase={templatePurchase} onClose={() => setModalOpen(false)} onSaved={handleSaved} />
+      <StockPurchaseDeleteModal purchase={deletingPurchase} onClose={() => setDeletingPurchase(null)} onDeleted={handleDeleted} />
     </>
   );
 }

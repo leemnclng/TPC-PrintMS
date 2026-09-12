@@ -299,6 +299,18 @@ def test_inventory_stock_ledger_and_product_assignments(tmp_path) -> None:
         f"/inventory-movements?inventory_item_id={purchase_item['id']}", headers=headers
     ).json()
     assert [movement["kind"] for movement in purchase_item_movements] == ["opening_balance"]
+    deleted_purchase = backdated_purchase.json()
+    assert client.delete(
+        f"/inventory-stock-purchases/{deleted_purchase['id']}", headers=headers
+    ).status_code == 204
+    after_purchase_delete = client.get(
+        f"/inventory-items/{purchase_item['id']}", headers=headers
+    ).json()
+    assert after_purchase_delete["quantityOnHand"] == 10
+    assert after_purchase_delete["stockPurchaseCount"] == 1
+    assert client.delete(
+        f"/inventory-stock-purchases/{deleted_purchase['id']}", headers=headers
+    ).status_code == 404
     assert client.delete(f"/inventory-items/{purchase_item['id']}", headers=headers).status_code == 204
     preserved_purchase = client.get("/inventory-stock-purchases", headers=headers).json()[0]
     assert preserved_purchase["id"] == purchase["id"]

@@ -414,6 +414,8 @@ Track notable app changes by date.
 - Added: Recording a purchase tracks its material, purchase quantity, per-unit cost, and monthly/all-time spending without changing the usable quantity or transaction stock history.
 - Added: Materials with purchase history now show a Restock shortcut that opens a new purchase entry for that material.
 - Fixed: Existing development databases created during the stock-purchase draft now upgrade to the finalized purchase fields instead of failing when inventory loads.
+- Added: Stock-purchase ledger entries can now be permanently deleted through a confirmation showing the material, date, quantity, and spend. Inventory quantities are unaffected.
 - Preserved: Historical purchase spending and material snapshots remain readable after an unused material is deleted.
 - Added: Paid and completed job orders now expose Void & correct, returning them to the Ready payment step while retaining voided payments in audit history.
 - Added: Reopened Ready jobs can correct a recorded product to another compatible workflow product and set the corrected line price without repeating production or changing consumed inventory.
+- Improved: The Complete job dialog now scrolls when its reconciliation content is taller than the available screen, with its actions fixed in place.

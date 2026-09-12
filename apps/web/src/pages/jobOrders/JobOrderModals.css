@@ -10,7 +10,9 @@
 
 .job-payment-modal { width: min(calc(100% - var(--space-6)), 42rem); }
 .job-transition-modal { width: min(calc(100% - var(--space-6)), 38rem); }
-.job-transition-modal .modal__body { flex-direction: column; }
+.job-transition-modal .modal__body { flex-direction: column; overflow: hidden; }
+.job-transition-modal__content { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.job-transition-modal .job-order-form__actions { flex: 0 0 auto; }
 .job-transition-confirmation { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-4); padding: var(--space-6); }
 .job-transition-confirmation__mark { display: grid; width: 3.25rem; height: 3.25rem; place-items: center; border: 1px solid var(--color-accent); border-radius: 50%; color: var(--color-accent); font-size: var(--text-xs); }
 .job-transition-confirmation p { margin: 0; color: var(--color-ink-soft); font-size: var(--text-sm); }
