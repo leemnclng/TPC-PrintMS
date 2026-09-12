@@ -1920,3 +1920,101 @@ def test_uploaded_docx_is_auto_converted_to_pdf_before_printing(tmp_path, monkey
     assert retained.status_code == 200
     assert retained.content.startswith(b"%PDF")
     assert retained.content != docx_bytes
+
+
+def test_transaction_line_plans_a_non_paper_material_assigned_to_the_product(tmp_path, monkeypatch) -> None:
+    """A pricing-category material without a paper size (ink, toner, binding,
+    laminate…) is an eligible supply, not a per-page rate. It only actually
+    plans/deducts for a job once the owner selects it with a quantity on the
+    transaction line — this exercises that selection end to end."""
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'other-material.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "app-data")
+    monkeypatch.setattr(settings, "printer_platform", "windows")
+
+    def override_db():
+        db = test_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(services.router)
+    app.include_router(products.router)
+    app.include_router(inventory.router)
+    app.include_router(variants.router)
+    app.include_router(document_analyzer_router)
+    app.include_router(job_orders.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    paper = _create_material(client, headers, "Letter toner paper", "sheet", 100, paper_size="Letter")
+    toner = _create_material(client, headers, "Black toner cartridge", "Cartridge", 5)
+    _assign_pricing_materials(client, headers, "printing", [paper["id"], toner["id"]])
+    rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
+    bw_rule = next(rule for rule in rules if rule["paperSize"] == "Letter" and rule["printType"] == "black_and_white" and rule["pricingScope"] == "printing")
+    assert client.put(
+        "/document-analyzer/pricing-rules",
+        headers=headers,
+        json={"rules": [{"id": bw_rule["id"], "pricePerPage": 5, "isActive": True}]},
+    ).status_code == 200
+    service = client.post(
+        "/services",
+        headers=headers,
+        json={"name": "Toner-planned printing", "category": "printing", "isActive": True},
+    ).json()
+    product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Letter B&W with toner",
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}, {"inventoryItemId": toner["id"]}],
+        },
+    ).json()
+
+    image_buffer = BytesIO()
+    Image.new("RGB", (850, 1100), (10, 10, 10)).save(image_buffer, format="PNG", dpi=(100, 100))
+    document = image_buffer.getvalue()
+
+    transaction_response = client.post(
+        "/job-orders/transactions",
+        headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": "Toner-planned order",
+                "initialServiceId": service["id"],
+                "items": [{
+                    "clientKey": "toner-line",
+                    "productId": product["id"],
+                    "paperInventoryItemId": paper["id"],
+                    "copies": 1,
+                    "otherMaterials": [{"inventoryItemId": toner["id"], "plannedQuantity": 1}],
+                }],
+            }),
+            "file_keys": ["toner-line"],
+        },
+        files=[("files", ("letter.png", document, "image/png"))],
+    )
+    assert transaction_response.status_code == 201, transaction_response.text
+    order = transaction_response.json()
+    materials = order["items"][0]["materials"]
+    assert {(material["inventoryItemId"], material["plannedQuantity"]) for material in materials} == {
+        (paper["id"], 1),
+        (toner["id"], 1),
+    }
+
+    # Assigned to the category/product but never selected on the line: it
+    # must not silently be planned or deducted for this job.
+    other_material = _create_material(client, headers, "Unused laminate sheet", "sheet", 5)
+    _assign_pricing_materials(client, headers, "printing", [paper["id"], toner["id"], other_material["id"]])
+    assert other_material["id"] not in {material["inventoryItemId"] for material in materials}

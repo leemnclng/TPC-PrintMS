@@ -770,3 +770,9 @@ Chronological notes about app progress.
 - Summary: Fixed the Configuration pricing-category modal not scrolling when its fields and materials list overflowed a short window.
 - Completed: Wrapped the form's fields (name, workflow, description, active toggle, materials fieldset) in their own scrollable container separate from the fixed footer, matching the layout already used by the New print type and variant modals.
 - Verified: Renderer typecheck, lint, and production build pass.
+
+## 2026-09-13 (other materials now selectable on transaction lines)
+
+- Summary: A non-paper material assigned to a pricing category/product (ink, toner, binding, laminate…) never actually planned or deducted for a job — the live transaction modal (the primary "New job order" flow) always sent an empty `otherMaterials` list. The backend already fully supported it (`_save_transaction_lines` in `job_orders.py`); only the picker UI was missing. A parallel single-file modal (`JobOrderCreateModal.tsx`) already had the correct picker, but it isn't imported/used anywhere — dead code.
+- Completed: Added an Other materials section to each non-scan product line in `TransactionCreateModal.tsx`, mirroring the working pattern from the unused modal: a checkbox per active non-paper assignment plus a planned-quantity input once checked, wired into the line's `otherMaterials` and validated (quantity must be > 0) before submit.
+- Verified: New backend test confirming a selected non-paper material plans onto the job (and an assigned-but-unselected one does not) plus the full API suite (59 tests); renderer typecheck, lint, and production build.

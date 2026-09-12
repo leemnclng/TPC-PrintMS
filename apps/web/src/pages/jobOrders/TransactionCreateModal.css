@@ -92,6 +92,21 @@
 .transaction-line__pricing > header { display: flex; flex-direction: column; gap: var(--space-1); }
 .transaction-line__pricing > header span { color: var(--color-accent); font: 500 var(--text-xs) var(--font-mono); letter-spacing: .05em; }
 .transaction-line__pricing > header small { color: var(--color-ink-faint); }
+/* Non-paper supplies (ink, toner, binding, laminate…) assigned to the
+   product's pricing category — eligible, but only deducted once checked
+   here with a planned quantity for this specific job. */
+.transaction-line__materials { border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); }
+.transaction-line__materials > header { display: flex; flex-direction: column; gap: var(--space-1); }
+.transaction-line__materials > header span { color: var(--color-accent); font: 500 var(--text-xs) var(--font-mono); letter-spacing: .05em; }
+.transaction-line__materials > header small { color: var(--color-ink-faint); }
+.transaction-materials { display: flex; flex-direction: column; margin-top: var(--space-2); }
+.transaction-material { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-4); border-top: 1px solid var(--color-hairline); padding-block: var(--space-3); }
+.transaction-material:first-child { border-top: 0; }
+.transaction-material > label { display: flex; align-items: center; gap: var(--space-3); }
+.transaction-material > label:first-child > span { display: flex; flex-direction: column; }
+.transaction-material small { color: var(--color-ink-faint); }
+.transaction-material > label:last-child { display: grid; grid-template-columns: auto 6rem auto; align-items: center; gap: var(--space-2); color: var(--color-ink-soft); font-size: var(--text-xs); }
+.transaction-material input[type="number"] { min-height: var(--control-height); border: 1px solid var(--color-hairline-strong); padding: 0 var(--space-2); background: var(--color-paper); color: var(--color-ink); }
 .transaction-line > footer { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(10rem, auto) minmax(10rem, auto) auto; align-items: end; gap: var(--space-3); border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); }
 .transaction-line > footer > div,
 .transaction-line > footer > label { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); }

@@ -28,6 +28,7 @@ import "./TransactionCreateModal.css";
 const PdfViewer = lazy(() => import("../../components/PdfViewer/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
 type PriceMode = "suggested" | "custom";
+type MaterialLine = { inventoryItemId: string; plannedQuantity: number };
 
 interface TransactionLine {
   key: string;
@@ -43,6 +44,11 @@ interface TransactionLine {
   analyzing: boolean;
   priceMode: PriceMode;
   customPrice: string;
+  /** Non-paper supplies (ink, toner, binding, laminate…) assigned to the
+   *  product's pricing category. Selecting one here is what makes it
+   *  actually deduct after printing — being assigned to the category or
+   *  product alone only makes it eligible, per the "allowed set" model. */
+  otherMaterials: MaterialLine[];
   /** Set when this line records a Windows print already completed outside
    *  OMS (e.g. Canon PRINT) — it skips the live print queue and is
    *  recorded as already done. See the "other tracked prints" checklist. */
@@ -83,6 +89,7 @@ const newLine = (serviceId: string): TransactionLine => ({
   analyzing: false,
   priceMode: "suggested",
   customPrice: "",
+  otherMaterials: [],
   observedPrintJobId: null,
 });
 
@@ -138,6 +145,22 @@ export function TransactionCreateModal({
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
   }
 
+  function toggleLineMaterial(line: TransactionLine, item: InventoryItem, checked: boolean) {
+    updateLine(line.key, {
+      otherMaterials: checked
+        ? [...line.otherMaterials, { inventoryItemId: item.id, plannedQuantity: 1 }]
+        : line.otherMaterials.filter((material) => material.inventoryItemId !== item.id),
+    });
+  }
+
+  function updateLineMaterial(line: TransactionLine, inventoryItemId: string, plannedQuantity: number) {
+    updateLine(line.key, {
+      otherMaterials: line.otherMaterials.map((material) =>
+        material.inventoryItemId === inventoryItemId ? { ...material, plannedQuantity } : material,
+      ),
+    });
+  }
+
   function chooseService(line: TransactionLine, serviceId: string) {
     updateLine(line.key, { ...newLine(serviceId), key: line.key, observedPrintJobId: line.observedPrintJobId });
   }
@@ -164,15 +187,18 @@ export function TransactionCreateModal({
       analysis: null,
       priceMode: "suggested",
       customPrice: "",
+      otherMaterials: [],
     });
     if (!order && !name.trim() && lines.length === 1 && product) setName(product.name);
   }
 
   function lineContext(line: TransactionLine) {
     const product = products.find((candidate) => candidate.id === line.productId);
-    const papers = product?.materialAssignments
+    const assignedMaterials = product?.materialAssignments
       .map((assignment) => inventoryById.get(assignment.inventoryItemId))
-      .filter((item): item is InventoryItem => Boolean(item?.isActive && item.paperSize)) ?? [];
+      .filter((item): item is InventoryItem => Boolean(item?.isActive)) ?? [];
+    const papers = assignedMaterials.filter((item) => Boolean(item.paperSize));
+    const otherAssignments = assignedMaterials.filter((item) => !item.paperSize);
     const variant = product?.variants.find((candidate) => candidate.variantId === line.variantId);
     let suggested = 0;
     let breakdown: PriceBreakdownEntry[] = [];
@@ -218,7 +244,7 @@ export function TransactionCreateModal({
       : suggested;
     const calculated = breakdown.reduce((sum, entry) => sum + entry.amount, 0);
     if (line.priceMode === "custom" && line.customPrice.trim() && Number.isFinite(parsedCustom) && parsedCustom !== calculated) breakdown.push({ kind: "ownerOverride", label: "Owner price adjustment", basis: `Calculated ${formatCurrency(calculated)}; final ${formatCurrency(parsedCustom)}`, amount: parsedCustom - calculated });
-    return { product, papers, variant, scanPrice, scanConfigured, breakdown, suggested: Math.round(suggested * 100) / 100, total: Math.round(total * 100) / 100 };
+    return { product, papers, otherAssignments, variant, scanPrice, scanConfigured, breakdown, suggested: Math.round(suggested * 100) / 100, total: Math.round(total * 100) / 100 };
   }
 
   async function analyzeLine(line: TransactionLine) {
@@ -268,6 +294,7 @@ export function TransactionCreateModal({
       if (["photocopy", "adhoc"].includes(product.operationKind) && (!line.paperId || line.pages < 1 || line.copies < 1)) return false;
       if (product.operationKind === "scan" && line.priceMode !== "custom" && !scanConfigured) return false;
       if (product.operationKind !== "scan" && papers.length === 0) return false;
+      if (line.otherMaterials.some((material) => material.plannedQuantity <= 0)) return false;
       if (line.priceMode === "custom" && (!line.customPrice.trim() || Number(line.customPrice) < 0)) return false;
       return true;
     });
@@ -299,7 +326,7 @@ export function TransactionCreateModal({
         backToBack: line.backToBack,
         priceMode: line.priceMode,
         customPrice: line.priceMode === "custom" ? Number(line.customPrice) : null,
-        otherMaterials: [],
+        otherMaterials: line.otherMaterials,
         observedPrintJobId: line.observedPrintJobId || null,
       })),
     }));
@@ -362,7 +389,7 @@ export function TransactionCreateModal({
           <section className="transaction-create__lines" aria-label="Products in this transaction">
             <header><div><span className="numeric">01 / WORK</span><h3>Products and operations</h3><p>Each product moves independently until every line is ready.</p><small className="transaction-create__required-key"><i aria-hidden="true" /> Highlighted fields are required to continue.</small></div><Button type="button" variant="secondary" onClick={() => setLines((current) => [...current, newLine(initialService.id)])}>Add product</Button></header>
             {lines.map((line, index) => {
-              const { product, papers, scanConfigured, breakdown, suggested, total } = lineContext(line);
+              const { product, papers, otherAssignments, scanConfigured, breakdown, suggested, total } = lineContext(line);
               const lineProducts = products.filter((candidate) => candidate.isActive && candidate.serviceId === line.serviceId);
               const photoDuplex = product?.printType === "photo_print" && line.backToBack;
               const hasRequiredFiles = photoDuplex ? line.files.length >= 2 : line.files.length === 1;
@@ -387,6 +414,31 @@ export function TransactionCreateModal({
                   {product?.operationKind === "scan" && !scanConfigured ? <p className="workspace-form__error" role="alert">Set a price for {product.name} — either on the product itself or a global page-count tier in Settings.</p> : null}
                   {product?.operationKind === "photocopy" ? <p className="transaction-line__notice">Complete the physical copies on the printer, then record this line as ready.</p> : null}
                   {product?.operationKind === "adhoc" ? <p className="transaction-line__notice">Complete this work outside the app, then open the saved product line and record it as ready.</p> : null}
+                  {product && otherAssignments.length > 0 ? (
+                    <section className="transaction-line__materials">
+                      <header><span>OTHER MATERIALS</span><small>Assigned to {product.name}; selected supplies are deducted after successful print submission.</small></header>
+                      <div className="transaction-materials">
+                        {otherAssignments.map((item) => {
+                          const selected = line.otherMaterials.find((material) => material.inventoryItemId === item.id);
+                          return (
+                            <div className="transaction-material" key={item.id}>
+                              <label>
+                                <input type="checkbox" checked={Boolean(selected)} onChange={(event) => toggleLineMaterial(line, item, event.target.checked)} />
+                                <span><strong>{item.name}</strong><small>{item.quantityOnHand.toLocaleString()} {item.unit} available</small></span>
+                              </label>
+                              {selected ? (
+                                <label>
+                                  <span>Planned</span>
+                                  <input type="number" min="0.01" step="0.01" value={selected.plannedQuantity} onChange={(event) => updateLineMaterial(line, item.id, Number(event.target.value))} aria-invalid={submitted && selected.plannedQuantity <= 0} />
+                                  <span>{item.unit}</span>
+                                </label>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null}
                   {product && breakdown.length ? <section className="transaction-line__pricing"><header><span>PRICE BREAKDOWN</span><small>Calculated for this product line</small></header><PriceBreakdown entries={breakdown} total={total} compact /></section> : null}
                   {product ? <footer><div><span>{product.operationKind === "scan" ? "Estimated (1 page)" : "Suggested"}</span><strong>{formatCurrency(suggested)}</strong></div><label><span>Pricing</span><select value={line.priceMode} onChange={(event) => updateLine(line.key, { priceMode: event.target.value as PriceMode })}><option value="suggested">Use suggested</option><option value="custom">Owner price</option></select></label>{line.priceMode === "custom" ? <label className={`form-field--required${!line.customPrice.trim() || Number(line.customPrice) < 0 ? " is-awaiting-input" : ""}`}><span>Final line price</span><input type="number" min={0} step="0.01" value={line.customPrice} onChange={(event) => updateLine(line.key, { customPrice: event.target.value })} aria-invalid={submitted && (!line.customPrice.trim() || Number(line.customPrice) < 0)} required /></label> : null}<output>{formatCurrency(total)}</output></footer> : null}
                 </article>

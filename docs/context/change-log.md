@@ -433,3 +433,4 @@ Track notable app changes by date.
 - Added: Uploading a DOCX document for a Printing product now automatically converts it to PDF before it's stored as the job's print-ready file — no manual "export to PDF" step needed.
 - Preserved: XLSX and PPTX uploads still analyze and price normally, but printing still asks the owner to export those to PDF first; no reliable free auto-converter exists for them yet.
 - Fixed: The Configuration pricing-category modal now scrolls its fields and materials list independently of its Cancel/Save actions, so a short window no longer clips off unreachable content.
+- Fixed: Non-paper materials assigned to a printing/photocopy/adhoc product (ink, toner, binding, laminate…) can now actually be selected, with a planned quantity, on each product line when creating or adding to a job order. Previously they were assignable but never appeared anywhere at job creation, so they never deducted.
