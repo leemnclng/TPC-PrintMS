@@ -353,7 +353,18 @@
   background: var(--color-paper-2);
 }
 
-.pricing-category-form { gap: var(--space-4); padding: var(--space-5) var(--space-6) 0; }
+/* The form itself is the plain flex column from .settings-modal-body; only
+   the fields wrapper scrolls, so the footer stays reachable and visible even
+   when the fields (materials list included) overflow a short window. */
+.pricing-category-form__fields {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6);
+}
 .pricing-category-form__active { align-self: start; }
 .pricing-category-materials {
   display: grid;

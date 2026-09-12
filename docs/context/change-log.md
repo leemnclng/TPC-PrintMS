@@ -427,3 +427,9 @@ Track notable app changes by date.
 - Changed: Applied purchases are locked against duplicate restocking and deletion; the ledger distinguishes Available and Applied entries, and repeat ordering is labeled Buy again.
 - Changed: Pricing-category material assignments now show all configured material types; paper creates rate rows while other types become category-approved production supplies.
 - Added: Search by material name, category, unit, or paper size in pricing assignments, plus name/category/unit search when recording a stock purchase.
+
+## 2026-09-13 (DOCX auto-converts to PDF)
+
+- Added: Uploading a DOCX document for a Printing product now automatically converts it to PDF before it's stored as the job's print-ready file — no manual "export to PDF" step needed.
+- Preserved: XLSX and PPTX uploads still analyze and price normally, but printing still asks the owner to export those to PDF first; no reliable free auto-converter exists for them yet.
+- Fixed: The Configuration pricing-category modal now scrolls its fields and materials list independently of its Cancel/Save actions, so a short window no longer clips off unreachable content.

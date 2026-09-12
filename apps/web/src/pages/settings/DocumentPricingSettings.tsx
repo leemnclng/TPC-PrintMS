@@ -336,47 +336,49 @@ function PricingCategoryModal({
       className="material-rates-modal"
     >
       <form className="settings-modal-body pricing-category-form" onSubmit={submit} noValidate>
-        <label className={`form-field${submitted && !name.trim() ? " form-field--error" : ""}`}>
-          <span>Category name</span>
-          <input value={name} onChange={(event) => setName(event.target.value)} aria-invalid={submitted && !name.trim()} autoFocus required />
-          {submitted && !name.trim() ? <small className="workspace-form__error">Enter a category name.</small> : null}
-        </label>
-        <label className="form-field">
-          <span>Compatible workflow</span>
-          <select value={operationKind} disabled={Boolean(category?.isBuiltin)} onChange={(event) => setOperationKind(event.target.value as "printing" | "photocopy" | "adhoc")}>
-            <option value="printing">Printing</option>
-            <option value="photocopy">Photocopy</option>
-            <option value="adhoc">Ad Hoc</option>
-          </select>
-          <small>Ad Hoc records work completed outside the app without printer or scanner control.</small>
-        </label>
-        <label className="form-field">
-          <span>Description</span>
-          <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
-        </label>
-        {category ? (
-          <label className="settings-pricing-table__toggle pricing-category-form__active">
-            <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
-            <span>Available to products</span>
+        <div className="pricing-category-form__fields">
+          <label className={`form-field${submitted && !name.trim() ? " form-field--error" : ""}`}>
+            <span>Category name</span>
+            <input value={name} onChange={(event) => setName(event.target.value)} aria-invalid={submitted && !name.trim()} autoFocus required />
+            {submitted && !name.trim() ? <small className="workspace-form__error">Enter a category name.</small> : null}
           </label>
-        ) : null}
-        <fieldset className="pricing-category-materials">
-          <legend>Materials</legend>
-          <p>Select the stock that belongs in this category. Paper creates pricing rows; other materials are available as production supplies.</p>
-          <label className="pricing-category-materials__search">
-            <span>Search materials</span>
-            <input type="search" value={materialQuery} onChange={(event) => setMaterialQuery(event.target.value)} placeholder="Name, category, unit, or paper size" />
+          <label className="form-field">
+            <span>Compatible workflow</span>
+            <select value={operationKind} disabled={Boolean(category?.isBuiltin)} onChange={(event) => setOperationKind(event.target.value as "printing" | "photocopy" | "adhoc")}>
+              <option value="printing">Printing</option>
+              <option value="photocopy">Photocopy</option>
+              <option value="adhoc">Ad Hoc</option>
+            </select>
+            <small>Ad Hoc records work completed outside the app without printer or scanner control.</small>
           </label>
-          <div className="pricing-category-materials__list">
-            {visibleMaterials.length ? visibleMaterials.map((item) => (
-              <label key={item.id}>
-                <input type="checkbox" checked={materialIds.includes(item.id)} disabled={!item.isActive && !materialIds.includes(item.id)} onChange={(event) => toggleMaterial(item.id, event.target.checked)} />
-                <span><strong>{item.name}</strong><small>{item.category} · {item.paperSize ? paperSizeDisplay(item.paperSize, item.paperWidthMm, item.paperHeightMm) : item.unit}{item.isActive ? "" : " · inactive"}</small></span>
-              </label>
-            )) : <p>{assignableMaterials.length ? "No materials match your search." : "No active materials. Add one in Inventory first."}</p>}
-          </div>
-        </fieldset>
-        {saveError ? <p className="workspace-form__error" role="alert">{saveError}</p> : null}
+          <label className="form-field">
+            <span>Description</span>
+            <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
+          </label>
+          {category ? (
+            <label className="settings-pricing-table__toggle pricing-category-form__active">
+              <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
+              <span>Available to products</span>
+            </label>
+          ) : null}
+          <fieldset className="pricing-category-materials">
+            <legend>Materials</legend>
+            <p>Select the stock that belongs in this category. Paper creates pricing rows; other materials are available as production supplies.</p>
+            <label className="pricing-category-materials__search">
+              <span>Search materials</span>
+              <input type="search" value={materialQuery} onChange={(event) => setMaterialQuery(event.target.value)} placeholder="Name, category, unit, or paper size" />
+            </label>
+            <div className="pricing-category-materials__list">
+              {visibleMaterials.length ? visibleMaterials.map((item) => (
+                <label key={item.id}>
+                  <input type="checkbox" checked={materialIds.includes(item.id)} disabled={!item.isActive && !materialIds.includes(item.id)} onChange={(event) => toggleMaterial(item.id, event.target.checked)} />
+                  <span><strong>{item.name}</strong><small>{item.category} · {item.paperSize ? paperSizeDisplay(item.paperSize, item.paperWidthMm, item.paperHeightMm) : item.unit}{item.isActive ? "" : " · inactive"}</small></span>
+                </label>
+              )) : <p>{assignableMaterials.length ? "No materials match your search." : "No active materials. Add one in Inventory first."}</p>}
+            </div>
+          </fieldset>
+          {saveError ? <p className="workspace-form__error" role="alert">{saveError}</p> : null}
+        </div>
         <footer className="settings-modal-actions">
           <Button type="button" variant="ghost" disabled={saving} onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" loading={saving}>{category ? "Save category" : "Create category"}</Button>

@@ -55,6 +55,11 @@ from ..modules.document_analyzer.utils.file_detection import (
     UnsafeArchiveError,
     UnsupportedFileTypeError,
 )
+from ..modules.document_analyzer.utils.office_conversion import (
+    CONVERTIBLE_TO_PDF_SUFFIXES,
+    DocumentConversionError,
+    convert_to_print_ready_pdf,
+)
 from ..modules.document_analyzer.utils.print_bundle import combine_print_sources, photo_bundle_filename
 from ..schemas.job_orders import (
     AnalyzedJobOrderCreate,
@@ -873,6 +878,13 @@ async def _save_transaction_lines(
             raise HTTPException(status_code=415, detail=str(error)) from error
         except (InvalidDocumentError, UnsafeArchiveError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        if Path(filename).suffix.lower() in CONVERTIBLE_TO_PDF_SUFFIXES:
+            try:
+                filename, data = await run_in_threadpool(convert_to_print_ready_pdf, filename, data)
+            except DocumentConversionError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            if len(data) > MAX_FILE_SIZE_BYTES:
+                raise HTTPException(status_code=413, detail="The converted PDF must be 25 MB or smaller.")
         prepared_files[line.client_key] = (filename, data, analysis)
 
     if existing_job_order:
@@ -1140,6 +1152,13 @@ async def create_analyzed_job_order(
         raise HTTPException(status_code=415, detail=str(error)) from error
     except (InvalidDocumentError, UnsafeArchiveError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    if Path(filename).suffix.lower() in CONVERTIBLE_TO_PDF_SUFFIXES:
+        try:
+            filename, data = await run_in_threadpool(convert_to_print_ready_pdf, filename, data)
+        except DocumentConversionError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if len(data) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(status_code=413, detail="The converted PDF must be 25 MB or smaller.")
 
     paper_assignment = next(
         (

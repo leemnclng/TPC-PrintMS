@@ -78,6 +78,19 @@ wheels = [
 ]
 
 [[package]]
+name = "dxpdf"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/39/98e66290884850ab52150be9bc61c84dd642ab4b04f6f1f1ebaff321980d/dxpdf-0.8.0.tar.gz", hash = "sha256:36f5c29aeafdd9cfe977a295ba4eef5cdc6e43606f546f05bfffe8253cb14ef9", size = 1774729, upload-time = "2026-09-11T21:39:33.141Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/80/58/6b5850c0406ee080fc33c7aa61c15985d3f4966f382ed1617ad3e4cbc77a/dxpdf-0.8.0-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:ea8f1d1c51c13dd546653f3e42acae682d89bbc7d9e2358a74a615d0e57ae10a", size = 12439083, upload-time = "2026-09-11T21:39:19.217Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/b9/b33192ad472e5ce5df8173a53c3142469395b98880dfa5893d067f5c6ac2/dxpdf-0.8.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:1e069de25c00e7766efd771343d6a0a0af98aac6977444e26ae7b85f7f05ba45", size = 12218142, upload-time = "2026-09-11T21:39:22.245Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/68/b97b9d5297ad121f03967119720c03b87441ec57b70d8d4dd18cb267aff8/dxpdf-0.8.0-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:91a561e663ffb5343048da1fafb99bd58c3067ec67616baf982d155812190ac7", size = 14030641, upload-time = "2026-09-11T21:39:24.937Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/f1/c056931cc8763e49a2a3dae0993c90dacb76e9ac735959db25c478547158/dxpdf-0.8.0-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:40602a5069b4f7feb733358438cbce79e4fa696f0258b0a39a8efa396f68862c", size = 14026594, upload-time = "2026-09-11T21:39:27.649Z" },
+    { url = "https://files.pythonhosted.org/packages/03/6a/484a5221ea8256473eb636196875cf534eab8760e125fb448633a4a07a73/dxpdf-0.8.0-cp38-abi3-win_amd64.whl", hash = "sha256:da35fbbb66ddc243bbdd14f34be2c45736ac743264749a277109f13d1dee97ac", size = 12141709, upload-time = "2026-09-11T21:39:30.889Z" },
+]
+
+[[package]]
 name = "et-xmlfile"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -602,6 +615,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
+    { name = "dxpdf" },
     { name = "fastapi" },
     { name = "openpyxl" },
     { name = "pillow" },
@@ -625,6 +639,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.13.3" },
+    { name = "dxpdf", specifier = ">=0.8.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pillow", specifier = ">=12.3.0" },

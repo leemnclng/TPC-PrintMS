@@ -17,6 +17,7 @@ dependencies = [
   "openpyxl>=3.1.5",
   "python-pptx>=1.0.2",
   "pymupdf>=1.26.0",
+  "dxpdf>=0.8.0",
 ]
 
 [dependency-groups]

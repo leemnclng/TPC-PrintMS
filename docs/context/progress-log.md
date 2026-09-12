@@ -757,3 +757,16 @@ Chronological notes about app progress.
 - Summary: Expanded pricing-category assignments beyond paper and made long material selectors searchable.
 - Completed: Configuration can assign every active inventory type while retaining per-page rates only for paper. New products receive category-assigned additional supplies, and Stock Purchase can filter materials by name, category, or unit.
 - Verified: Affected pricing/inventory API tests and renderer lint/build pass.
+
+## 2026-09-13 (automatic DOCX-to-PDF conversion for printing)
+
+- Summary: Uploaded DOCX documents now auto-convert to a real PDF before being stored as a job's print-ready file, instead of storing the original Office file.
+- Completed: Added `dxpdf` (pure pip, MIT-licensed, no external app or Office install required) and a small conversion module (`office_conversion.py`) invoked right after document analysis, in both the single-document analyzed-job flow (`/job-orders/from-analysis`) and the multi-line transaction flow (`/job-orders/transactions`). A failed conversion surfaces a clear 422 instead of silently storing an unprintable file.
+- Known limitation: XLSX and PPTX are not auto-converted — no usable free pip-only converter exists for either format today (the one PyPI xlsx option is unstyled and breaks on Windows; none exists for pptx). Those uploads still analyze normally, but printing continues to ask the owner to export to PDF first. See `decisions.md` for the evaluated alternatives.
+- Verified: New DOCX-conversion job-order test plus the full existing API suite (58 tests) pass.
+
+## 2026-09-13 (scrollable pricing-category modal)
+
+- Summary: Fixed the Configuration pricing-category modal not scrolling when its fields and materials list overflowed a short window.
+- Completed: Wrapped the form's fields (name, workflow, description, active toggle, materials fieldset) in their own scrollable container separate from the fixed footer, matching the layout already used by the New print type and variant modals.
+- Verified: Renderer typecheck, lint, and production build pass.
