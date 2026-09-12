@@ -604,6 +604,24 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     assert snapshot_order["items"][0]["printTypeLabel"] == "B&W (Black and white)"
     assert snapshot_order["items"][0]["printColorMode"] == "grayscale"
 
+    bypass_order = client.post(
+        "/job-orders",
+        headers=headers,
+        json=_order_payload(customer["id"], product["id"], alternative_paper["id"]),
+    ).json()
+    bypass_path = f"/job-orders/{bypass_order['id']}/items/{bypass_order['items'][0]['id']}/development/complete-print"
+    monkeypatch.setattr(settings, "stage", "production")
+    production_bypass = client.post(bypass_path, headers=headers)
+    assert production_bypass.status_code == 403
+    monkeypatch.setattr(settings, "stage", "development")
+    development_bypass = client.post(bypass_path, headers=headers)
+    assert development_bypass.status_code == 200
+    assert development_bypass.json()["status"] == "ready"
+    assert development_bypass.json()["items"][0]["status"] == "ready"
+    assert development_bypass.json()["items"][0]["materials"][0]["consumedQuantity"] == 1
+    assert development_bypass.json()["printAttempts"] == []
+    assert "no physical print was submitted" in development_bypass.json()["items"][0]["statusEvents"][0]["note"]
+
     paper_plan = next(
         plan for plan in order["items"][0]["materials"] if plan["inventoryItemId"] == paper["id"]
     )
@@ -1383,6 +1401,69 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
         "printing",
         "queued",
     ]
+
+    reopened = client.post(
+        f"/job-orders/{order['id']}/void",
+        headers=headers,
+        json={"reason": "Wrong product and price were recorded."},
+    )
+    assert reopened.status_code == 200
+    reopened_order = reopened.json()
+    assert reopened_order["status"] == "ready"
+    assert reopened_order["amountPaid"] == 0
+    assert len(reopened_order["payments"]) == 2
+    assert all(payment["verified"] is False for payment in reopened_order["payments"])
+    assert all(payment["voidedAt"] is not None for payment in reopened_order["payments"])
+    assert all(payment["voidReason"] == "Wrong product and price were recorded." for payment in reopened_order["payments"])
+
+    replacement_product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "Corrected Letter document",
+            "printType": "black_and_white",
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}],
+        },
+    ).json()
+    original_item = reopened_order["items"][0]
+    corrected = client.put(
+        f"/job-orders/{order['id']}/items/{original_item['id']}/correction",
+        headers=headers,
+        json={
+            "productId": replacement_product["id"],
+            "lineTotal": 30,
+            "reason": "Customer selected the other registered product.",
+        },
+    )
+    assert corrected.status_code == 200
+    corrected_order = corrected.json()
+    assert corrected_order["status"] == "ready"
+    assert corrected_order["total"] == 30
+    assert corrected_order["items"][0]["productId"] == replacement_product["id"]
+    assert corrected_order["items"][0]["productName"] == "Corrected Letter document"
+    assert corrected_order["items"][0]["lineTotal"] == 30
+    assert corrected_order["items"][0]["materials"] == original_item["materials"]
+    assert corrected_order["files"] == reopened_order["files"]
+    assert corrected_order["items"][0]["pricingBreakdown"][0]["kind"] == "ownerOverride"
+
+    replacement_payment = client.post(
+        f"/job-orders/{order['id']}/payments",
+        headers=headers,
+        json={"amount": 30, "method": "cash"},
+    )
+    assert replacement_payment.status_code == 201
+    assert replacement_payment.json()["status"] == "paid"
+    assert replacement_payment.json()["amountPaid"] == 30
+    assert len(replacement_payment.json()["payments"]) == 3
+    locked_correction = client.put(
+        f"/job-orders/{order['id']}/items/{original_item['id']}/correction",
+        headers=headers,
+        json={"productId": product["id"], "lineTotal": 25, "reason": "Too late"},
+    )
+    assert locked_correction.status_code == 409
 
     suggested_response = client.post(
         "/job-orders/from-analysis",

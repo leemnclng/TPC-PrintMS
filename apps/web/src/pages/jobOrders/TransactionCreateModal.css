@@ -88,6 +88,10 @@
 .transaction-line-preview__status > span { display: grid; width: 3rem; height: 3.5rem; place-items: center; border: 1px solid var(--color-accent); color: var(--color-accent); font-family: var(--font-mono); font-size: var(--text-xs); }
 .transaction-line-preview__status p { max-width: 28rem; margin: 0; color: color-mix(in oklab, var(--color-paper), transparent 30%); font-size: var(--text-sm); }
 .transaction-line__notice { border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); background: var(--color-neutral-soft); }
+.transaction-line__pricing { display: grid; grid-template-columns: minmax(10rem, .35fr) minmax(0, 1fr); gap: var(--space-4); border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); background: var(--color-paper-2); }
+.transaction-line__pricing > header { display: flex; flex-direction: column; gap: var(--space-1); }
+.transaction-line__pricing > header span { color: var(--color-accent); font: 500 var(--text-xs) var(--font-mono); letter-spacing: .05em; }
+.transaction-line__pricing > header small { color: var(--color-ink-faint); }
 .transaction-line > footer { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(10rem, auto) minmax(10rem, auto) auto; align-items: end; gap: var(--space-3); border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); }
 .transaction-line > footer > div,
 .transaction-line > footer > label { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); }
@@ -113,6 +117,7 @@
   .transaction-create__identity,
   .transaction-line__fields { grid-template-columns: 1fr; }
   .transaction-line > footer { grid-template-columns: 1fr; }
+  .transaction-line__pricing { grid-template-columns: 1fr; }
   .transaction-line > footer output { text-align: left; }
   .transaction-create__checkout { align-items: stretch; flex-wrap: wrap; }
   .transaction-create__checkout > div { flex-basis: 100%; }

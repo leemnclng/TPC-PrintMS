@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-09-10 — Keep product corrections auditable before payment
+
+- Allow price changes and individual product cancellation only while the transaction is unpaid and active. Require a reason for both and retain same-status pricing events in product history.
+- Set a cancelled product's payable line total to zero without erasing attempts, files, or consumed materials. Ignore cancelled lines when determining whether remaining production is Ready; cancelling every line cancels the transaction.
+- Open the environment-managed retained job copy rather than relying on the customer's original path. Report availability in job data and show a direct missing-file state when the managed copy no longer exists.
+
+## 2026-09-10 — Keep commercial adjustments together in Pricing
+
+- Configure global additions and reusable discounts on the Pricing page. Discounts require explicit product assignments and apply automatically only while active.
+- Calculate global additions before discounts. Percentage discounts share the post-addition basis, fixed discounts apply per product/copy, and combined reductions are capped at the payable amount.
+- Preserve owner-entered final prices as explicit overrides and preserve existing job totals when pricing configuration changes.
+
+## 2026-09-10 — Use one-unit effective ranges for product browsing
+
+- Derive a product's catalog range from every configured base rate combined with no add-on and each available variant. Apply active global variables and whole-peso rounding to every candidate before selecting the minimum and maximum.
+- Treat fixed global charges as one product/copy in reference views. Keep configuration matrices raw so owners can distinguish editable source rates from customer-facing effective prices.
+
 ## 2026-09-09 — Match inventory searches by independent words
 
 - Normalize case, accents, and punctuation, then require every query word to occur somewhere in the combined material name, category, unit, notes, or paper-size description. Preserve partial-word matching so short practical inputs such as `A4 photo pap` remain useful.
@@ -759,3 +776,30 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Every percentage variable uses the product subtotal before global variables, so variable order cannot change the price.
 - Fixed variables apply once per priced product/copy. Owner-entered final prices remain explicit overrides.
 - Configuration changes affect new calculations only; existing job totals remain unchanged.
+# 2026-09-10 — Preserve product-level pricing breakdowns on job orders
+
+- Each job-order product stores a signed pricing snapshot covering base charges, variants, analyzer adjustments, global variables, discounts, rounding, owner overrides, and cancellation.
+- Saved jobs render that snapshot instead of recalculating against current configuration, preserving audit accuracy.
+
+## 2026-09-12 — Separate customer tender from the applied payment
+
+- Decision: Let the owner enter the full amount received, calculate change against the outstanding balance, and record only the amount applied to that balance.
+- Rationale: Cash tender may exceed the sale total, but returned change is not revenue and must not inflate payment history or reports.
+- Impact: The payment modal previews applied payment, change due, and remaining balance. Exact amount fills the balance, while smaller amounts continue to create partial payments.
+
+### Keep simulated printing isolated and explicit
+
+- Decision: Allow queued printing lines to move directly to Ready only in the Development environment, with both renderer visibility and backend authorization checking the active stage.
+- Rationale: Developers need to exercise payment and completion flows without producing physical output, while Production and Test must retain real printer gates.
+- Impact: Simulation deducts planned materials like a successful print, records a clear development-bypass status and inventory note, and creates no print attempt because no OS submission occurred.
+
+### Record stock purchases as an immutable expenditure ledger
+
+- Decision: Store each purchase as a financial record related to a registered material, but keep it independent from production inventory. Recording or restocking never changes `quantity_on_hand`, creates an inventory movement, or updates the material's current purchase-price reference.
+- Rationale: The owner needs purchase and expenditure history without conflating purchased packages with the usable sheets or units consumed by transactions.
+- Impact: Purchases retain material name/unit snapshots, purchase quantity, total and per-unit cost, date, supplier, reference, and notes. The purchase unit follows the material configuration (`ream` for ream-priced sheet materials; otherwise its inventory unit). Restock creates another purchase record with the material preselected. Material deletion preserves expenditure with a detached snapshot. Weighted-average valuation and profit reporting remain future work.
+## 2026-09-12 — Reopen corrections without rewriting operational history
+
+- Decision: Void verified payments in place and return paid/completed transactions to Ready. Allow product identity and price corrections only between products with the same operation workflow, while retaining existing files, print attempts, quantities, material plans, and consumption.
+- Rationale: Owners need to repair an incorrect sales record and collect the corrected payment without pretending completed production or inventory events never happened.
+- Impact: Voided payments keep their original amount/method/time plus the void time and required reason, and no longer count toward balances or sales reports. The correction is audit-only and does not issue a financial refund. Different-workflow work must be added as a new product line.

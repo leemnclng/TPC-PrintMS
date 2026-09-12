@@ -21,6 +21,7 @@ class PricingEngine:
         variant_adjustment: float = 0,
         paper_size: InventoryPaperSize | None = None,
         global_variables: list[tuple[str, str, float]] | None = None,
+        discounts: list[tuple[str, str, float]] | None = None,
     ) -> PricingResult:
         active = [rule for rule in rules if rule.is_active]
         pricing_paper_size = paper_size.value if paper_size is not None else analysis.paper_size.value
@@ -51,4 +52,5 @@ class PricingEngine:
             variant_adjustment,
             paper_size,
             global_variables,
+            discounts,
         )

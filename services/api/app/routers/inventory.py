@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
@@ -9,6 +11,7 @@ from ..db.models import (
     InventoryItem,
     InventoryMovement,
     InventoryMovementKind,
+    InventoryStockPurchase,
     JobOrder,
     Product,
 )
@@ -19,6 +22,8 @@ from ..schemas.inventory import (
     InventoryItemRead,
     InventoryItemUpdate,
     InventoryMovementRead,
+    InventoryStockPurchaseCreate,
+    InventoryStockPurchaseRead,
     PaperSizeDefinitionRead,
 )
 from ..services.paper_sizes import (
@@ -48,6 +53,7 @@ def _item_to_read(item: InventoryItem) -> InventoryItemRead:
         paper_width_mm=item.paper_width_mm,
         paper_height_mm=item.paper_height_mm,
         linked_product_count=len(item.product_assignments),
+        stock_purchase_count=len(item.stock_purchases),
         created_at=item.created_at,
         updated_at=item.updated_at,
     )
@@ -70,6 +76,23 @@ def _movement_to_read(movement: InventoryMovement) -> InventoryMovementRead:
         product_id=movement.product_id,
         note=movement.note,
         occurred_at=movement.occurred_at,
+    )
+
+
+def _purchase_to_read(purchase: InventoryStockPurchase) -> InventoryStockPurchaseRead:
+    return InventoryStockPurchaseRead(
+        id=purchase.id,
+        inventory_item_id=purchase.inventory_item_id,
+        material_name=purchase.material_name,
+        purchase_unit=purchase.purchase_unit,
+        quantity_purchased=purchase.quantity_purchased,
+        total_cost=purchase.total_cost,
+        unit_cost=round(purchase.total_cost / purchase.quantity_purchased, 6),
+        supplier=purchase.supplier,
+        reference=purchase.reference,
+        notes=purchase.notes,
+        purchased_on=purchase.purchased_on,
+        created_at=purchase.created_at,
     )
 
 
@@ -129,6 +152,60 @@ def list_paper_sizes() -> list[PaperSizeDefinitionRead]:
 def list_inventory_items(db: Session = Depends(get_db)) -> list[InventoryItemRead]:
     items = db.query(InventoryItem).order_by(InventoryItem.category, InventoryItem.name).all()
     return [_item_to_read(item) for item in items]
+
+
+@router.get("/inventory-stock-purchases", response_model=list[InventoryStockPurchaseRead])
+def list_inventory_stock_purchases(
+    inventory_item_id: str | None = None,
+    db: Session = Depends(get_db),
+) -> list[InventoryStockPurchaseRead]:
+    query = db.query(InventoryStockPurchase)
+    if inventory_item_id:
+        query = query.filter(InventoryStockPurchase.inventory_item_id == inventory_item_id)
+    purchases = query.order_by(
+        InventoryStockPurchase.purchased_on.desc(),
+        InventoryStockPurchase.created_at.desc(),
+    ).all()
+    return [_purchase_to_read(purchase) for purchase in purchases]
+
+
+@router.post("/inventory-stock-purchases", response_model=InventoryStockPurchaseRead, status_code=201)
+def create_inventory_stock_purchase(
+    payload: InventoryStockPurchaseCreate,
+    db: Session = Depends(get_db),
+) -> InventoryStockPurchaseRead:
+    item = db.get(InventoryItem, payload.inventory_item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found.")
+    if not item.is_active:
+        raise HTTPException(status_code=409, detail="Reactivate this material before recording a stock purchase.")
+    if payload.purchased_on > date.today():
+        raise HTTPException(status_code=422, detail="Purchase date cannot be in the future.")
+    if abs(payload.quantity_purchased * 1_000_000 - round(payload.quantity_purchased * 1_000_000)) > 0.000001:
+        raise HTTPException(status_code=422, detail="Quantity supports up to six decimal places.")
+    if abs(payload.total_cost * 100 - round(payload.total_cost * 100)) > 0.000001:
+        raise HTTPException(status_code=422, detail="Total cost supports up to two decimal places.")
+
+    quantity = round(payload.quantity_purchased, 6)
+    if quantity <= 0:
+        raise HTTPException(status_code=422, detail="Quantity must be at least 0.000001.")
+    total_cost = round(payload.total_cost, 2)
+    purchase_unit = "ream" if item.purchase_price_basis == "ream" else item.unit
+    purchase = InventoryStockPurchase(
+        inventory_item_id=item.id,
+        material_name=item.name,
+        purchase_unit=purchase_unit,
+        quantity_purchased=quantity,
+        total_cost=total_cost,
+        supplier=payload.supplier.strip() if payload.supplier and payload.supplier.strip() else None,
+        reference=payload.reference.strip() if payload.reference and payload.reference.strip() else None,
+        notes=payload.notes.strip() if payload.notes and payload.notes.strip() else None,
+        purchased_on=payload.purchased_on,
+    )
+    db.add(purchase)
+    db.commit()
+    db.refresh(purchase)
+    return _purchase_to_read(purchase)
 
 
 @router.post("/inventory-items", response_model=InventoryItemRead, status_code=201)
@@ -194,6 +271,11 @@ def delete_inventory_item(item_id: str, db: Session = Depends(get_db)) -> None:
             status_code=409,
             detail="This material is used in a job order or document-analyzer pricing and can't be deleted. Deactivate it instead.",
         )
+    # Purchase spending remains as a material-name/unit snapshot even after
+    # the operational material is removed.
+    db.query(InventoryStockPurchase).filter(
+        InventoryStockPurchase.inventory_item_id == item.id
+    ).update({InventoryStockPurchase.inventory_item_id: None}, synchronize_session=False)
     # Movement history alone no longer blocks deletion — the item's own
     # stock-movement log is deleted with it (cascade). What still blocks
     # deletion is anything with its own independent record referencing this

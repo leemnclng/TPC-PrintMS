@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -322,6 +322,37 @@ class GlobalPricingVariable(TimestampMixin, Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
+class PricingDiscount(TimestampMixin, Base):
+    """Owner-managed discount automatically applied to selected products."""
+
+    __tablename__ = "pricing_discounts"
+    __table_args__ = (
+        CheckConstraint("calculation_type IN ('percentage', 'fixed')", name="ck_pricing_discount_type"),
+        CheckConstraint("value >= 0", name="ck_pricing_discount_value"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    calculation_type: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    product_assignments: Mapped[list["PricingDiscountProduct"]] = relationship(
+        back_populates="discount", cascade="all, delete-orphan"
+    )
+
+
+class PricingDiscountProduct(Base):
+    __tablename__ = "pricing_discount_products"
+    __table_args__ = (UniqueConstraint("discount_id", "product_id"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    discount_id: Mapped[str] = mapped_column(ForeignKey("pricing_discounts.id"), nullable=False)
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), nullable=False)
+    discount: Mapped["PricingDiscount"] = relationship(back_populates="product_assignments")
+    product: Mapped["Product"] = relationship()
+
+
 class DocumentPricingRule(TimestampMixin, Base):
     """Workflow-scoped global rate for one real paper-stock item and print type."""
 
@@ -514,6 +545,9 @@ class InventoryItem(TimestampMixin, Base):
     movements: Mapped[list["InventoryMovement"]] = relationship(
         back_populates="inventory_item", cascade="all, delete-orphan"
     )
+    stock_purchases: Mapped[list["InventoryStockPurchase"]] = relationship(
+        back_populates="inventory_item", passive_deletes=True
+    )
     job_order_material_plans: Mapped[list["JobOrderMaterialPlan"]] = relationship(
         back_populates="inventory_item"
     )
@@ -628,6 +662,7 @@ class JobOrderItem(Base):
     copies: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     unit_price: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     line_total: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    pricing_breakdown_snapshot: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     print_sides: Mapped[PrintSides] = mapped_column(
         Enum(PrintSides), default=PrintSides.single_sided, nullable=False
     )
@@ -661,6 +696,31 @@ class JobOrderMaterialPlan(Base):
     inventory_item: Mapped["InventoryItem"] = relationship(back_populates="job_order_material_plans")
 
 
+class InventoryStockPurchase(TimestampMixin, Base):
+    """Immutable spending ledger linked to a material without changing production stock."""
+
+    __tablename__ = "inventory_stock_purchases"
+    __table_args__ = (
+        CheckConstraint("quantity_purchased > 0", name="ck_stock_purchase_quantity"),
+        CheckConstraint("total_cost >= 0", name="ck_stock_purchase_total_cost"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    inventory_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("inventory_items.id", ondelete="SET NULL"), nullable=True
+    )
+    material_name: Mapped[str] = mapped_column(String, nullable=False)
+    purchase_unit: Mapped[str] = mapped_column(String, nullable=False)
+    quantity_purchased: Mapped[float] = mapped_column(Float, nullable=False)
+    total_cost: Mapped[float] = mapped_column(Float, nullable=False)
+    supplier: Mapped[str | None] = mapped_column(String, nullable=True)
+    reference: Mapped[str | None] = mapped_column(String, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    purchased_on: Mapped[date] = mapped_column(Date, nullable=False)
+
+    inventory_item: Mapped["InventoryItem | None"] = relationship(back_populates="stock_purchases")
+
+
 class InventoryMovement(Base):
     """Immutable stock ledger; job usage rows provide per-order material audit."""
 
@@ -690,6 +750,8 @@ class Payment(Base):
     method: Mapped[PaymentMethod] = mapped_column(Enum(PaymentMethod), default=PaymentMethod.cash, nullable=False)
     verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="payments")
 

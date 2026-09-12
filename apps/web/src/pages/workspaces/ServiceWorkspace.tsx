@@ -11,7 +11,8 @@ import { StatusPill } from "../../components/StatusPill/StatusPill";
 import { useResource } from "../../hooks/useResource";
 import { api, ApiError } from "../../lib/apiClient";
 import { formatCurrency, formatProductPrintType } from "../../lib/format";
-import type { DeletedProduct, DocumentPricingRule, InventoryItem, PricingCategory, PrintTypeDefinition, Product, ScanPricingTier, Service, Variant } from "../../types/domain";
+import { formatProductPriceRange, resolveProductPriceRange } from "../../lib/pricingView";
+import type { DeletedProduct, DocumentPricingRule, GlobalPricingVariable, InventoryItem, PricingCategory, PricingDiscount, PrintTypeDefinition, Product, ScanPricingTier, Service, Variant } from "../../types/domain";
 import { ProductCreateModal } from "./ProductCreateModal";
 import "./ServiceWorkspace.css";
 
@@ -25,6 +26,8 @@ interface WorkspaceData {
   scanPricingTiers: ScanPricingTier[];
   printTypes: PrintTypeDefinition[];
   pricingCategories: PricingCategory[];
+  pricingVariables: GlobalPricingVariable[];
+  pricingDiscounts: PricingDiscount[];
 }
 
 export function ServiceWorkspace() {
@@ -38,7 +41,7 @@ export function ServiceWorkspace() {
     async () => {
       if (!serviceId) throw new Error("Service not found.");
 
-      const [service, products, deletedProducts, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories] = await Promise.all([
+      const [service, products, deletedProducts, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories, pricingVariables, pricingDiscounts] = await Promise.all([
         api.get<Service>(`/services/${serviceId}`),
         api.get<Product[]>(`/products?service_id=${encodeURIComponent(serviceId)}`),
         api.get<DeletedProduct[]>(`/products/deleted?service_id=${encodeURIComponent(serviceId)}`),
@@ -48,9 +51,11 @@ export function ServiceWorkspace() {
         api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
         api.get<PrintTypeDefinition[]>("/print-types"),
         api.get<PricingCategory[]>("/document-analyzer/pricing-categories"),
+        api.get<GlobalPricingVariable[]>("/document-analyzer/pricing-variables"),
+        api.get<PricingDiscount[]>("/document-analyzer/pricing-discounts"),
       ]);
 
-      return { service, products, deletedProducts, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories };
+      return { service, products, deletedProducts, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories, pricingVariables, pricingDiscounts };
     },
     [serviceId],
   );
@@ -159,9 +164,12 @@ export function ServiceWorkspace() {
               },
               {
                 key: "price",
-                header: "Price / page",
+                header: "Effective price range",
                 align: "right",
-                render: (product) => formatCurrency(product.pricePerPage),
+                render: (product) => {
+                  const range = resolveProductPriceRange(product, data.pricingRules, data.scanPricingTiers, data.pricingVariables, data.pricingDiscounts);
+                  return <span className="service-workspace__price-range"><strong>{formatProductPriceRange(range, formatCurrency)}</strong><small>{range?.hasAddOns ? "Base to available add-on" : "Global charges included"}</small></span>;
+                },
               },
               {
                 key: "status",

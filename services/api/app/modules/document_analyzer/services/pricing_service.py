@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     DocumentPricingRule,
     GlobalPricingVariable,
+    PricingDiscount,
+    PricingDiscountProduct,
     PricingCategory,
     PricingCategoryMaterial,
     PrintType,
@@ -147,6 +149,17 @@ class PricingService:
                 .order_by(GlobalPricingVariable.sort_order, GlobalPricingVariable.name)
                 .all()
             ],
+            [
+                (discount.name, discount.calculation_type, discount.value)
+                for discount in db.query(PricingDiscount)
+                .join(PricingDiscountProduct)
+                .filter(
+                    PricingDiscount.is_active.is_(True),
+                    PricingDiscountProduct.product_id == product.id,
+                )
+                .order_by(PricingDiscount.sort_order, PricingDiscount.name)
+                .all()
+            ] if product is not None else [],
         )
 
     @staticmethod

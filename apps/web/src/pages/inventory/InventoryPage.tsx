@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "../../components/Button/Button";
+import { LinkButton } from "../../components/Button/LinkButton";
 import { EmptyState } from "../../components/EmptyState/EmptyState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { LoadingState } from "../../components/LoadingState/LoadingState";
@@ -128,7 +129,7 @@ export function InventoryPage() {
         eyebrow="OPERATIONS"
         title="Inventory"
         description="Register production materials, monitor stock, and connect consumption rules to the products that use them."
-        actions={<Button type="button" variant="primary" onClick={openCreate}>Register material</Button>}
+        actions={<><LinkButton to="/inventory/stocks" variant="secondary">Stock purchases</LinkButton><Button type="button" variant="primary" onClick={openCreate}>Register material</Button></>}
       />
 
       {state === "loading" ? <LoadingState label="Loading inventory…" /> : null}
@@ -223,6 +224,7 @@ export function InventoryPage() {
                         <td data-label="Status"><StatusPill label={status.label} tone={status.tone} /></td>
                         <td className="inventory-register__actions">
                           <Link to={`/inventory/${item.id}/history`}>History</Link>
+                          {item.stockPurchaseCount > 0 ? <LinkButton to={`/inventory/stocks?restock=${encodeURIComponent(item.id)}`} variant="secondary" size="sm">Restock</LinkButton> : null}
                           <Button type="button" variant="secondary" size="sm" onClick={() => setAdjustingItem(item)}>Adjust</Button>
                           <Button type="button" variant="ghost" size="sm" onClick={() => openEdit(item)}>Edit</Button>
                           <Button

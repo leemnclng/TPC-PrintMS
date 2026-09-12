@@ -11,6 +11,7 @@ import { EmptyState } from "../../components/EmptyState/EmptyState";
 import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { useResource } from "../../hooks/useResource";
+import { useHealth } from "../../hooks/useHealth";
 import { api } from "../../lib/apiClient";
 import { formatCurrency, formatDate, formatDateTime } from "../../lib/format";
 import { printMediaLabel } from "../../lib/printProfiles";
@@ -25,6 +26,7 @@ import { TransactionCreateModal } from "../jobOrders/TransactionCreateModal";
 import { JobQualityFailureModal } from "../jobOrders/JobQualityFailureModal";
 import { JobCancelModal } from "../jobOrders/JobCancelModal";
 import { JobProductConfiguration } from "../jobOrders/JobProductConfiguration";
+import { JobProductCancelModal, JobProductCorrectionModal, JobProductPriceModal, JobVoidModal } from "../jobOrders/JobProductEditModals";
 import "./Workspace.css";
 
 type TransitionTarget = "queued" | "ready" | "paid" | "completed";
@@ -74,7 +76,12 @@ export function JobOrderWorkspace() {
   const [attachedSpoolerJobId, setAttachedSpoolerJobId] = useState<string | null>(null);
   const [qualityFailureItem, setQualityFailureItem] = useState<JobOrderItem | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [priceItem, setPriceItem] = useState<JobOrderItem | null>(null);
+  const [correctionItem, setCorrectionItem] = useState<JobOrderItem | null>(null);
+  const [cancelItem, setCancelItem] = useState<JobOrderItem | null>(null);
+  const [voidOpen, setVoidOpen] = useState(false);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const { health } = useHealth();
   const { data, state, error, reload } = useResource(async () => {
     const [order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, spoolerMonitor] = await Promise.all([
       api.get<JobOrder>(`/job-orders/${jobOrderId}`),
@@ -132,6 +139,8 @@ export function JobOrderWorkspace() {
   const plannedMaterials = order.items.flatMap((item) => item.materials);
   const hasRemainingMaterials = plannedMaterials.some((material) => material.consumedQuantity + 1e-9 < material.plannedQuantity);
   const canRecordFallbackUsage = hasRemainingMaterials && ["printing", "ready", "paid", "completed"].includes(order.status);
+  const canVoidForCorrection = ["paid", "completed"].includes(order.status) || (order.status === "ready" && order.amountPaid > 0);
+  const reopenedForCorrection = order.status === "ready" && order.amountPaid === 0 && order.payments.some((payment) => payment.voidedAt);
   function workflowAction() {
     if (order.status === "ready") {
       return <Button variant="primary" onClick={() => (outstanding > 0 ? setPaymentOpen(true) : setTransitionTarget("paid"))}>Record combined payment</Button>;
@@ -147,6 +156,10 @@ export function JobOrderWorkspace() {
     setTransitionTarget(null);
     setQualityFailureItem(null);
     setCancelOpen(false);
+    setPriceItem(null);
+    setCorrectionItem(null);
+    setCancelItem(null);
+    setVoidOpen(false);
     reload();
   }
 
@@ -178,6 +191,23 @@ export function JobOrderWorkspace() {
     }
   }
 
+  async function bypassPrintInDevelopment(item: JobOrderItem) {
+    const confirmed = window.confirm(
+      `Development only: mark ${item.productName} as printed and ready without sending anything to a printer? Planned materials will still be deducted.`,
+    );
+    if (!confirmed) return;
+    setBusyItemId(item.id);
+    setItemActionError(null);
+    try {
+      await api.post<JobOrder>(`/job-orders/${order.id}/items/${item.id}/development/complete-print`);
+      reload();
+    } catch (caught) {
+      setItemActionError(caught instanceof Error ? caught.message : "The development print bypass could not be completed.");
+    } finally {
+      setBusyItemId(null);
+    }
+  }
+
   function toggleItemProcess(itemId: string) {
     const opening = expandedItemId !== itemId;
     // Refresh on open so a "still printing" line shows the freshest spooler
@@ -192,12 +222,12 @@ export function JobOrderWorkspace() {
         eyebrow="JOB ORDER WORKFLOW"
         title={order.name}
         description={`${order.number} · ${order.customerName ? order.customerName : "Walk-in order"} · complete every production step here`}
-        actions={<><LinkButton to="/job-orders" variant="secondary">All job orders</LinkButton>{["queued", "printing", "ready"].includes(order.status) && order.amountPaid === 0 ? <Button variant="danger" onClick={() => setCancelOpen(true)}>Cancel order</Button> : null}<StatusPill label={jobOrderStatusMeta[order.status].label} tone={jobOrderStatusMeta[order.status].tone} /></>}
+        actions={<><LinkButton to="/job-orders" variant="secondary">All job orders</LinkButton>{canVoidForCorrection ? <Button variant="danger" onClick={() => setVoidOpen(true)}>Void &amp; correct</Button> : null}{["queued", "printing", "ready"].includes(order.status) && order.amountPaid === 0 ? <Button variant="danger" onClick={() => setCancelOpen(true)}>Cancel order</Button> : null}<StatusPill label={jobOrderStatusMeta[order.status].label} tone={jobOrderStatusMeta[order.status].tone} /></>}
       />
 
       <section className="job-command" aria-labelledby="job-command-title">
         <div className="job-command__heading">
-          <div><span className="numeric">TRANSACTION STATUS</span><h2 id="job-command-title">{jobOrderStatusMeta[order.status].label}</h2><p>{NEXT_STEP_COPY[order.status] ?? "This transaction has no active production action."}</p></div>
+          <div><span className="numeric">TRANSACTION STATUS</span><h2 id="job-command-title">{jobOrderStatusMeta[order.status].label}</h2><p>{reopenedForCorrection ? "This transaction was reopened. Correct its product records and prices below, then record the replacement payment." : NEXT_STEP_COPY[order.status] ?? "This transaction has no active production action."}</p></div>
           {workflowAction()}
         </div>
         <ol className="job-workflow-steps">
@@ -224,13 +254,13 @@ export function JobOrderWorkspace() {
         <Card>
           <CardHeader title="Payment breakdown" meta={`${order.items.length} product ${order.items.length === 1 ? "line" : "lines"}`} />
           <div className="job-line-breakdown">
-            {order.items.map((item) => <div key={item.id}><span><strong>{item.productName}</strong><small>{item.serviceName} · {item.pagesPerCopy} pages × {item.copies}</small></span><b>{formatCurrency(item.lineTotal)}</b></div>)}
+            {order.items.map((item) => <div className={item.status === "cancelled" ? "is-cancelled" : ""} key={item.id}><span><strong>{item.productName}</strong><small>{item.status === "cancelled" ? "Cancelled product" : `${item.serviceName} · ${item.pagesPerCopy} pages × ${item.copies}`}</small></span><b>{formatCurrency(item.lineTotal)}</b></div>)}
           </div>
         </Card>
       </div>
 
       <section className="job-operation-board" aria-labelledby="job-operation-title">
-        <header><div><span className="numeric">PRODUCTION LINES</span><h2 id="job-operation-title">Independent work progress</h2><p>Device interaction and quality review stay with each product. Payment unlocks only when all lines are ready.</p></div><div className="job-operation-board__actions"><b>{order.items.filter((item) => item.status === "ready").length}/{order.items.length} ready</b>{initialService && ["queued", "printing", "ready"].includes(order.status) ? <Button variant="secondary" onClick={() => setAddProductsOpen(true)}>Add products</Button> : null}</div></header>
+        <header><div><span className="numeric">PRODUCTION LINES</span><h2 id="job-operation-title">Independent work progress</h2><p>Device interaction and quality review stay with each product. Payment unlocks only when all active lines are ready.</p></div><div className="job-operation-board__actions"><b>{order.items.filter((item) => item.status === "ready").length}/{order.items.filter((item) => item.status !== "cancelled").length} ready</b>{initialService && ["queued", "printing", "ready"].includes(order.status) ? <Button variant="secondary" onClick={() => setAddProductsOpen(true)}>Add products</Button> : null}</div></header>
         <div className="job-operation-grid">
           {order.items.map((item, index) => {
             const itemFiles = order.files.filter((file) => file.jobOrderItemId === item.id || (!file.jobOrderItemId && order.items.length === 1));
@@ -241,12 +271,14 @@ export function JobOrderWorkspace() {
             const latestPrintAttempt = itemAttempts
               .filter((attempt) => attempt.result === "succeeded")
               .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())[0];
-            const statusLabel = item.status === "printing" ? "Printing" : item.status === "ready" ? "Ready" : "Queued";
-            const tone = item.status === "ready" ? "success" : item.status === "printing" ? "info" : "warning";
+            const statusLabel = item.status === "cancelled" ? "Cancelled" : item.status === "printing" ? "Printing" : item.status === "ready" ? "Ready" : "Queued";
+            const tone = item.status === "cancelled" ? "neutral" : item.status === "ready" ? "success" : item.status === "printing" ? "info" : "warning";
             const isExpanded = expandedItemId === item.id;
             const processRegionId = `job-line-process-${item.id}`;
-            const productionLocked = ["paid", "completed", "cancelled"].includes(order.status);
-            const processMeta = order.status === "cancelled"
+            const productionLocked = ["paid", "completed", "cancelled"].includes(order.status) || item.status === "cancelled";
+            const processMeta = item.status === "cancelled"
+              ? { label: "Cancelled product", title: "Product removed", description: "Its price is removed from this transaction. Files, attempts, material consumption, and history remain for audit." }
+              : order.status === "cancelled"
               ? { label: "Cancelled record", title: "Production stopped", description: "This line is locked with its existing attempts, files, and material history retained." }
               : order.status === "completed"
                 ? { label: "Completed record", title: "Production complete", description: "This line is complete. Its output and production history remain available for reference." }
@@ -281,7 +313,7 @@ export function JobOrderWorkspace() {
                   <div><dt>Output</dt><dd>{item.operationKind === "scan" ? "Digital file" : item.operationKind === "adhoc" ? "External work" : item.printSides === "double_sided" ? "Back-to-back" : "Single-sided"}</dd></div>
                   <div><dt>Progress records</dt><dd>{item.statusEvents.length} status · {order.printAttempts.filter((attempt) => attempt.jobOrderItemId === item.id).length} attempts</dd></div>
                 </dl>
-                <JobProductConfiguration order={order} item={item} files={itemFiles} attempts={itemAttempts} />
+                <JobProductConfiguration order={order} item={item} files={itemFiles} attempts={itemAttempts} onCorrect={() => setCorrectionItem(item)} onEditPrice={() => setPriceItem(item)} onCancel={() => setCancelItem(item)} />
                 <button
                   type="button"
                   className="job-operation-card__step-toggle"
@@ -305,7 +337,8 @@ export function JobOrderWorkspace() {
                       ) : null}
                     </div>
                     <footer>
-                      {!productionLocked && item.status === "queued" && item.operationKind === "printing" ? <Button variant="primary" onClick={() => setPrintItem(item)}>Open print setup</Button> : null}
+                      {!productionLocked && item.status === "queued" && item.operationKind === "printing" ? <Button variant="primary" disabled={busyItemId === item.id} onClick={() => setPrintItem(item)}>Open print setup</Button> : null}
+                      {!productionLocked && health?.stage === "development" && item.status === "queued" && item.operationKind === "printing" ? <Button variant="secondary" loading={busyItemId === item.id} onClick={() => bypassPrintInDevelopment(item)}>Dev: simulate completed print</Button> : null}
                       {!productionLocked && item.status === "queued" && item.operationKind === "scan" ? <Button variant="primary" onClick={() => setScanItem(item)}>Start scanning</Button> : null}
                       {!productionLocked && item.status === "queued" && item.operationKind === "photocopy" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Record photocopy complete</Button> : null}
                       {!productionLocked && item.status === "queued" && item.operationKind === "adhoc" ? <Button variant="primary" loading={busyItemId === item.id} onClick={() => transitionItem(item, "ready")}>Record external work complete</Button> : null}
@@ -327,7 +360,7 @@ export function JobOrderWorkspace() {
         <div className="job-audit-grid">
           <section>
             <header><h3>Payments</h3></header>
-            {order.payments.length ? order.payments.map((payment) => <div className="job-audit-row" key={payment.id}><span><strong>{PAYMENT_METHOD_LABELS[payment.method]}</strong><small>{formatDateTime(payment.recordedAt)}</small></span><b>{formatCurrency(payment.amount)}</b></div>) : <p>No payments recorded.</p>}
+            {order.payments.length ? order.payments.map((payment) => <div className={`job-audit-row${payment.voidedAt ? " is-voided" : ""}`} key={payment.id}><span><strong>{payment.voidedAt ? `Voided ${PAYMENT_METHOD_LABELS[payment.method]}` : PAYMENT_METHOD_LABELS[payment.method]}</strong><small>{formatDateTime(payment.recordedAt)}{payment.voidedAt ? ` · voided ${formatDateTime(payment.voidedAt)} · ${payment.voidReason}` : ""}</small></span><b>{formatCurrency(payment.amount)}</b></div>) : <p>No payments recorded.</p>}
           </section>
           <section>
             <header><h3>Print attempts</h3></header>
@@ -353,6 +386,10 @@ export function JobOrderWorkspace() {
       {initialService ? <TransactionCreateModal open={addProductsOpen} order={order} initialService={initialService} services={services} products={products} inventoryItems={inventoryItems} pricingRules={pricingRules} scanPricingTiers={scanPricingTiers} sourceSpoolerJobId={attachedSpoolerJobId} otherObservedPrintJobs={otherObservedPrintJobs} customers={[]} onClose={() => { setAddProductsOpen(false); setAttachedSpoolerJobId(null); }} onCreated={() => { setAddProductsOpen(false); setAttachedSpoolerJobId(null); reload(); }} /> : null}
       {qualityFailureItem ? <JobQualityFailureModal open order={order} item={qualityFailureItem} onClose={() => setQualityFailureItem(null)} onReprocessed={handleUpdated} /> : null}
       <JobCancelModal open={cancelOpen} order={order} onClose={() => setCancelOpen(false)} onCancelled={handleUpdated} />
+      <JobVoidModal open={voidOpen} order={order} onClose={() => setVoidOpen(false)} onUpdated={handleUpdated} />
+      {priceItem ? <JobProductPriceModal open order={order} item={priceItem} onClose={() => setPriceItem(null)} onUpdated={handleUpdated} /> : null}
+      {correctionItem ? <JobProductCorrectionModal open order={order} item={correctionItem} products={products} onClose={() => setCorrectionItem(null)} onUpdated={handleUpdated} /> : null}
+      {cancelItem ? <JobProductCancelModal open order={order} item={cancelItem} onClose={() => setCancelItem(null)} onUpdated={handleUpdated} /> : null}
     </>
   );
 }

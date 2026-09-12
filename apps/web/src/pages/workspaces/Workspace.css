@@ -107,6 +107,9 @@
 .job-audit-row > b,
 .job-audit-row > time,
 .job-audit-row > .status-pill { flex: 0 0 auto; text-align: right; }
+.job-audit-row.is-voided { opacity: .72; }
+.job-audit-row.is-voided strong,
+.job-audit-row.is-voided > b { text-decoration: line-through; }
 
 @media (max-width: 800px) {
   .workspace-grid {
@@ -338,12 +341,20 @@
 .job-product-config[open] > summary i { transform: rotate(45deg); }
 .job-product-config > summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -3px; }
 .job-product-config__body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--color-hairline); }
+.job-product-config__actions { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-4); background: var(--color-paper); }
+.job-product-config__actions > span { color: var(--color-ink-soft); font-size: var(--text-xs); }
+.job-product-config__actions > div { display: flex; gap: var(--space-2); }
 .job-product-config__body > section { min-width: 0; padding: var(--space-4); border-right: 1px solid var(--color-hairline); border-bottom: 1px solid var(--color-hairline); }
 .job-product-config__body > section:nth-child(2n) { border-right: 0; }
 .job-product-config__body h4 { margin: 0 0 var(--space-3); font-family: var(--font-display); font-size: var(--text-md); }
 .job-product-config__body section > dl, .job-product-config__attempt dl { grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--color-hairline); }
 .job-product-config__body section > dl > div, .job-product-config__attempt dl > div { padding: var(--space-2); }
 .job-product-config__body p { margin: 0; color: var(--color-ink-soft); font-size: var(--text-xs); }
+.job-product-config__body dd .btn { min-height: 2rem; margin-top: var(--space-2); }
+.job-product-config__file-error { margin-top: var(--space-3) !important; color: var(--color-danger) !important; }
+.job-product-config__missing-file { display: block; margin-top: var(--space-2); color: var(--color-danger); font-size: var(--text-xs); }
+.job-line-breakdown > .is-cancelled { opacity: .62; }
+.job-line-breakdown > .is-cancelled strong { text-decoration: line-through; }
 .job-product-config__attempts { grid-column: 1 / -1; border-right: 0 !important; }
 .job-product-config__attempts > p { margin-bottom: var(--space-3); }
 .job-product-config__attempt { margin-top: var(--space-3); border: 1px solid var(--color-hairline-strong); background: var(--color-paper); }

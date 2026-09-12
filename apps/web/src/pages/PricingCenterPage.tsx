@@ -11,8 +11,10 @@ import { useResource } from "../hooks/useResource";
 import { api } from "../lib/apiClient";
 import { formatCurrency } from "../lib/format";
 import { comparePaperSizes, paperSizeDisplay } from "../lib/paperSizes";
-import { hasCustomPricing, productUsesPaperSize, resolveProductPricePoints } from "../lib/pricingView";
-import type { DocumentPricingRule, InventoryPaperSize, PricingCategory, PrintTypeDefinition, Product, ScanPricingTier, Service } from "../types/domain";
+import { applyEffectivePricing, formatProductPriceRange, hasCustomPricing, productUsesPaperSize, resolveProductPricePoints, resolveProductPriceRange } from "../lib/pricingView";
+import type { DocumentPricingRule, GlobalPricingVariable, InventoryPaperSize, PricingCategory, PricingDiscount, PrintTypeDefinition, Product, ScanPricingTier, Service } from "../types/domain";
+import { GlobalPricingVariables } from "./settings/GlobalPricingVariables";
+import { PricingDiscounts } from "./settings/PricingDiscounts";
 import "./PricingCenterPage.css";
 
 type PriceFilter = "all" | "custom" | "global" | "missing";
@@ -22,14 +24,14 @@ function workflowLabel(service: Service): string {
   return "Custom";
 }
 
-function PaperPriceCell({ product, paperSize, rules }: { product: Product; paperSize: InventoryPaperSize; rules: DocumentPricingRule[] }) {
+function PaperPriceCell({ product, paperSize, rules, variables, discounts }: { product: Product; paperSize: InventoryPaperSize; rules: DocumentPricingRule[]; variables: GlobalPricingVariable[]; discounts: PricingDiscount[] }) {
   const points = resolveProductPricePoints(product, rules).filter((point) => point.paperSize === paperSize);
   const assigned = productUsesPaperSize(product, paperSize, rules);
   return (
     <td className="pricing-service-table__price">
       {points.length ? points.map((point) => (
         <span className={point.custom ? "is-custom" : "is-global"} key={point.key}>
-          <strong>{formatCurrency(point.amount)}</strong>
+          <strong>{formatCurrency(applyEffectivePricing(point.amount, product.id, variables, discounts))}</strong>
           <small>{point.materialName}</small>
           <b>{point.custom ? "Custom" : "Global"}</b>
         </span>
@@ -38,12 +40,12 @@ function PaperPriceCell({ product, paperSize, rules }: { product: Product; paper
   );
 }
 
-function AdditionalPricing({ product, scanTiers }: { product: Product; scanTiers: ScanPricingTier[] }) {
+function AdditionalPricing({ product, scanTiers, variables, discounts }: { product: Product; scanTiers: ScanPricingTier[]; variables: GlobalPricingVariable[]; discounts: PricingDiscount[] }) {
   if (product.operationKind === "scan") {
     const points = resolveProductPricePoints(product, [], scanTiers);
     return points.length === 0
       ? <span className="pricing-service-table__missing">Missing scan rate</span>
-      : <span className="pricing-service-table__standalone"><strong>{formatCurrency(points[0].amount)}</strong><small>per scanned page · {points[0].custom ? "Custom" : "Global"}</small></span>;
+      : <span className="pricing-service-table__standalone"><strong>{formatCurrency(applyEffectivePricing(points[0].amount, product.id, variables, discounts))}</strong><small>per scanned page · adjustments included</small></span>;
   }
   if (!product.variants.length) return <span className="pricing-service-table__muted">Base rates only</span>;
   return <div className="pricing-service-table__variants">{product.variants.map((variant) => <span key={variant.id}><b>{variant.label}</b><small>{variant.priceAdjustment >= 0 ? "+" : ""}{formatCurrency(variant.priceAdjustment)} / page</small></span>)}</div>;
@@ -55,15 +57,17 @@ export function PricingCenterPage() {
   const [openingOverview, setOpeningOverview] = useState(false);
   const [overviewError, setOverviewError] = useState<string | null>(null);
   const { data, state, error, reload } = useResource(async () => {
-    const [products, services, rules, scanTiers, printTypes, pricingCategories] = await Promise.all([
+    const [products, services, rules, scanTiers, printTypes, pricingCategories, pricingVariables, pricingDiscounts] = await Promise.all([
       api.get<Product[]>("/products"),
       api.get<Service[]>("/services"),
       api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
       api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
       api.get<PrintTypeDefinition[]>("/print-types"),
       api.get<PricingCategory[]>("/document-analyzer/pricing-categories"),
+      api.get<GlobalPricingVariable[]>("/document-analyzer/pricing-variables"),
+      api.get<PricingDiscount[]>("/document-analyzer/pricing-discounts"),
     ]);
-    return { products, services, rules, scanTiers, printTypes, pricingCategories };
+    return { products, services, rules, scanTiers, printTypes, pricingCategories, pricingVariables, pricingDiscounts };
   });
 
   const rows = useMemo(() => {
@@ -129,6 +133,10 @@ export function PricingCenterPage() {
       {state === "error" ? <ErrorState description={error ?? undefined} onRetry={reload} /> : null}
       {state === "ready" && data ? (
         <div className="pricing-center">
+          <section className="pricing-adjustment-grid" aria-label="Pricing additions and discounts">
+            <GlobalPricingVariables onChanged={reload} />
+            <PricingDiscounts products={data.products} onChanged={reload} />
+          </section>
           <section className="pricing-summary" aria-label="Pricing coverage">
             <div><span>Services</span><strong className="numeric">{data.services.length}</strong><small>Workflow groups</small></div>
             <div><span>Products</span><strong className="numeric">{data.products.length}</strong><small>Chargeable offerings</small></div>
@@ -177,10 +185,10 @@ export function PricingCenterPage() {
                         <tr className="pricing-service-table__group"><th colSpan={pricingColumnCount} scope="rowgroup"><div><span><strong>{service.name}</strong><StatusPill label={workflowLabel(service)} tone={service.category === "custom" ? "neutral" : "info"} /></span><small>{serviceRows.length} {serviceRows.length === 1 ? "product" : "products"}</small><Link to={`/product-catalog/${service.id}`}>Open service</Link></div></th></tr>
                         {!serviceRows.length ? <tr><td className="pricing-service-table__empty" colSpan={pricingColumnCount}>No products configured for this service.</td></tr> : serviceRows.map(({ product }) => (
                           <tr key={product.id}>
-                            <th className="pricing-service-table__product" scope="row"><strong>{product.name}</strong>{product.description ? <small>{product.description}</small> : null}</th>
+                            <th className="pricing-service-table__product" scope="row"><strong>{product.name}</strong><b className="pricing-service-table__range">{formatProductPriceRange(resolveProductPriceRange(product, data.rules, data.scanTiers, data.pricingVariables, data.pricingDiscounts), formatCurrency)}</b>{product.description ? <small>{product.description}</small> : null}</th>
                             <td><span className="pricing-service-table__type"><strong>{product.operationKind === "scan" ? "Scan" : product.operationKind === "photocopy" ? "Photocopy" : product.operationKind === "adhoc" ? "Ad Hoc" : "Print"}</strong><small>{product.printTypeLabel}</small></span></td>
-                            {configuredPaperSizes.map((paperSize) => <PaperPriceCell product={product} paperSize={paperSize} rules={data.rules} key={paperSize} />)}
-                            <td><AdditionalPricing product={product} scanTiers={data.scanTiers} /></td>
+                            {configuredPaperSizes.map((paperSize) => <PaperPriceCell product={product} paperSize={paperSize} rules={data.rules} variables={data.pricingVariables} discounts={data.pricingDiscounts} key={paperSize} />)}
+                            <td><AdditionalPricing product={product} scanTiers={data.scanTiers} variables={data.pricingVariables} discounts={data.pricingDiscounts} /></td>
                             <td><StatusPill label={service.isActive && product.isActive ? "Active" : "Inactive"} tone={service.isActive && product.isActive ? "success" : "neutral"} /></td>
                             <td><Link className="pricing-row-link" to={`/product-catalog/${service.id}/products/${product.id}`} aria-label={`Open ${product.name}`}>Open</Link></td>
                           </tr>
@@ -193,7 +201,7 @@ export function PricingCenterPage() {
             ) : <EmptyState title="No pricing matches" description="Clear the search or choose another pricing source." />}
           </Card>
 
-          <p className="pricing-footnote">Services do not carry a price themselves; they group products into workflows. Transaction pricing always resolves from the product values shown here.</p>
+          <p className="pricing-footnote">Effective product rates and ranges include active global pricing variables. Base matrices remain editable raw rates.</p>
         </div>
       ) : null}
     </>

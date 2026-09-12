@@ -1,4 +1,4 @@
-import type { DocumentPricingRule, InventoryPaperSize, Product, ScanPricingTier } from "../types/domain";
+import type { DocumentPricingRule, GlobalPricingVariable, InventoryPaperSize, PricingDiscount, Product, ScanPricingTier } from "../types/domain";
 
 export interface ProductPricePoint {
   key: string;
@@ -7,6 +7,63 @@ export interface ProductPricePoint {
   amount: number;
   custom: boolean;
   paperSize?: InventoryPaperSize;
+}
+
+export interface ProductPriceRange {
+  minimum: number;
+  maximum: number;
+  hasAddOns: boolean;
+}
+
+/** Mirrors suggested-price behavior: all percentages share the unadjusted
+ * basis, fixed charges are added once, and the result rounds upward. */
+export function applyGlobalPricingVariables(amount: number, variables: GlobalPricingVariable[]): number {
+  const basis = Math.max(0, amount);
+  const adjustment = variables.filter((item) => item.isActive).reduce(
+    (total, item) => total + (item.calculationType === "percentage" ? basis * item.value / 100 : item.value),
+    0,
+  );
+  return Math.ceil(Math.max(0, basis + adjustment));
+}
+
+export function applyEffectivePricing(
+  amount: number,
+  productId: string,
+  variables: GlobalPricingVariable[],
+  discounts: PricingDiscount[],
+): number {
+  const basis = Math.max(0, amount);
+  const globalTotal = variables.filter((item) => item.isActive).reduce(
+    (total, item) => total + (item.calculationType === "percentage" ? basis * item.value / 100 : item.value),
+    0,
+  );
+  const withGlobals = basis + globalTotal;
+  const discountTotal = discounts.filter((item) => item.isActive && item.productIds.includes(productId)).reduce(
+    (total, item) => total + (item.calculationType === "percentage" ? withGlobals * item.value / 100 : item.value),
+    0,
+  );
+  return Math.ceil(Math.max(0, withGlobals - discountTotal));
+}
+
+export function resolveProductPriceRange(
+  product: Product,
+  rules: DocumentPricingRule[],
+  scanTiers: ScanPricingTier[],
+  variables: GlobalPricingVariable[],
+  discounts: PricingDiscount[] = [],
+): ProductPriceRange | null {
+  const points = product.operationKind === "scan" && product.standalonePricePerPage == null
+    ? scanTiers.filter((tier) => tier.isActive).map((tier) => ({ amount: tier.pricePerPage }))
+    : resolveProductPricePoints(product, rules, scanTiers);
+  if (!points.length) return null;
+  const addOns = [0, ...product.variants.map((variant) => variant.priceAdjustment)];
+  const prices = points.flatMap((point) => addOns.map((addOn) => applyEffectivePricing(point.amount + addOn, product.id, variables, discounts)));
+  return { minimum: Math.min(...prices), maximum: Math.max(...prices), hasAddOns: product.variants.length > 0 };
+}
+
+export function formatProductPriceRange(range: ProductPriceRange | null, format: (amount: number) => string): string {
+  if (!range) return "Not configured";
+  return range.minimum === range.maximum ? format(range.minimum) : `${format(range.minimum)}–${format(range.maximum)}`;
 }
 
 /** Resolve the same active per-page values used by product and transaction

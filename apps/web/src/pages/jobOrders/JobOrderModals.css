@@ -200,11 +200,21 @@
 .job-payment-summary span { color: var(--color-ink-faint); font-size: var(--text-xs); text-transform: uppercase; }
 .job-payment-summary strong { overflow-wrap: anywhere; }
 .job-payment-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); padding: var(--space-5); }
-.job-payment-amount { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; border: 1px solid var(--color-hairline-strong); background: var(--color-paper); }
+.job-payment-amount { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; border: 1px solid var(--color-hairline-strong); background: var(--color-paper); }
 .job-payment-amount:focus-within { border-color: var(--color-focus); outline: 1px solid var(--color-focus); }
 .job-payment-amount > span { padding-left: var(--space-3); color: var(--color-ink-soft); }
-.job-payment-amount input { border: 0; background: transparent; }
+.job-payment-amount input { min-width: 0; border: 0; background: transparent; }
 .job-payment-amount input:focus { outline: 0; }
+.job-payment-amount button { align-self: stretch; min-height: 44px; border: 0; border-left: 1px solid var(--color-hairline-strong); padding-inline: var(--space-3); color: var(--color-accent); background: var(--color-accent-softer); font: inherit; font-size: var(--text-xs); font-weight: 700; white-space: nowrap; cursor: pointer; }
+.job-payment-amount button:hover:not(:disabled) { background: var(--color-accent-soft); }
+.job-payment-amount button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -3px; }
+.job-payment-amount button:disabled { cursor: not-allowed; opacity: .55; }
+.job-payment-result { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0 var(--space-5) var(--space-5); border: 1px solid var(--color-hairline); background: var(--color-paper-2); }
+.job-payment-result > div { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); border-right: 1px solid var(--color-hairline); padding: var(--space-3); }
+.job-payment-result > div:last-child { border-right: 0; }
+.job-payment-result span { color: var(--color-ink-faint); font-size: var(--text-xs); }
+.job-payment-result strong { overflow-wrap: anywhere; }
+.job-payment-result .has-change { color: var(--color-success); background: var(--color-success-soft); }
 .job-payment-confirmation { margin: 0 var(--space-5) var(--space-5); border-left: 2px solid var(--color-warning); padding-left: var(--space-3); color: var(--color-ink-soft); font-size: var(--text-xs); }
 
 .job-order-form {
@@ -622,8 +632,11 @@
   .transaction-actions { flex-wrap: wrap; padding-inline: var(--space-4); }
   .transaction-actions > :first-child { margin-right: auto; }
   .job-payment-summary,
-  .job-payment-fields { grid-template-columns: minmax(0, 1fr); }
+  .job-payment-fields,
+  .job-payment-result { grid-template-columns: minmax(0, 1fr); }
   .job-payment-summary > div { border-right: 0; border-bottom: 1px solid var(--color-hairline); }
+  .job-payment-result > div { border-right: 0; border-bottom: 1px solid var(--color-hairline); }
+  .job-payment-result > div:last-child { border-bottom: 0; }
   .job-print-body { padding: var(--space-4); }
   .job-print-section > header { align-items: flex-start; flex-direction: column; }
   .job-print-proof dl,

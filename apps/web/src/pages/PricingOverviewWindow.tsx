@@ -7,9 +7,9 @@ import { StatusPill } from "../components/StatusPill/StatusPill";
 import { useResource } from "../hooks/useResource";
 import { api } from "../lib/apiClient";
 import { formatCurrency } from "../lib/format";
-import { resolveProductPricePoints } from "../lib/pricingView";
+import { applyEffectivePricing, formatProductPriceRange, resolveProductPricePoints } from "../lib/pricingView";
 import type { ProductPricePoint } from "../lib/pricingView";
-import type { DocumentPricingRule, Product, ScanPricingTier, Service } from "../types/domain";
+import type { DocumentPricingRule, GlobalPricingVariable, PricingDiscount, Product, ScanPricingTier, Service } from "../types/domain";
 import "./PricingOverviewWindow.css";
 
 function operationLabel(product: Product): string {
@@ -55,14 +55,16 @@ export function PricingOverviewWindow() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState(() => new Date());
   const { data, state, error, reload } = useResource(async () => {
-    const [products, services, rules, scanTiers] = await Promise.all([
+    const [products, services, rules, scanTiers, pricingVariables, pricingDiscounts] = await Promise.all([
       api.get<Product[]>("/products"),
       api.get<Service[]>("/services"),
       api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
       api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
+      api.get<GlobalPricingVariable[]>("/document-analyzer/pricing-variables"),
+      api.get<PricingDiscount[]>("/document-analyzer/pricing-discounts"),
     ]);
     setRefreshedAt(new Date());
-    return { products, services, rules, scanTiers };
+    return { products, services, rules, scanTiers, pricingVariables, pricingDiscounts };
   });
 
   useEffect(() => {
@@ -135,12 +137,16 @@ export function PricingOverviewWindow() {
                       <thead><tr><th>Product</th><th>Output</th><th>Effective rates</th><th>Adjustments</th><th>Status</th></tr></thead>
                       <tbody>{products.map((product) => {
                         const points = overviewPricePoints(product, data.rules, data.scanTiers);
+                        const effectivePoints = points.map((point) => ({ ...point, amount: applyEffectivePricing(point.amount, product.id, data.pricingVariables, data.pricingDiscounts) }));
+                        const addOns = [0, ...product.variants.map((variant) => variant.priceAdjustment)];
+                        const rangedPrices = points.flatMap((point) => addOns.map((addOn) => applyEffectivePricing(point.amount + addOn, product.id, data.pricingVariables, data.pricingDiscounts)));
+                        const range = rangedPrices.length ? { minimum: Math.min(...rangedPrices), maximum: Math.max(...rangedPrices), hasAddOns: product.variants.length > 0 } : null;
                         return (
                           <tr key={product.id}>
-                            <th scope="row"><strong>{product.name}</strong>{product.description ? <small>{product.description}</small> : null}</th>
+                            <th scope="row"><strong>{product.name}</strong>{range ? <b className="price-book__range">{formatProductPriceRange(range, formatCurrency)} <small>effective range</small></b> : null}{product.description ? <small>{product.description}</small> : null}</th>
                             <td><strong>{operationLabel(product)}</strong><small>{product.printTypeLabel}</small></td>
-                            <td>{points.length ? <div className="price-book__rates">{points.map((point) => <span key={point.key}><strong>{formatCurrency(point.amount)}</strong><small>{rateLabel(product, point.label)}</small>{point.custom ? <b>Product rate</b> : null}</span>)}</div> : <span className="price-book__missing">Rate not configured</span>}</td>
-                            <td>{product.variants.length ? <div className="price-book__adjustments">{product.variants.map((variant) => <span key={variant.id}><strong>{variant.label}</strong><small>{variant.priceAdjustment >= 0 ? "+" : ""}{formatCurrency(variant.priceAdjustment)} / page</small></span>)}</div> : <span className="price-book__muted">No adjustments</span>}</td>
+                            <td>{effectivePoints.length ? <div className="price-book__rates">{effectivePoints.map((point) => <span key={point.key}><strong>{formatCurrency(point.amount)}</strong><small>{rateLabel(product, point.label)} · globals included</small>{point.custom ? <b>Product rate</b> : null}</span>)}</div> : <span className="price-book__missing">Rate not configured</span>}</td>
+                            <td><div className="price-book__adjustments">{product.variants.map((variant) => <span key={variant.id}><strong>{variant.label}</strong><small>{variant.priceAdjustment >= 0 ? "+" : ""}{formatCurrency(variant.priceAdjustment)} / page</small></span>)}{data.pricingVariables.filter((item) => item.isActive).map((item) => <span key={item.id}><strong>{item.name}</strong><small>{item.calculationType === "percentage" ? `${item.value}%` : formatCurrency(item.value)} global</small></span>)}{data.pricingDiscounts.filter((item) => item.isActive && item.productIds.includes(product.id)).map((item) => <span key={item.id}><strong>{item.name}</strong><small>−{item.calculationType === "percentage" ? `${item.value}%` : formatCurrency(item.value)} discount</small></span>)}{!product.variants.length && !data.pricingVariables.some((item) => item.isActive) && !data.pricingDiscounts.some((item) => item.isActive && item.productIds.includes(product.id)) ? <span className="price-book__muted">No adjustments</span> : null}</div></td>
                             <td><StatusPill label={service.isActive && product.isActive ? "Active" : "Inactive"} tone={service.isActive && product.isActive ? "success" : "neutral"} /></td>
                           </tr>
                         );
@@ -153,7 +159,7 @@ export function PricingOverviewWindow() {
           ) : <EmptyState title="No products match" description="Clear the search or select another service." />}
 
           <footer className="price-book__footer">
-            <p>Read-only reference · Prices reflect the current product override or its configured global rate.</p>
+            <p>Read-only reference · Effective rates and ranges include active global pricing variables.</p>
           </footer>
         </>
       ) : null}

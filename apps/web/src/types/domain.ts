@@ -43,6 +43,27 @@ export interface ProductVariant {
   requiresManualDuplex: boolean;
 }
 
+export interface GlobalPricingVariable {
+  id: string;
+  name: string;
+  calculationType: "percentage" | "fixed";
+  value: number;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PricingDiscount {
+  id: string;
+  name: string;
+  calculationType: "percentage" | "fixed";
+  value: number;
+  productIds: string[];
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Variant {
   id: string;
   label: string;
@@ -155,6 +176,7 @@ export interface InventoryItem {
   paperWidthMm?: number | null;
   paperHeightMm?: number | null;
   linkedProductCount: number;
+  stockPurchaseCount: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -176,6 +198,21 @@ export interface InventoryMovement {
   occurredAt: string;
 }
 
+export interface InventoryStockPurchase {
+  id: string;
+  inventoryItemId?: string | null;
+  materialName: string;
+  purchaseUnit: string;
+  quantityPurchased: number;
+  totalCost: number;
+  unitCost: number;
+  supplier?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+  purchasedOn: string;
+  createdAt: string;
+}
+
 export interface Payment {
   id: string;
   jobOrderId: string;
@@ -183,6 +220,8 @@ export interface Payment {
   method: "cash" | "online" | "bank_transfer" | "other";
   verified: boolean;
   recordedAt: string;
+  voidedAt?: string | null;
+  voidReason?: string | null;
 }
 
 export interface JobOrder {
@@ -214,6 +253,7 @@ export interface JobFile {
   id: string;
   jobOrderItemId?: string | null;
   originalFilename: string;
+  isAvailable: boolean;
   kind: "source" | "print_ready" | "scan_output";
   sizeBytes: number;
   detectedPageCount?: number | null;
@@ -249,7 +289,7 @@ export interface JobOrderItem {
   productName: string;
   serviceName: string;
   operationKind: ProductOperationKind;
-  status: "queued" | "printing" | "ready";
+  status: "queued" | "printing" | "ready" | "cancelled";
   reprocessCount: number;
   printType: ProductPrintType;
   printTypeLabel: string;
@@ -259,10 +299,18 @@ export interface JobOrderItem {
   copies: number;
   unitPrice: number;
   lineTotal: number;
+  pricingBreakdown: PriceBreakdownEntry[];
   printSides: PrintSides;
   requiresManualDuplex: boolean;
   materials: JobOrderMaterialPlan[];
   statusEvents: StatusEvent[];
+}
+
+export interface PriceBreakdownEntry {
+  kind: "base" | "variant" | "inkCoverage" | "colorCoverage" | "globalVariable" | "discount" | "rounding" | "ownerOverride" | "cancellation";
+  label: string;
+  basis: string;
+  amount: number;
 }
 
 export interface Printer {
@@ -521,7 +569,7 @@ export interface DocumentPricingResult {
 }
 
 export interface DocumentPricingAdjustment {
-  kind: "inkCoverage" | "colorCoverage" | "variant" | "globalVariable" | "rounding";
+  kind: "inkCoverage" | "colorCoverage" | "variant" | "globalVariable" | "discount" | "rounding";
   label: string;
   basis: string;
   amount: number;

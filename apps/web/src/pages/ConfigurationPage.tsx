@@ -7,7 +7,6 @@ import { useResource } from "../hooks/useResource";
 import { api } from "../lib/apiClient";
 import type { Variant } from "../types/domain";
 import { DocumentPricingSettings } from "./settings/DocumentPricingSettings";
-import { GlobalPricingVariables } from "./settings/GlobalPricingVariables";
 import "./SettingsPage.css";
 
 export function ConfigurationPage() {
@@ -49,7 +48,6 @@ export function ConfigurationPage() {
         ) : null}
       </Card>
 
-      <GlobalPricingVariables />
       <DocumentPricingSettings />
     </>
   );

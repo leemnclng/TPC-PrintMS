@@ -2,18 +2,23 @@ import { ChangeEvent, FormEvent, lazy, Suspense, useEffect, useState } from "rea
 import { Button } from "../../components/Button/Button";
 import { ComboBox } from "../../components/ComboBox/ComboBox";
 import { Modal } from "../../components/Modal/Modal";
+import { PriceBreakdown } from "../../components/PriceBreakdown/PriceBreakdown";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatCurrency, formatDateTime, formatFileSize, formatProductPrintType } from "../../lib/format";
 import { hasScanPricingConfigured, resolveScanPricePerPage } from "../../lib/productPricing";
+import { formatProductPriceRange, resolveProductPriceRange } from "../../lib/pricingView";
 import { paperSizeDisplay } from "../../lib/paperSizes";
 import type {
   Customer,
   DocumentAnalysisResponse,
   DocumentPricingRule,
+  GlobalPricingVariable,
   InventoryItem,
   JobOrder,
   ObservedPrintJob,
+  PricingDiscount,
+  PriceBreakdownEntry,
   Product,
   ScanPricingTier,
   Service,
@@ -23,7 +28,6 @@ import "./TransactionCreateModal.css";
 const PdfViewer = lazy(() => import("../../components/PdfViewer/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
 type PriceMode = "suggested" | "custom";
-type GlobalPricingVariable = { id: string; name: string; calculationType: "percentage" | "fixed"; value: number; isActive: boolean };
 
 interface TransactionLine {
   key: string;
@@ -106,6 +110,7 @@ export function TransactionCreateModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pricingVariables, setPricingVariables] = useState<GlobalPricingVariable[]>([]);
+  const [pricingDiscounts, setPricingDiscounts] = useState<PricingDiscount[]>([]);
 
   const activeServices = services.filter((service) => service.isActive && service.productCount > 0);
   const inventoryById = new Map(inventoryItems.map((item) => [item.id, item]));
@@ -123,7 +128,10 @@ export function TransactionCreateModal({
   }, [open, initialService.id, order?.customerId, order?.name, sourceSpoolerJobId]);
 
   useEffect(() => {
-    if (open) void api.get<GlobalPricingVariable[]>("/document-analyzer/pricing-variables").then(setPricingVariables).catch(() => setPricingVariables([]));
+    if (open) void Promise.all([
+      api.get<GlobalPricingVariable[]>("/document-analyzer/pricing-variables"),
+      api.get<PricingDiscount[]>("/document-analyzer/pricing-discounts"),
+    ]).then(([variables, discounts]) => { setPricingVariables(variables); setPricingDiscounts(discounts); }).catch(() => { setPricingVariables([]); setPricingDiscounts([]); });
   }, [open]);
 
   function updateLine(key: string, patch: Partial<TransactionLine>) {
@@ -167,6 +175,7 @@ export function TransactionCreateModal({
       .filter((item): item is InventoryItem => Boolean(item?.isActive && item.paperSize)) ?? [];
     const variant = product?.variants.find((candidate) => candidate.variantId === line.variantId);
     let suggested = 0;
+    let breakdown: PriceBreakdownEntry[] = [];
     // The real page count (and therefore the exact rate) is only known once
     // the job is scanned — `scanConfigured` gates whether the line can be
     // created at all, while `scanPrice` is a 1-page provisional estimate.
@@ -178,8 +187,10 @@ export function TransactionCreateModal({
       : null;
     if (product?.operationKind === "printing") {
       suggested = (line.analysis?.pricing.suggestedPrice ?? 0) * line.copies;
+      breakdown = line.analysis ? [...line.analysis.pricing.breakdown.map((entry) => ({ kind: "base" as const, label: `${formatProductPrintType(entry.printType)} base price`, basis: `${entry.pages} page(s) × ${formatCurrency(entry.ratePerPage)}${line.copies > 1 ? ` × ${line.copies} copies` : ""}`, amount: entry.subtotal * line.copies })), ...line.analysis.pricing.adjustments.map((entry) => ({ ...entry, amount: entry.amount * line.copies }))] : [];
     } else if (product?.operationKind === "scan") {
       suggested = scanPrice ?? 0;
+      if (scanPrice != null) breakdown = [{ kind: "base", label: "Scan base price", basis: `1 provisional page × ${formatCurrency(scanPrice)}`, amount: scanPrice }];
     } else if (product?.operationKind === "photocopy" || product?.operationKind === "adhoc") {
       const customRate = product.documentRates.find((candidate) =>
         pricingRules.some((rule) => rule.id === candidate.pricingRuleId && rule.inventoryItemId === line.paperId && rule.pricingScope === (product.pricingCategoryKey ?? product.operationKind)),
@@ -189,17 +200,25 @@ export function TransactionCreateModal({
       )?.pricePerPage;
       const rate = customRate ?? globalRate ?? product.pricePerPage;
       suggested = (rate + (variant?.priceAdjustment ?? 0)) * line.pages * line.copies;
+      breakdown = [{ kind: "base", label: "Base product price", basis: `${line.pages} page(s) × ${line.copies} copies × ${formatCurrency(rate)}`, amount: rate * line.pages * line.copies }];
+      if (variant?.priceAdjustment) breakdown.push({ kind: "variant", label: variant.label, basis: `${line.pages * line.copies} page(s) × ${formatCurrency(variant.priceAdjustment)}`, amount: variant.priceAdjustment * line.pages * line.copies });
     }
     if (product && product.operationKind !== "printing") {
       const basis = suggested;
-      suggested += pricingVariables.filter((item) => item.isActive).reduce((sum, item) => sum + (item.calculationType === "percentage" ? basis * item.value / 100 : item.value * line.copies), 0);
-      suggested = Math.ceil(suggested);
+      pricingVariables.filter((item) => item.isActive).forEach((item) => { const amount = item.calculationType === "percentage" ? basis * item.value / 100 : item.value * line.copies; suggested += amount; if (amount) breakdown.push({ kind: "globalVariable", label: item.name, basis: item.calculationType === "percentage" ? `${item.value}% of product subtotal` : `Fixed amount × ${line.copies}`, amount }); });
+      const discountBasis = suggested;
+      pricingDiscounts.filter((item) => item.isActive && item.productIds.includes(product.id)).forEach((item) => { const amount = Math.min(item.calculationType === "percentage" ? discountBasis * item.value / 100 : item.value * line.copies, Math.max(0, suggested)); suggested -= amount; if (amount) breakdown.push({ kind: "discount", label: item.name, basis: item.calculationType === "percentage" ? `${item.value}% discount` : `Fixed discount × ${line.copies}`, amount: -amount }); });
+      const rounded = Math.ceil(Math.max(0, suggested));
+      if (rounded !== suggested) breakdown.push({ kind: "rounding", label: "Rounded-up recommendation", basis: "Next whole peso", amount: rounded - suggested });
+      suggested = rounded;
     }
     const parsedCustom = Number(line.customPrice);
     const total = line.priceMode === "custom" && line.customPrice.trim() && Number.isFinite(parsedCustom)
       ? parsedCustom
       : suggested;
-    return { product, papers, variant, scanPrice, scanConfigured, suggested: Math.round(suggested * 100) / 100, total: Math.round(total * 100) / 100 };
+    const calculated = breakdown.reduce((sum, entry) => sum + entry.amount, 0);
+    if (line.priceMode === "custom" && line.customPrice.trim() && Number.isFinite(parsedCustom) && parsedCustom !== calculated) breakdown.push({ kind: "ownerOverride", label: "Owner price adjustment", basis: `Calculated ${formatCurrency(calculated)}; final ${formatCurrency(parsedCustom)}`, amount: parsedCustom - calculated });
+    return { product, papers, variant, scanPrice, scanConfigured, breakdown, suggested: Math.round(suggested * 100) / 100, total: Math.round(total * 100) / 100 };
   }
 
   async function analyzeLine(line: TransactionLine) {
@@ -343,7 +362,7 @@ export function TransactionCreateModal({
           <section className="transaction-create__lines" aria-label="Products in this transaction">
             <header><div><span className="numeric">01 / WORK</span><h3>Products and operations</h3><p>Each product moves independently until every line is ready.</p><small className="transaction-create__required-key"><i aria-hidden="true" /> Highlighted fields are required to continue.</small></div><Button type="button" variant="secondary" onClick={() => setLines((current) => [...current, newLine(initialService.id)])}>Add product</Button></header>
             {lines.map((line, index) => {
-              const { product, papers, scanConfigured, suggested, total } = lineContext(line);
+              const { product, papers, scanConfigured, breakdown, suggested, total } = lineContext(line);
               const lineProducts = products.filter((candidate) => candidate.isActive && candidate.serviceId === line.serviceId);
               const photoDuplex = product?.printType === "photo_print" && line.backToBack;
               const hasRequiredFiles = photoDuplex ? line.files.length >= 2 : line.files.length === 1;
@@ -355,7 +374,7 @@ export function TransactionCreateModal({
                   <header><div><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><strong>{product?.name || "Choose a product"}</strong>{product ? <small>{product.operationKind} workflow · {product.serviceName}</small> : null}{line.observedPrintJobId ? <StatusPill label="Already printed — recorded as done" tone="success" /> : null}</div>{lines.length > 1 ? <Button type="button" variant="ghost" size="sm" onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))}>Remove</Button> : null}</header>
                   <div className="transaction-line__fields">
                     <label className="form-field"><span>Service</span><select value={line.serviceId} disabled={!order && index === 0} onChange={(event) => chooseService(line, event.target.value)}>{activeServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{!order && index === 0 ? <small>Initial service</small> : null}</label>
-                    <label className={`form-field form-field--required${!product ? " is-awaiting-input" : ""}`}><span>Product</span><ComboBox value={line.productId} onChange={(productId) => chooseProduct(line, productId)} placeholder="Select product" emptyMessage="No matching products" ariaInvalid={submitted && !product} options={lineProducts.map((candidate) => ({ value: candidate.id, label: `${candidate.name} | ${candidate.printTypeLabel || formatProductPrintType(candidate.printType)}`, meta: `${formatCurrency(candidate.pricePerPage)} / page`, keywords: `${candidate.operationKind} ${candidate.serviceName}` }))} /></label>
+                    <label className={`form-field form-field--required${!product ? " is-awaiting-input" : ""}`}><span>Product</span><ComboBox value={line.productId} onChange={(productId) => chooseProduct(line, productId)} placeholder="Select product" emptyMessage="No matching products" ariaInvalid={submitted && !product} options={lineProducts.map((candidate) => ({ value: candidate.id, label: `${candidate.name} | ${candidate.printTypeLabel || formatProductPrintType(candidate.printType)}`, meta: `${formatProductPriceRange(resolveProductPriceRange(candidate, pricingRules, scanPricingTiers, pricingVariables, pricingDiscounts), formatCurrency)} effective`, keywords: `${candidate.operationKind} ${candidate.serviceName}` }))} /></label>
                     {product && product.operationKind !== "scan" ? <label className={`form-field form-field--required${!line.paperId ? " is-awaiting-input" : ""}`}><span>Paper</span><select value={line.paperId} onChange={(event) => updateLine(line.key, { paperId: event.target.value, analysis: null })} aria-invalid={submitted && !line.paperId} required><option value="">Select configured paper</option>{papers.map((paper) => <option key={paper.id} value={paper.id}>{paperSizeDisplay(paper.paperSize, paper.paperWidthMm, paper.paperHeightMm)} · {paper.name}</option>)}</select></label> : null}
                     {product?.operationKind === "printing" ? <label className={`form-field form-field--required transaction-line__file${!hasRequiredFiles ? " is-awaiting-input" : ""}`}><span>{photoDuplex ? "Front/back photo files" : "Customer document"}</span><input key={`${line.key}-${photoDuplex ? "bundle" : "single"}`} type="file" multiple={photoDuplex} accept={photoDuplex ? ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp" : ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.docx,.xlsx,.pptx"} onChange={(event) => selectFiles(line, event)} aria-invalid={submitted && !hasRequiredFiles} required /><small>{line.analysis ? `${line.analysis.analysis.pageCount} sides · best fit ${line.analysis.analysis.paperSize}` : photoDuplex ? `${line.files.length} selected · choose at least 2 in front/back order.` : "Analyze after choosing the file and paper."}</small></label> : null}
                     {product && ["photocopy", "adhoc"].includes(product.operationKind) ? <label className={`form-field form-field--required${line.pages < 1 ? " is-awaiting-input" : ""}`}><span>Units / pages</span><input type="number" min={1} value={line.pages} onChange={(event) => updateLine(line.key, { pages: Number(event.target.value) })} aria-invalid={submitted && line.pages < 1} required /></label> : null}
@@ -368,6 +387,7 @@ export function TransactionCreateModal({
                   {product?.operationKind === "scan" && !scanConfigured ? <p className="workspace-form__error" role="alert">Set a price for {product.name} — either on the product itself or a global page-count tier in Settings.</p> : null}
                   {product?.operationKind === "photocopy" ? <p className="transaction-line__notice">Complete the physical copies on the printer, then record this line as ready.</p> : null}
                   {product?.operationKind === "adhoc" ? <p className="transaction-line__notice">Complete this work outside the app, then open the saved product line and record it as ready.</p> : null}
+                  {product && breakdown.length ? <section className="transaction-line__pricing"><header><span>PRICE BREAKDOWN</span><small>Calculated for this product line</small></header><PriceBreakdown entries={breakdown} total={total} compact /></section> : null}
                   {product ? <footer><div><span>{product.operationKind === "scan" ? "Estimated (1 page)" : "Suggested"}</span><strong>{formatCurrency(suggested)}</strong></div><label><span>Pricing</span><select value={line.priceMode} onChange={(event) => updateLine(line.key, { priceMode: event.target.value as PriceMode })}><option value="suggested">Use suggested</option><option value="custom">Owner price</option></select></label>{line.priceMode === "custom" ? <label className={`form-field--required${!line.customPrice.trim() || Number(line.customPrice) < 0 ? " is-awaiting-input" : ""}`}><span>Final line price</span><input type="number" min={0} step="0.01" value={line.customPrice} onChange={(event) => updateLine(line.key, { customPrice: event.target.value })} aria-invalid={submitted && (!line.customPrice.trim() || Number(line.customPrice) < 0)} required /></label> : null}<output>{formatCurrency(total)}</output></footer> : null}
                 </article>
               );

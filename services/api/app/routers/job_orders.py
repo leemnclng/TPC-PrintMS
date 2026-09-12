@@ -25,6 +25,8 @@ from ..db.models import (
     InventoryMovementKind,
     InventoryPaperSize,
     GlobalPricingVariable,
+    PricingDiscount,
+    PricingDiscountProduct,
     JobFile,
     JobOrder,
     JobOrderNumberSequence,
@@ -61,7 +63,11 @@ from ..schemas.job_orders import (
     JobOrderMaterialUsageCreate,
     JobOrderRead,
     JobOrderItemTransitionCreate,
+    JobOrderItemCorrectionUpdate,
+    JobOrderItemPriceUpdate,
+    JobOrderItemCancelCreate,
     JobOrderTransitionCreate,
+    JobOrderVoidCreate,
     PaperUsageConfirmation,
     PaymentCreate,
     PhotocopyJobOrderCreate,
@@ -81,6 +87,69 @@ from ..services.product_pricing import (
 router = APIRouter(prefix="/job-orders", tags=["job-orders"], dependencies=[Depends(require_token)])
 analysis_service = AnalysisService()
 pricing_service = PricingService()
+
+
+def _apply_product_discounts(amount: float, product_id: str, db: Session, fixed_multiplier: int = 1) -> float:
+    discounts = db.query(PricingDiscount).join(PricingDiscountProduct).filter(
+        PricingDiscount.is_active.is_(True),
+        PricingDiscountProduct.product_id == product_id,
+    ).all()
+    basis = max(0.0, amount)
+    requested = sum(
+        round(basis * discount.value / 100, 2)
+        if discount.calculation_type == "percentage"
+        else round(discount.value * fixed_multiplier, 2)
+        for discount in discounts
+    )
+    return max(0.0, round(basis - requested, 2))
+
+
+def _load_price_breakdown(item: JobOrderItem) -> list[dict[str, object]]:
+    try:
+        value = json.loads(item.pricing_breakdown_snapshot or "[]")
+        if isinstance(value, list) and value:
+            return value
+    except (TypeError, json.JSONDecodeError):
+        pass
+    return [{"kind": "base", "label": "Recorded product price", "basis": "Created before detailed price tracking", "amount": item.line_total}]
+
+
+def _adjusted_price_breakdown(base_entries: list[dict[str, object]], product: Product, copies: int, db: Session) -> tuple[float, list[dict[str, object]]]:
+    entries = list(base_entries)
+    base = round(sum(float(entry["amount"]) for entry in entries), 2)
+    variables = db.query(GlobalPricingVariable).filter(GlobalPricingVariable.is_active.is_(True)).all()
+    for variable in variables:
+        amount = round(base * variable.value / 100, 2) if variable.calculation_type == "percentage" else round(variable.value * copies, 2)
+        if amount:
+            entries.append({"kind": "globalVariable", "label": variable.name, "basis": f"{variable.value:g}% of product subtotal" if variable.calculation_type == "percentage" else f"Fixed amount × {copies}", "amount": amount})
+    discount_basis = round(sum(float(entry["amount"]) for entry in entries), 2)
+    discounts = db.query(PricingDiscount).join(PricingDiscountProduct).filter(PricingDiscount.is_active.is_(True), PricingDiscountProduct.product_id == product.id).all()
+    deducted = 0.0
+    for discount in discounts:
+        requested = round(discount_basis * discount.value / 100, 2) if discount.calculation_type == "percentage" else round(discount.value * copies, 2)
+        amount = min(requested, max(0, round(discount_basis - deducted, 2)))
+        if amount:
+            entries.append({"kind": "discount", "label": discount.name, "basis": f"{discount.value:g}% discount" if discount.calculation_type == "percentage" else f"Fixed discount × {copies}", "amount": -amount})
+            deducted += amount
+    calculated = max(0, round(sum(float(entry["amount"]) for entry in entries), 2))
+    rounded = float(ceil(calculated))
+    if rounding := round(rounded - calculated, 2):
+        entries.append({"kind": "rounding", "label": "Rounded-up recommendation", "basis": "Next whole peso", "amount": rounding})
+    return rounded, entries
+
+
+def _with_owner_price(entries: list[dict[str, object]], final_price: float) -> list[dict[str, object]]:
+    clean = [entry for entry in entries if entry.get("kind") not in {"ownerOverride", "cancellation"}]
+    calculated = round(sum(float(entry["amount"]) for entry in clean), 2)
+    difference = round(final_price - calculated, 2)
+    if difference:
+        clean.append({"kind": "ownerOverride", "label": "Owner price adjustment", "basis": f"Calculated {calculated:.2f}; final {final_price:.2f}", "amount": difference})
+    return clean
+
+
+def _job_file_is_available(job_file: JobFile) -> bool:
+    base = settings.resolved_scan_output_dir if job_file.kind == "scan_output" else settings.resolved_data_dir
+    return (base / job_file.stored_path).is_file()
 
 
 def _to_read(job_order: JobOrder) -> JobOrderRead:
@@ -117,6 +186,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "copies": item.copies,
                 "unit_price": item.unit_price,
                 "line_total": item.line_total,
+                "pricing_breakdown": _load_price_breakdown(item),
                 "print_sides": item.print_sides,
                 "requires_manual_duplex": item.requires_manual_duplex,
                 "materials": [
@@ -152,6 +222,7 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "id": file.id,
                 "job_order_item_id": file.job_order_item_id,
                 "original_filename": file.original_filename,
+                "is_available": _job_file_is_available(file),
                 "kind": file.kind,
                 "size_bytes": file.size_bytes,
                 "detected_page_count": file.detected_page_count,
@@ -174,6 +245,8 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "method": payment.method,
                 "verified": payment.verified,
                 "recorded_at": payment.recorded_at,
+                "voided_at": payment.voided_at,
+                "void_reason": payment.void_reason,
             }
             for payment in sorted(job_order.payments, key=lambda item: item.recorded_at, reverse=True)
         ],
@@ -559,16 +632,8 @@ async def _submit_scan_output(
         previous_suggested = item.line_total
         item.pages_per_copy = analysis.page_count
         item.unit_price = scan_price
-        item.line_total = round(item.unit_price * analysis.page_count, 2)
-        variable_basis = item.line_total
-        variables = db.query(GlobalPricingVariable).filter(GlobalPricingVariable.is_active.is_(True)).all()
-        item.line_total += sum(
-            round(variable_basis * variable.value / 100, 2)
-            if variable.calculation_type == "percentage"
-            else round(variable.value, 2)
-            for variable in variables
-        )
-        item.line_total = float(ceil(item.line_total))
+        item.line_total, scan_breakdown = _adjusted_price_breakdown([{"kind": "base", "label": "Scan base price", "basis": f"{analysis.page_count} page(s) × {scan_price:.2f}", "amount": round(scan_price * analysis.page_count, 2)}], product, 1, db)
+        item.pricing_breakdown_snapshot = json.dumps(scan_breakdown)
         job_order.total = round(sum(value.line_total for value in job_order.items), 2)
         job_order.suggested_total = round(job_order.suggested_total - previous_suggested + item.line_total, 2)
         _record_item_status(item, "ready", "Scanner softcopy attached; this product is ready for delivery.")
@@ -623,7 +688,9 @@ def _plan_item_reprocess(item: JobOrderItem) -> int:
 
 
 def _aggregate_transaction_status(job_order: JobOrder) -> JobOrderStatus:
-    statuses = {item.status for item in job_order.items}
+    statuses = {item.status for item in job_order.items if item.status != "cancelled"}
+    if not statuses:
+        return JobOrderStatus.cancelled
     if statuses and statuses == {"ready"}:
         return JobOrderStatus.ready
     if "printing" in statuses:
@@ -826,7 +893,6 @@ async def _save_transaction_lines(
     file_specs: list[tuple[JobOrderItem, str, bytes, object]] = []
     observed_links: list[tuple[ObservedPrintJob, JobOrderItem]] = []
     any_override = False
-    global_variables = db.query(GlobalPricingVariable).filter(GlobalPricingVariable.is_active.is_(True)).all()
     for line in payload.items:
         product = product_by_id[line.product_id]
         if line.price_mode == "custom" and line.custom_price is None:
@@ -841,15 +907,8 @@ async def _save_transaction_lines(
             pages, copies = 1, 1
             # A provisional estimate at the placeholder page count — the real
             # rate is resolved from the actual page count once scanned.
-            suggested = round(resolve_scan_price_per_page(product.standalone_price_per_page, pages, db) or 0.0, 2)
-            variable_basis = suggested
-            suggested += sum(
-                round(variable_basis * variable.value / 100, 2)
-                if variable.calculation_type == "percentage"
-                else variable.value
-                for variable in global_variables
-            )
-            suggested = float(ceil(suggested))
+            scan_rate = round(resolve_scan_price_per_page(product.standalone_price_per_page, pages, db) or 0.0, 2)
+            suggested, price_breakdown = _adjusted_price_breakdown([{"kind": "base", "label": "Scan base price", "basis": f"{pages} provisional page × {scan_rate:.2f}", "amount": scan_rate}], product, copies, db)
         else:
             assignment = next(
                 (
@@ -880,6 +939,8 @@ async def _save_transaction_lines(
                     raise HTTPException(status_code=422, detail=f"No active price is configured for {product.name}.")
                 pages = analysis.page_count
                 suggested = round(pricing.suggested_price * line.copies, 2)
+                price_breakdown = [{"kind": "base", "label": f"{entry.print_type.replace('_', ' ').title()} base price", "basis": f"{entry.pages} page(s) × {entry.rate_per_page:.2f}" + (f" × {line.copies} copies" if line.copies > 1 else ""), "amount": round(entry.subtotal * line.copies, 2)} for entry in pricing.breakdown]
+                price_breakdown += [{"kind": entry.kind, "label": entry.label, "basis": entry.basis + (f" × {line.copies} copies" if line.copies > 1 else ""), "amount": round(entry.amount * line.copies, 2)} for entry in pricing.adjustments]
             else:
                 pages = line.pages_per_copy
                 base_rate = price_per_page_for_material(
@@ -891,15 +952,10 @@ async def _save_transaction_lines(
                 )
                 if base_rate is None:
                     raise HTTPException(status_code=422, detail=f"Set a custom price for {product.name}.")
-                suggested = round((base_rate + (variant.price_adjustment if variant else 0)) * pages * line.copies, 2)
-                variable_basis = suggested
-                suggested += sum(
-                    round(variable_basis * variable.value / 100, 2)
-                    if variable.calculation_type == "percentage"
-                    else round(variable.value * line.copies, 2)
-                    for variable in global_variables
-                )
-                suggested = float(ceil(suggested))
+                price_breakdown = [{"kind": "base", "label": "Base product price", "basis": f"{pages} page(s) × {line.copies} copies × {base_rate:.2f}", "amount": round(base_rate * pages * line.copies, 2)}]
+                if variant and variant.price_adjustment:
+                    price_breakdown.append({"kind": "variant", "label": variant.label, "basis": f"{pages * line.copies} page(s) × {variant.price_adjustment:.2f}", "amount": round(variant.price_adjustment * pages * line.copies, 2)})
+                suggested, price_breakdown = _adjusted_price_breakdown(price_breakdown, product, line.copies, db)
             copies = line.copies
             physical_sheets = (((pages + 1) // 2) if line.back_to_back else pages) * copies
             if "sheet" not in assignment.inventory_item.unit.lower():
@@ -913,6 +969,7 @@ async def _save_transaction_lines(
                 raise HTTPException(status_code=422, detail=f"A selected material is not assigned to {product.name}.")
 
         line_total = suggested if line.price_mode == "suggested" else round(line.custom_price or 0, 2)
+        price_breakdown = _with_owner_price(price_breakdown, line_total)
         any_override = any_override or line.price_mode == "custom"
         observed_print_job = observed_jobs_by_client_key.get(line.client_key)
         # Printing already happened outside OMS for this line — there
@@ -931,6 +988,7 @@ async def _save_transaction_lines(
             copies=copies,
             unit_price=round(line_total / max(pages * copies, 1), 2),
             line_total=line_total,
+            pricing_breakdown_snapshot=json.dumps(price_breakdown),
             print_sides=PrintSides.double_sided if line.back_to_back else PrintSides.single_sided,
             requires_manual_duplex=bool(line.back_to_back and pages > 1),
         )
@@ -1343,7 +1401,10 @@ def _create_job_order(
                 status_code=422,
                 detail=f"The final unit price for {product.name} cannot be negative.",
             )
-        line_total = round(unit_price * item_payload.pages_per_copy * item_payload.copies, 2)
+        price_breakdown = [{"kind": "base", "label": "Base product price", "basis": f"{item_payload.pages_per_copy} page(s) × {item_payload.copies} copies × {reference_price:.2f}", "amount": round(reference_price * item_payload.pages_per_copy * item_payload.copies, 2)}]
+        if variant and variant.price_adjustment:
+            price_breakdown.append({"kind": "variant", "label": variant.label, "basis": f"{item_payload.pages_per_copy * item_payload.copies} page(s) × {variant.price_adjustment:.2f}", "amount": round(variant.price_adjustment * item_payload.pages_per_copy * item_payload.copies, 2)})
+        line_total, price_breakdown = _adjusted_price_breakdown(price_breakdown, product, item_payload.copies, db)
         item = JobOrderItem(
             product_id=item_payload.product_id,
             operation_kind=product.operation_kind,
@@ -1355,6 +1416,7 @@ def _create_job_order(
             copies=item_payload.copies,
             unit_price=unit_price,
             line_total=line_total,
+            pricing_breakdown_snapshot=json.dumps(price_breakdown),
             print_sides=item_payload.print_sides,
             requires_manual_duplex=bool(variant and variant.requires_manual_duplex and item_payload.pages_per_copy > 1),
         )
@@ -1395,6 +1457,45 @@ def record_payment(
     job_order.payments.append(Payment(amount=round(payload.amount, 2), method=payload.method, verified=True))
     if round(verified_total + payload.amount, 2) >= round(job_order.total, 2):
         _record_status(job_order, JobOrderStatus.paid, "Full payment recorded and verified by the owner.")
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.post("/{job_order_id}/void", response_model=JobOrderRead)
+def void_job_order(
+    job_order_id: str,
+    payload: JobOrderVoidCreate,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    if not job_order:
+        raise HTTPException(status_code=404, detail="Job order not found.")
+    if job_order.status == JobOrderStatus.cancelled:
+        raise HTTPException(status_code=409, detail="A cancelled transaction cannot be reopened.")
+    if job_order.status not in {JobOrderStatus.ready, JobOrderStatus.paid, JobOrderStatus.completed}:
+        raise HTTPException(
+            status_code=409,
+            detail="Only a ready, paid, or completed transaction can be voided for correction.",
+        )
+
+    verified_payments = [payment for payment in job_order.payments if payment.verified]
+    if job_order.status == JobOrderStatus.ready and not verified_payments:
+        raise HTTPException(status_code=409, detail="This transaction has no recorded payment to void.")
+    reason = payload.reason.strip()
+    voided_at = datetime.utcnow()
+    voided_total = round(sum(payment.amount for payment in verified_payments), 2)
+    for payment in verified_payments:
+        payment.verified = False
+        payment.voided_at = voided_at
+        payment.void_reason = reason
+
+    previous_status = job_order.status
+    _record_status(
+        job_order,
+        JobOrderStatus.ready,
+        f"Transaction reopened for correction from {previous_status.value}; voided {len(verified_payments)} payment(s) totaling {voided_total:.2f}: {reason}",
+    )
     db.commit()
     db.refresh(job_order)
     return _to_read(job_order)
@@ -1536,6 +1637,175 @@ def transition_job_order_item(
     item_note = default_note if target == "queued" else payload.note.strip() if payload.note else default_note
     _record_item_status(item, target, item_note)
     _sync_transaction_status(job_order, item_note)
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.post("/{job_order_id}/items/{item_id}/development/complete-print", response_model=JobOrderRead)
+def complete_print_in_development(
+    job_order_id: str,
+    item_id: str,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    if settings.stage != "development":
+        raise HTTPException(status_code=403, detail="Print bypass is available only in the Development environment.")
+    job_order = db.get(JobOrder, job_order_id)
+    item = db.get(JobOrderItem, item_id)
+    if not job_order or not item or item.job_order_id != job_order.id:
+        raise HTTPException(status_code=404, detail="Transaction product line not found.")
+    if job_order.status in {JobOrderStatus.paid, JobOrderStatus.completed, JobOrderStatus.cancelled}:
+        raise HTTPException(status_code=409, detail="This transaction can no longer return to production.")
+    if item.operation_kind != "printing" or item.status != "queued":
+        raise HTTPException(status_code=409, detail="Only a queued printing product can use the development bypass.")
+
+    pending = _remaining_planned_materials(job_order, item)
+    _validate_material_stock(pending)
+    _deduct_planned_materials(
+        job_order,
+        pending,
+        db,
+        note=f"Development-only simulated print completion for {job_order.number}; no file was sent to a printer.",
+    )
+    note = f"Development bypass marked {item.product.name} ready; no physical print was submitted."
+    _record_item_status(item, "ready", note)
+    _sync_transaction_status(job_order, note)
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.put("/{job_order_id}/items/{item_id}/price", response_model=JobOrderRead)
+def update_job_order_item_price(
+    job_order_id: str,
+    item_id: str,
+    payload: JobOrderItemPriceUpdate,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    item = db.get(JobOrderItem, item_id)
+    if not job_order or not item or item.job_order_id != job_order.id:
+        raise HTTPException(status_code=404, detail="Transaction product line not found.")
+    if job_order.status in {JobOrderStatus.paid, JobOrderStatus.completed, JobOrderStatus.cancelled}:
+        raise HTTPException(status_code=409, detail="Pricing cannot change after payment, completion, or cancellation.")
+    if item.status == "cancelled":
+        raise HTTPException(status_code=409, detail="A cancelled product cannot be repriced.")
+    previous = item.line_total
+    item.line_total = round(payload.line_total, 2)
+    item.unit_price = round(item.line_total / max(item.pages_per_copy * item.copies, 1), 2)
+    item.pricing_breakdown_snapshot = json.dumps(_with_owner_price(_load_price_breakdown(item), item.line_total))
+    job_order.total = round(sum(value.line_total for value in job_order.items), 2)
+    job_order.price_overridden = True
+    item.status_events.append(JobOrderItemStatusEvent(
+        from_status=item.status,
+        to_status=item.status,
+        note=f"Owner changed line price from {previous:.2f} to {item.line_total:.2f}: {payload.reason.strip()}",
+    ))
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.put("/{job_order_id}/items/{item_id}/correction", response_model=JobOrderRead)
+def correct_job_order_item(
+    job_order_id: str,
+    item_id: str,
+    payload: JobOrderItemCorrectionUpdate,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    item = db.get(JobOrderItem, item_id)
+    if not job_order or not item or item.job_order_id != job_order.id:
+        raise HTTPException(status_code=404, detail="Transaction product line not found.")
+    if job_order.status != JobOrderStatus.ready:
+        raise HTTPException(status_code=409, detail="Reopen this transaction to Ready before correcting a product.")
+    if any(payment.verified for payment in job_order.payments):
+        raise HTTPException(status_code=409, detail="Void the recorded payment before correcting a product.")
+    if item.status == "cancelled":
+        raise HTTPException(status_code=409, detail="A cancelled product cannot be corrected.")
+    new_product = db.get(Product, payload.product_id)
+    if not new_product or not new_product.is_active or not new_product.service.is_active:
+        raise HTTPException(status_code=404, detail="Select an active product.")
+    if new_product.operation_kind != item.operation_kind:
+        raise HTTPException(
+            status_code=422,
+            detail="Choose a product with the same production workflow. Add a new product for a different workflow.",
+        )
+    previous_product = item.product.name
+    previous_total = item.line_total
+    reason = payload.reason.strip()
+    item.product = new_product
+    item.product_id = new_product.id
+    item.print_type_snapshot = new_product.print_type
+    item.print_type_label_snapshot = new_product.print_type_definition.label
+    item.print_color_mode_snapshot = new_product.print_type_definition.color_mode
+    available_variant_labels = {link.variant.label for link in new_product.variants}
+    if item.variant_label not in available_variant_labels:
+        item.variant_label = None
+        item.requires_manual_duplex = False
+        item.print_sides = PrintSides.single_sided
+    item.line_total = round(payload.line_total, 2)
+    item.unit_price = round(item.line_total / max(item.pages_per_copy * item.copies, 1), 2)
+    item.pricing_breakdown_snapshot = json.dumps([{
+        "kind": "ownerOverride",
+        "label": "Corrected product and price",
+        "basis": f"{previous_product} at {previous_total:.2f} changed to {new_product.name}: {reason}",
+        "amount": item.line_total,
+    }])
+    job_order.total = round(sum(value.line_total for value in job_order.items), 2)
+    workflow_categories = {
+        value.product.service.category for value in job_order.items if value.status != "cancelled"
+    }
+    job_order.workflow_category = next(iter(workflow_categories)) if len(workflow_categories) == 1 else "custom"
+    job_order.price_overridden = True
+    audit_note = (
+        f"Owner corrected product from {previous_product} ({previous_total:.2f}) "
+        f"to {new_product.name} ({item.line_total:.2f}): {reason}"
+    )
+    item.status_events.append(JobOrderItemStatusEvent(
+        from_status=item.status,
+        to_status=item.status,
+        note=audit_note,
+    ))
+    job_order.status_events.append(StatusEvent(
+        from_status=job_order.status.value,
+        to_status=job_order.status.value,
+        note=audit_note,
+    ))
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.post("/{job_order_id}/items/{item_id}/cancel", response_model=JobOrderRead)
+def cancel_job_order_item(
+    job_order_id: str,
+    item_id: str,
+    payload: JobOrderItemCancelCreate,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    item = db.get(JobOrderItem, item_id)
+    if not job_order or not item or item.job_order_id != job_order.id:
+        raise HTTPException(status_code=404, detail="Transaction product line not found.")
+    if job_order.status in {JobOrderStatus.paid, JobOrderStatus.completed, JobOrderStatus.cancelled}:
+        raise HTTPException(status_code=409, detail="Products cannot be cancelled after payment, completion, or transaction cancellation.")
+    if item.status == "cancelled":
+        raise HTTPException(status_code=409, detail="This product is already cancelled.")
+    active_attempt = any(
+        attempt.job_order_item_id == item.id and attempt.spooler_status in {"submitted", "queued", "spooling", "printing", "paused"}
+        for attempt in job_order.print_jobs
+    )
+    if active_attempt:
+        raise HTTPException(status_code=409, detail="Stop this product's active printer job before cancelling it.")
+    previous_total = item.line_total
+    breakdown = _with_owner_price(_load_price_breakdown(item), previous_total)
+    breakdown.append({"kind": "cancellation", "label": "Cancelled product", "basis": payload.reason.strip(), "amount": -previous_total})
+    item.pricing_breakdown_snapshot = json.dumps(breakdown)
+    item.line_total = 0
+    _record_item_status(item, "cancelled", f"Product cancelled by owner; removed {previous_total:.2f} from the transaction: {payload.reason.strip()}")
+    job_order.total = round(sum(value.line_total for value in job_order.items), 2)
+    _sync_transaction_status(job_order, f"{item.product.name} was cancelled.")
     db.commit()
     db.refresh(job_order)
     return _to_read(job_order)

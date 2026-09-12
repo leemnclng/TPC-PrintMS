@@ -1,5 +1,11 @@
 # Change Log
 
+- 2026-09-10: Unpaid job products can now be repriced or cancelled individually with an audit reason. Retained product files can be opened from the configuration pane and clearly show when the managed file is missing.
+
+- 2026-09-10: Global pricing variables now live on Pricing beside a new product-discount pane. Owners can create percentage or fixed discounts, assign products, and include them automatically in new estimates and visible effective prices.
+
+- 2026-09-10: Product browsing and pricing views now show effective price ranges based on configured rates and available add-ons, with active global pricing variables already included.
+
 - 2026-09-09: Inventory search now matches every entered word independently across material name, category, unit, notes, and paper size, regardless of word position or punctuation.
 
 - 2026-09-09: Every job product now has an expandable configuration record showing its print type, variant, pricing, quantity, output mode, materials, analyzed files, and each saved printer/driver submission setting.
@@ -392,3 +398,22 @@ Track notable app changes by date.
 - Preserved: Existing package IDs, environment variables, database names, stored settings, and backup archive identifiers remain compatible. New spooler markers use OMS while legacy markers are still recognized.
 - Fixed: Not now on an external Windows print hides only its global notification; the print remains Unlinked and can still be added to an existing job or used to create a job from Print Center.
 - 2026-09-09: Owners can now add reusable tax or surcharge variables in Configuration. Active variables appear in document pricing calculations and new product totals.
+# 2026-09-10 — Product price breakdowns
+
+- Transaction products now show how their total is composed, including global charges, discounts, and owner adjustments.
+- Saved job products retain the pricing breakdown used when they were created.
+
+## 2026-09-12
+
+- Added: Job-order payment accepts the customer's tendered amount and shows change before recording.
+- Added: Exact amount fills the outstanding balance in one click.
+- Preserved: Partial payments apply only the received amount; excess tender is returned as change and is not counted as sales.
+- Added: Development job orders can simulate a completed queued print without sending a file to a printer.
+- Preserved: Test and Production never show the action, and the backend rejects direct bypass requests outside Development.
+- Added: Inventory now includes a Stock purchases sub-page with a focused purchase-entry form and searchable expenditure ledger.
+- Added: Recording a purchase tracks its material, purchase quantity, per-unit cost, and monthly/all-time spending without changing the usable quantity or transaction stock history.
+- Added: Materials with purchase history now show a Restock shortcut that opens a new purchase entry for that material.
+- Fixed: Existing development databases created during the stock-purchase draft now upgrade to the finalized purchase fields instead of failing when inventory loads.
+- Preserved: Historical purchase spending and material snapshots remain readable after an unused material is deleted.
+- Added: Paid and completed job orders now expose Void & correct, returning them to the Ready payment step while retaining voided payments in audit history.
+- Added: Reopened Ready jobs can correct a recorded product to another compatible workflow product and set the corrected line price without repeating production or changing consumed inventory.

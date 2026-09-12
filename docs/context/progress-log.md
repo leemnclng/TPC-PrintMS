@@ -1,5 +1,23 @@
 # Progress Log
 
+## 2026-09-10 — Product-level job corrections
+
+- Added audited product repricing and individual cancellation inside unpaid job orders, including total/status recalculation and active-print guards.
+- Added retained-file availability checks and in-context file opening with explicit missing-file feedback.
+- Verification: all 57 API tests, TypeScript, ESLint, production web build, Python compilation, and diff checks passed.
+
+## 2026-09-10 — Product discount configuration
+
+- Moved global pricing variables from Configuration to Pricing and added reusable percentage/fixed discounts with searchable product assignment.
+- Applied active discounts to analyzer breakdowns, job estimates, scan recalculation, catalog ranges, Pricing tables, and the separate price book without allowing negative totals.
+- Added the pricing-discount schema migration. Verification: all 57 API tests, TypeScript, ESLint, production web build, Python compilation, and diff checks passed.
+
+## 2026-09-10 — Effective product price ranges
+
+- Added shared global-inclusive price calculation for catalog browsing, job product selection, the Pricing page, and the separate price overview.
+- Product ranges cover every configured material/rate and available variant, with compact base-to-add-on labeling.
+- Verification: TypeScript compilation, production web build, Python compilation, and diff checks passed; only the existing PDF bundle warning remains.
+
 ## 2026-09-09 — Position-independent material search
 
 - Tokenized normalized inventory searches and require each entered word to appear anywhere in the material's searchable details.
@@ -697,3 +715,31 @@ Chronological notes about app progress.
 ## 2026-09-09 — Global pricing variables
 
 - Added CRUD configuration for global percentage/fixed pricing variables and integrated active adjustments into analyzer and transaction estimates.
+# 2026-09-10 — Product price breakdowns
+
+- Added live per-product breakdowns during transaction creation.
+- Persisted and displayed pricing component snapshots inside saved job product details.
+- Kept scan breakdowns synchronized when the scanner detects the final page count.
+
+## 2026-09-12 (payment change calculation)
+
+- Summary: Added customer-tender entry and live change calculation to combined job-order payment.
+- Completed: The payment modal starts empty, offers an Exact amount shortcut, shows the applied payment, returned change, and remaining balance, and preserves partial payments.
+- Verified: Renderer typecheck, lint, and production build pass.
+
+## 2026-09-12 (development print bypass)
+
+- Summary: Added a development-only path for completing queued printing lines without physical printer output.
+- Completed: The job workspace exposes a confirmed simulation action only in Development; the backend enforces the same stage restriction, deducts planned materials, advances the line to Ready, and records an explicit audit note without fabricating a print attempt.
+- Verified: All 57 API tests, renderer typecheck, lint, production build, and diff checks pass.
+
+## 2026-09-12 (stock purchase and expenditure ledger)
+
+- Summary: Added a dedicated Inventory / Stock purchases workspace for logging material purchases and tracking actual spend independently from usable inventory.
+- Completed: Purchase entry captures material, purchase quantity/unit, total cost, date, supplier, receipt/reference, and notes. It tracks expenditure without changing usable inventory, stock movements, or the material's current cost reference. Materials with history expose a Restock shortcut, and immutable purchase snapshots remain if a material is deleted. The responsive ledger includes search, material filtering, per-unit cost, monthly spend, all-time spend, and honest empty/error states.
+- Fixed: Added a forward compatibility migration for development databases that had already applied the earlier stock-purchase draft column names.
+- Verified: Inventory API tests, renderer typecheck/lint, production build, migration-head validation, and diff checks pass.
+## 2026-09-12 (audited job-order correction)
+
+- Summary: Added a Void & correct flow for paid and completed transactions.
+- Completed: Voiding retains each payment with its timestamp and reason, excludes it from verified sales, and returns the transaction to Ready. Compatible product and line-price corrections preserve production, files, quantities, material usage, and both product/transaction audit trails before payment is recorded again.

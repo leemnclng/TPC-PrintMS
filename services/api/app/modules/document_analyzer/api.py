@@ -11,6 +11,8 @@ from app.core.security import require_token
 from app.db.models import (
     DocumentPricingRule,
     GlobalPricingVariable,
+    PricingDiscount,
+    PricingDiscountProduct,
     InventoryItem,
     PricingCategory,
     PricingCategoryMaterial,
@@ -34,6 +36,9 @@ from .models.pricing_result import (
     GlobalPricingVariableCreate,
     GlobalPricingVariableRead,
     GlobalPricingVariableUpdate,
+    PricingDiscountCreate,
+    PricingDiscountRead,
+    PricingDiscountUpdate,
     ScanPricingTierCreate,
     ScanPricingTierRead,
     ScanPricingTierUpdate,
@@ -333,6 +338,77 @@ def delete_pricing_variable(variable_id: str, db: Session = Depends(get_db)) -> 
     if variable is None:
         raise HTTPException(status_code=404, detail="Global pricing variable not found.")
     db.delete(variable)
+    db.commit()
+
+
+def _discount_to_read(discount: PricingDiscount) -> PricingDiscountRead:
+    return PricingDiscountRead(
+        id=discount.id,
+        name=discount.name,
+        calculation_type=discount.calculation_type,
+        value=discount.value,
+        product_ids=[assignment.product_id for assignment in discount.product_assignments],
+        is_active=discount.is_active,
+        created_at=discount.created_at,
+        updated_at=discount.updated_at,
+    )
+
+
+def _validate_discount_products(product_ids: list[str], db: Session) -> None:
+    if len(product_ids) != len(set(product_ids)):
+        raise HTTPException(status_code=409, detail="Each product can be assigned only once.")
+    products = db.query(Product).filter(Product.id.in_(product_ids), Product.deleted_at.is_(None)).all()
+    if len(products) != len(product_ids):
+        raise HTTPException(status_code=422, detail="Select existing products for this discount.")
+
+
+@router.get("/pricing-discounts", response_model=list[PricingDiscountRead])
+def list_pricing_discounts(db: Session = Depends(get_db)) -> list[PricingDiscountRead]:
+    discounts = db.query(PricingDiscount).order_by(PricingDiscount.sort_order, PricingDiscount.name).all()
+    return [_discount_to_read(discount) for discount in discounts]
+
+
+@router.post("/pricing-discounts", response_model=PricingDiscountRead, status_code=201)
+def create_pricing_discount(payload: PricingDiscountCreate, db: Session = Depends(get_db)) -> PricingDiscountRead:
+    name = payload.name.strip()
+    if db.query(PricingDiscount).filter(func.lower(PricingDiscount.name) == name.lower()).first():
+        raise HTTPException(status_code=409, detail="A discount with this name already exists.")
+    _validate_discount_products(payload.product_ids, db)
+    discount = PricingDiscount(
+        name=name, calculation_type=payload.calculation_type, value=payload.value,
+        is_active=payload.is_active,
+        sort_order=(db.query(func.max(PricingDiscount.sort_order)).scalar() or 0) + 1,
+        product_assignments=[PricingDiscountProduct(product_id=product_id) for product_id in payload.product_ids],
+    )
+    db.add(discount)
+    db.commit()
+    db.refresh(discount)
+    return _discount_to_read(discount)
+
+
+@router.put("/pricing-discounts/{discount_id}", response_model=PricingDiscountRead)
+def update_pricing_discount(discount_id: str, payload: PricingDiscountUpdate, db: Session = Depends(get_db)) -> PricingDiscountRead:
+    discount = db.get(PricingDiscount, discount_id)
+    if discount is None:
+        raise HTTPException(status_code=404, detail="Discount not found.")
+    name = payload.name.strip()
+    duplicate = db.query(PricingDiscount).filter(func.lower(PricingDiscount.name) == name.lower(), PricingDiscount.id != discount_id).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A discount with this name already exists.")
+    _validate_discount_products(payload.product_ids, db)
+    discount.name, discount.calculation_type, discount.value, discount.is_active = name, payload.calculation_type, payload.value, payload.is_active
+    discount.product_assignments = [PricingDiscountProduct(product_id=product_id) for product_id in payload.product_ids]
+    db.commit()
+    db.refresh(discount)
+    return _discount_to_read(discount)
+
+
+@router.delete("/pricing-discounts/{discount_id}", status_code=204)
+def delete_pricing_discount(discount_id: str, db: Session = Depends(get_db)) -> None:
+    discount = db.get(PricingDiscount, discount_id)
+    if discount is None:
+        raise HTTPException(status_code=404, detail="Discount not found.")
+    db.delete(discount)
     db.commit()
 
 

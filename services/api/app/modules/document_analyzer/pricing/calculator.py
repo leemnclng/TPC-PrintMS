@@ -18,6 +18,7 @@ def calculate_price(
     variant_adjustment: float = 0,
     pricing_paper_size: PaperSize | None = None,
     global_variables: list[tuple[str, str, float]] | None = None,
+    discounts: list[tuple[str, str, float]] | None = None,
 ) -> PricingResult:
     warnings: list[str] = []
     if not rates:
@@ -89,6 +90,18 @@ def calculate_price(
                 basis=f"{value:g}% of product subtotal" if calculation_type == "percentage" else "Fixed amount per priced product",
                 amount=amount,
             ))
+    discount_basis = max(0, round(base_subtotal + sum(item.amount for item in adjustments), 2))
+    discount_total = 0.0
+    for label, calculation_type, value in discounts or []:
+        requested = round(discount_basis * value / 100, 2) if calculation_type == "percentage" else round(value, 2)
+        amount = min(requested, max(0, round(discount_basis - discount_total, 2)))
+        if amount:
+            adjustments.append(PricingAdjustment(
+                kind="discount", label=label,
+                basis=f"{value:g}% discount" if calculation_type == "percentage" else "Fixed discount per priced product",
+                amount=-amount,
+            ))
+            discount_total += amount
     adjustment_total = sum(item.amount for item in adjustments)
     calculated_price = max(0, round(base_subtotal + adjustment_total, 2))
     suggested_price = float(ceil(calculated_price))

@@ -117,3 +117,5 @@
 @media (prefers-reduced-motion: reduce) {
   .price-book__table tbody tr:hover > * { transition: none; }
 }
+.price-book__range { display: block; margin-top: var(--space-2); color: var(--color-accent); font-family: var(--font-mono); font-size: var(--text-sm); }
+.price-book__range small { display: inline; color: var(--color-ink-faint); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 400; }

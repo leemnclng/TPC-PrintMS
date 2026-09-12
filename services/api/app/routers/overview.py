@@ -31,7 +31,10 @@ def get_overview(db: Session = Depends(get_db)) -> OverviewRead:
     )
 
     payments_awaiting_verification = (
-        db.query(func.count(Payment.id)).filter(Payment.verified.is_(False)).scalar() or 0
+        db.query(func.count(Payment.id))
+        .filter(Payment.verified.is_(False), Payment.voided_at.is_(None))
+        .scalar()
+        or 0
     )
 
     horizon = datetime.utcnow() + timedelta(days=7)

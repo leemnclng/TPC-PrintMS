@@ -5,6 +5,7 @@ import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { Modal } from "../../components/Modal/Modal";
 import { api } from "../../lib/apiClient";
+import "./PricingAdjustments.css";
 
 type PricingVariable = {
   id: string;
@@ -16,7 +17,7 @@ type PricingVariable = {
 
 const emptyForm = { name: "", calculationType: "percentage" as const, value: "", isActive: true };
 
-export function GlobalPricingVariables() {
+export function GlobalPricingVariables({ onChanged }: { onChanged?: () => void }) {
   const [items, setItems] = useState<PricingVariable[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,13 +52,14 @@ export function GlobalPricingVariables() {
       else await api.post("/document-analyzer/pricing-variables", body);
       setOpen(false);
       await load();
+      onChanged?.();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "The pricing variable could not be saved."); }
     finally { setSaving(false); }
   }
 
   async function remove(item: PricingVariable) {
     if (!window.confirm(`Remove “${item.name}”? Existing job prices will not change.`)) return;
-    try { await api.del(`/document-analyzer/pricing-variables/${item.id}`); await load(); }
+    try { await api.del(`/document-analyzer/pricing-variables/${item.id}`); await load(); onChanged?.(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "The pricing variable could not be removed."); }
   }
 

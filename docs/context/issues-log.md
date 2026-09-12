@@ -23,6 +23,7 @@ Track known issues, blockers, risks, and follow-up work.
 
 ## Resolved Issues
 
+- 2026-09-12 — Development databases that had already run the first stock-purchase draft retained `material_unit` and `quantity_received`, causing inventory loading to fail after those fields were finalized. A forward compatibility migration now renames the legacy columns without deleting purchase records.
 - 2026-09-07 — Manual duplex previously missed paper consumption when cancelled after only the front pass. Front submission now deducts paper; completion/cancellation reconciles owner-confirmed total usage against tracked deductions.
 
 | Date | Area | Issue | Resolution |

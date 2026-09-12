@@ -146,6 +146,25 @@ def test_inventory_stock_ledger_and_product_assignments(tmp_path) -> None:
     assert inventory_item["purchasePriceBasis"] == "ream"
     assert inventory_item["sheetsPerReam"] == 500
     assert inventory_item["linkedProductCount"] == 0
+    assert inventory_item["stockPurchaseCount"] == 0
+
+    ream_purchase_response = client.post(
+        "/inventory-stock-purchases",
+        headers=headers,
+        json={
+            "inventoryItemId": inventory_item["id"],
+            "quantityPurchased": 2,
+            "totalCost": 500,
+            "purchasedOn": "2026-09-12",
+        },
+    )
+    assert ream_purchase_response.status_code == 201
+    assert ream_purchase_response.json()["purchaseUnit"] == "ream"
+    unchanged_ream_item = client.get(
+        f"/inventory-items/{inventory_item['id']}", headers=headers
+    ).json()
+    assert unchanged_ream_item["quantityOnHand"] == 500
+    assert unchanged_ream_item["purchasePrice"] == 250
 
     updated_response = client.put(
         f"/inventory-items/{inventory_item['id']}",
@@ -215,6 +234,76 @@ def test_inventory_stock_ledger_and_product_assignments(tmp_path) -> None:
         },
     )
     assert invalid_ream_unit_response.status_code == 422
+
+    purchase_item = client.post(
+        "/inventory-items",
+        headers=headers,
+        json={
+            "name": "Bulk black ink",
+            "category": "Ink",
+            "unit": "bottle",
+            "openingQuantity": 10,
+            "purchasePrice": 45,
+        },
+    ).json()
+    future_purchase = client.post(
+        "/inventory-stock-purchases",
+        headers=headers,
+        json={
+            "inventoryItemId": purchase_item["id"],
+            "quantityPurchased": 5,
+            "totalCost": 250,
+            "purchasedOn": "2999-01-01",
+        },
+    )
+    assert future_purchase.status_code == 422
+    purchase_response = client.post(
+        "/inventory-stock-purchases",
+        headers=headers,
+        json={
+            "inventoryItemId": purchase_item["id"],
+            "quantityPurchased": 5,
+            "totalCost": 250,
+            "supplier": "Print Supply Co.",
+            "reference": "OR-1042",
+            "purchasedOn": "2026-09-12",
+        },
+    )
+    assert purchase_response.status_code == 201
+    purchase = purchase_response.json()
+    assert purchase["materialName"] == "Bulk black ink"
+    assert purchase["quantityPurchased"] == 5
+    assert purchase["purchaseUnit"] == "bottle"
+    assert purchase["totalCost"] == 250
+    assert purchase["unitCost"] == 50
+    refreshed_purchase_item = client.get(f"/inventory-items/{purchase_item['id']}", headers=headers).json()
+    assert refreshed_purchase_item["quantityOnHand"] == 10
+    assert refreshed_purchase_item["purchasePrice"] == 45
+    assert refreshed_purchase_item["stockPurchaseCount"] == 1
+    backdated_purchase = client.post(
+        "/inventory-stock-purchases",
+        headers=headers,
+        json={
+            "inventoryItemId": purchase_item["id"],
+            "quantityPurchased": 1,
+            "totalCost": 25,
+            "purchasedOn": "2026-01-01",
+        },
+    )
+    assert backdated_purchase.status_code == 201
+    unchanged_item = client.get(f"/inventory-items/{purchase_item['id']}", headers=headers).json()
+    assert unchanged_item["quantityOnHand"] == 10
+    assert unchanged_item["purchasePrice"] == 45
+    assert unchanged_item["stockPurchaseCount"] == 2
+    purchase_item_movements = client.get(
+        f"/inventory-movements?inventory_item_id={purchase_item['id']}", headers=headers
+    ).json()
+    assert [movement["kind"] for movement in purchase_item_movements] == ["opening_balance"]
+    assert client.delete(f"/inventory-items/{purchase_item['id']}", headers=headers).status_code == 204
+    preserved_purchase = client.get("/inventory-stock-purchases", headers=headers).json()[0]
+    assert preserved_purchase["id"] == purchase["id"]
+    assert preserved_purchase["inventoryItemId"] is None
+    assert preserved_purchase["materialName"] == "Bulk black ink"
 
     service = client.post(
         "/services",

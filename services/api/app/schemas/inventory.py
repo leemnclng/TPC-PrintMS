@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -48,6 +48,7 @@ class InventoryItemRead(InventoryItemBase):
     id: str
     quantity_on_hand: float
     linked_product_count: int
+    stock_purchase_count: int
     created_at: datetime
     updated_at: datetime
 
@@ -58,6 +59,31 @@ class InventoryAdjustmentCreate(CamelModel):
     note: str | None = None
     job_order_id: str | None = None
     product_id: str | None = None
+
+
+class InventoryStockPurchaseCreate(CamelModel):
+    inventory_item_id: str
+    quantity_purchased: float = Field(gt=0, allow_inf_nan=False)
+    total_cost: float = Field(ge=0, allow_inf_nan=False)
+    supplier: str | None = Field(default=None, max_length=200)
+    reference: str | None = Field(default=None, max_length=200)
+    notes: str | None = Field(default=None, max_length=1000)
+    purchased_on: date
+
+
+class InventoryStockPurchaseRead(CamelModel):
+    id: str
+    inventory_item_id: str | None
+    material_name: str
+    purchase_unit: str
+    quantity_purchased: float
+    total_cost: float
+    unit_cost: float
+    supplier: str | None
+    reference: str | None
+    notes: str | None
+    purchased_on: date
+    created_at: datetime
 
 
 class InventoryMovementRead(CamelModel):

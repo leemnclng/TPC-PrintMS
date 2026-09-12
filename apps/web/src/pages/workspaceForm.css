@@ -281,6 +281,11 @@
   color: var(--color-danger) !important;
   font-size: var(--text-sm) !important;
 }
+.assigned-materials-summary__pricing { margin-top: var(--space-4); border-top: 1px solid var(--color-hairline-strong); padding-top: var(--space-4); }
+.assigned-materials-summary__pricing > span { color: var(--color-accent); font: 500 var(--text-xs) var(--font-mono); letter-spacing: .05em; text-transform: uppercase; }
+.assigned-materials-summary__pricing ul { margin-top: var(--space-2); }
+.assigned-materials-summary__pricing li { display: flex; justify-content: space-between; gap: var(--space-3); }
+.assigned-materials-summary__pricing li small { color: var(--color-ink-faint); text-align: right; }
 
 @media (min-width: 56rem) {
   .product-setup-grid {

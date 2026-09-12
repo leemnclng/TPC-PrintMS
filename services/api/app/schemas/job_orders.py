@@ -115,13 +115,20 @@ class JobOrderItemStatusEventRead(CamelModel):
     occurred_at: datetime
 
 
+class JobOrderItemPricingBreakdownRead(CamelModel):
+    kind: Literal["base", "variant", "inkCoverage", "colorCoverage", "globalVariable", "discount", "rounding", "ownerOverride", "cancellation"]
+    label: str
+    basis: str
+    amount: float
+
+
 class JobOrderItemRead(CamelModel):
     id: str
     product_id: str
     product_name: str
     service_name: str
     operation_kind: Literal["printing", "photocopy", "scan", "adhoc"]
-    status: Literal["queued", "printing", "ready"]
+    status: Literal["queued", "printing", "ready", "cancelled"]
     reprocess_count: int
     print_type: str
     print_type_label: str
@@ -131,6 +138,7 @@ class JobOrderItemRead(CamelModel):
     copies: int
     unit_price: float
     line_total: float
+    pricing_breakdown: list[JobOrderItemPricingBreakdownRead] = Field(default_factory=list)
     print_sides: PrintSides
     requires_manual_duplex: bool
     materials: list[JobOrderMaterialPlanRead] = Field(default_factory=list)
@@ -141,6 +149,7 @@ class JobFileRead(CamelModel):
     id: str
     job_order_item_id: str | None
     original_filename: str
+    is_available: bool
     kind: str
     size_bytes: int
     detected_page_count: int | None
@@ -166,6 +175,8 @@ class PaymentRead(CamelModel):
     method: PaymentMethod
     verified: bool
     recorded_at: datetime
+    voided_at: datetime | None
+    void_reason: str | None
 
 
 class PaperUsageConfirmation(CamelModel):
@@ -183,6 +194,25 @@ class JobOrderTransitionCreate(CamelModel):
 class JobOrderItemTransitionCreate(CamelModel):
     to_status: Literal["queued", "ready"]
     note: str | None = None
+
+
+class JobOrderItemPriceUpdate(CamelModel):
+    line_total: float = Field(ge=0, allow_inf_nan=False)
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class JobOrderItemCorrectionUpdate(CamelModel):
+    product_id: str
+    line_total: float = Field(ge=0, allow_inf_nan=False)
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class JobOrderVoidCreate(CamelModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class JobOrderItemCancelCreate(CamelModel):
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class JobOrderCancelCreate(CamelModel):

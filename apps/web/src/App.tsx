@@ -7,6 +7,7 @@ import { PrintCenterPage } from "./pages/PrintCenterPage";
 import { DocumentAnalyzerPage } from "./pages/DocumentAnalyzerPage";
 import { InventoryPage } from "./pages/inventory/InventoryPage";
 import { MaterialHistoryPage } from "./pages/inventory/MaterialHistoryPage";
+import { StockPurchasesPage } from "./pages/inventory/StockPurchasesPage";
 import { ProductCatalogPage } from "./pages/ProductCatalogPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="print-center" element={<PrintCenterPage />} />
         <Route path="document-analyzer" element={<DocumentAnalyzerPage />} />
         <Route path="inventory" element={<InventoryPage />} />
+        <Route path="inventory/stocks" element={<StockPurchasesPage />} />
         <Route path="inventory/:materialId/history" element={<MaterialHistoryPage />} />
 
         <Route path="product-catalog" element={<ProductCatalogPage />} />

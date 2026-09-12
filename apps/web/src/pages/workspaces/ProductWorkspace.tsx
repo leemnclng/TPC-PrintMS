@@ -24,6 +24,8 @@ import { computeReferencePrice, resolveScanPricePerPage } from "../../lib/produc
 import type {
   DocumentPricingRule,
   InventoryItem,
+  GlobalPricingVariable,
+  PricingDiscount,
   PricingCategory,
   PrintTypeDefinition,
   Product,
@@ -69,7 +71,7 @@ export function ProductWorkspace() {
   const { data, state, error } = useResource(
     async () => {
       if (!serviceId) throw new Error("Service is required.");
-      const [service, product, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories] = await Promise.all([
+      const [service, product, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories, pricingVariables, pricingDiscounts] = await Promise.all([
         api.get<Service>(`/services/${serviceId}`),
         isNew ? Promise.resolve(null) : api.get<Product>(`/products/${productId}`),
         api.get<InventoryItem[]>("/inventory-items"),
@@ -78,8 +80,10 @@ export function ProductWorkspace() {
         api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
         api.get<PrintTypeDefinition[]>("/print-types"),
         api.get<PricingCategory[]>("/document-analyzer/pricing-categories"),
+        api.get<GlobalPricingVariable[]>("/document-analyzer/pricing-variables"),
+        api.get<PricingDiscount[]>("/document-analyzer/pricing-discounts"),
       ]);
-      return { service, product, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories };
+      return { service, product, inventoryItems, variants, pricingRules, scanPricingTiers, printTypes, pricingCategories, pricingVariables, pricingDiscounts };
     },
     [serviceId, productId],
   );
@@ -458,6 +462,9 @@ export function ProductWorkspace() {
               pricingCategoryKey={form.pricingCategoryKey}
               pricingRules={pricingRules}
               documentRates={form.documentRates}
+              productId={data?.product?.id}
+              pricingVariables={data?.pricingVariables}
+              pricingDiscounts={data?.pricingDiscounts}
             />
           </div>}
 
