@@ -286,7 +286,7 @@ class PricingCategory(TimestampMixin, Base):
 
 
 class PricingCategoryMaterial(Base):
-    """Paper stock explicitly made available to one pricing category."""
+    """Inventory material explicitly made available to one pricing category."""
 
     __tablename__ = "pricing_category_materials"
     __table_args__ = (UniqueConstraint("pricing_category_key", "inventory_item_id"),)

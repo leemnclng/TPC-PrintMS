@@ -111,8 +111,8 @@ export function DocumentPricingSettings() {
           )}
         />
         <p className="settings-placeholder-text">
-          Create pricing categories for each physical workflow, then choose exactly which paper materials belong
-          to each one. Products use one compatible category and may still override its rates.
+          Create pricing categories for each physical workflow, then choose which inventory materials belong
+          to each one. Paper receives per-page rates; other supplies remain production assignments.
         </p>
 
         {data?.printTypes.length ? (
@@ -196,9 +196,9 @@ export function DocumentPricingSettings() {
                           </button>
                         );
                       })}
-                      {scope.materialIds.length === 0 ? (
+                      {scopedRules.length === 0 ? (
                         <div className="pricing-material pricing-material--empty" role="listitem">
-                          <span className="pricing-material__label"><strong>No materials assigned</strong><small>Choose paper stock before setting rates.</small></span>
+                          <span className="pricing-material__label"><strong>No priced paper assigned</strong><small>Other assigned supplies do not require per-page rates.</small></span>
                           <Button type="button" variant="secondary" size="sm" onClick={() => setEditingCategory(scope)}>Choose materials</Button>
                         </div>
                       ) : null}
@@ -268,6 +268,7 @@ function PricingCategoryModal({
   const [description, setDescription] = useState("");
   const [operationKind, setOperationKind] = useState<"printing" | "photocopy" | "adhoc">("printing");
   const [materialIds, setMaterialIds] = useState<string[]>([]);
+  const [materialQuery, setMaterialQuery] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -279,14 +280,22 @@ function PricingCategoryModal({
     setDescription(category?.description ?? "");
     setOperationKind(category?.operationKind ?? "printing");
     setMaterialIds(category?.materialIds ?? []);
+    setMaterialQuery("");
     setIsActive(category?.isActive ?? true);
     setSubmitted(false);
     setSaveError(null);
   }, [open, category]);
 
-  const paperMaterials = inventoryItems
-    .filter((item) => item.paperSize && (item.isActive || materialIds.includes(item.id)))
-    .sort((left, right) => left.name.localeCompare(right.name));
+  const assignableMaterials = inventoryItems
+    .filter((item) => item.isActive || materialIds.includes(item.id))
+    .sort((left, right) => left.category.localeCompare(right.category) || left.name.localeCompare(right.name));
+  const normalizedMaterialQuery = materialQuery.trim().toLocaleLowerCase();
+  const visibleMaterials = assignableMaterials.filter((item) => !normalizedMaterialQuery || [
+    item.name,
+    item.category,
+    item.unit,
+    item.paperSize ? paperSizeDisplay(item.paperSize, item.paperWidthMm, item.paperHeightMm) : "",
+  ].some((value) => value.toLocaleLowerCase().includes(normalizedMaterialQuery)));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -320,7 +329,7 @@ function PricingCategoryModal({
     <Modal
       open={open}
       title={category ? `Manage ${category.name}` : "New pricing category"}
-      description="Choose the workflow and only the paper materials this pricing table may use."
+      description="Choose the workflow and inventory materials this pricing category may use."
       busy={saving}
       status={saveError ? "error" : saving ? "loading" : "idle"}
       onClose={onClose}
@@ -352,14 +361,20 @@ function PricingCategoryModal({
           </label>
         ) : null}
         <fieldset className="pricing-category-materials">
-          <legend>Paper materials</legend>
-          <p>Select only the stock that belongs in this category. A price row is created for every active print type.</p>
-          {paperMaterials.length ? paperMaterials.map((item) => (
-            <label key={item.id}>
-              <input type="checkbox" checked={materialIds.includes(item.id)} disabled={!item.isActive && !materialIds.includes(item.id)} onChange={(event) => toggleMaterial(item.id, event.target.checked)} />
-              <span><strong>{item.name}</strong><small>{paperSizeDisplay(item.paperSize!, item.paperWidthMm, item.paperHeightMm)}{item.isActive ? "" : " · inactive"}</small></span>
-            </label>
-          )) : <p>No active paper materials. Add a paper-sized item in Inventory first.</p>}
+          <legend>Materials</legend>
+          <p>Select the stock that belongs in this category. Paper creates pricing rows; other materials are available as production supplies.</p>
+          <label className="pricing-category-materials__search">
+            <span>Search materials</span>
+            <input type="search" value={materialQuery} onChange={(event) => setMaterialQuery(event.target.value)} placeholder="Name, category, unit, or paper size" />
+          </label>
+          <div className="pricing-category-materials__list">
+            {visibleMaterials.length ? visibleMaterials.map((item) => (
+              <label key={item.id}>
+                <input type="checkbox" checked={materialIds.includes(item.id)} disabled={!item.isActive && !materialIds.includes(item.id)} onChange={(event) => toggleMaterial(item.id, event.target.checked)} />
+                <span><strong>{item.name}</strong><small>{item.category} · {item.paperSize ? paperSizeDisplay(item.paperSize, item.paperWidthMm, item.paperHeightMm) : item.unit}{item.isActive ? "" : " · inactive"}</small></span>
+              </label>
+            )) : <p>{assignableMaterials.length ? "No materials match your search." : "No active materials. Add one in Inventory first."}</p>}
+          </div>
         </fieldset>
         {saveError ? <p className="workspace-form__error" role="alert">{saveError}</p> : null}
         <footer className="settings-modal-actions">

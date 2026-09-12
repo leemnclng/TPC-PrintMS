@@ -145,15 +145,19 @@ def test_owner_can_create_pricing_category_with_explicit_materials(tmp_path) -> 
         "name": "Matte Letter", "category": "Paper", "unit": "sheet",
         "openingQuantity": 20, "reorderLevel": 2, "paperSize": "Letter", "isActive": True,
     })
+    ink = client.post("/inventory-items", headers=headers, json={
+        "name": "Photo cyan ink", "category": "Ink", "unit": "bottle",
+        "openingQuantity": 2, "reorderLevel": 1, "isActive": True,
+    }).json()
 
     assert client.get("/document-analyzer/pricing-rules", headers=headers).json() == []
     created = client.post("/document-analyzer/pricing-categories", headers=headers, json={
         "name": "Photo studio", "description": "Photo paper prices",
-        "operationKind": "printing", "materialIds": [first["id"]],
+        "operationKind": "printing", "materialIds": [first["id"], ink["id"]],
     })
     assert created.status_code == 201
     category = created.json()
-    assert category["materialIds"] == [first["id"]]
+    assert set(category["materialIds"]) == {first["id"], ink["id"]}
     rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
     assert len(rules) == 4
     assert {rule["pricingScope"] for rule in rules} == {category["key"]}
@@ -164,7 +168,7 @@ def test_owner_can_create_pricing_category_with_explicit_materials(tmp_path) -> 
         json={
             "name": category["name"], "description": category["description"],
             "operationKind": category["operationKind"],
-            "materialIds": [first["id"]], "isActive": True,
+            "materialIds": [first["id"], ink["id"]], "isActive": True,
         },
     )
     assert unchanged.status_code == 200
@@ -180,7 +184,9 @@ def test_owner_can_create_pricing_category_with_explicit_materials(tmp_path) -> 
     product = client.post("/products", headers=headers, json={
         "serviceId": service["id"], "name": "Studio photo", "printType": "black_and_white",
         "operationKind": "printing", "pricingCategoryKey": category["key"], "isActive": True,
-        "variants": [], "materialAssignments": [{"inventoryItemId": first["id"]}],
+        "variants": [], "materialAssignments": [
+            {"inventoryItemId": first["id"]}, {"inventoryItemId": ink["id"]},
+        ],
         "documentRates": [],
     })
     assert product.status_code == 201

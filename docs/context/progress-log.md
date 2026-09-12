@@ -751,3 +751,9 @@ Chronological notes about app progress.
 - Summary: Connected purchase history to explicit, auditable material restocking without making purchase entry mutate inventory automatically.
 - Completed: Ream purchases snapshot their own sheets-per-ream value and expose a UUID. Inventory can select and apply one available purchase once, preview the converted stock and balance, and trace the resulting stock-in movement back to that purchase. Applied ledger entries are protected from deletion.
 - Verified: All 57 API tests, renderer lint/build, migration-head validation, and development database migration pass.
+
+## 2026-09-13 (searchable all-material assignments)
+
+- Summary: Expanded pricing-category assignments beyond paper and made long material selectors searchable.
+- Completed: Configuration can assign every active inventory type while retaining per-page rates only for paper. New products receive category-assigned additional supplies, and Stock Purchase can filter materials by name, category, or unit.
+- Verified: Affected pricing/inventory API tests and renderer lint/build pass.

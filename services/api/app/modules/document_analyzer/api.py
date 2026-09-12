@@ -441,11 +441,11 @@ def _validated_category_materials(
     allowed_inactive_ids = allowed_inactive_ids or set()
     if invalid := next((
         item for item in items
-        if item.paper_size is None or (not item.is_active and item.id not in allowed_inactive_ids)
+        if not item.is_active and item.id not in allowed_inactive_ids
     ), None):
         raise HTTPException(
             status_code=422,
-            detail=f"{invalid.name} must be active and have a paper size before it can be priced.",
+            detail=f"{invalid.name} must be active before it can be assigned.",
         )
     return items
 

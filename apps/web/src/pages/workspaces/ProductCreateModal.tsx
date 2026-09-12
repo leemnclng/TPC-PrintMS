@@ -84,7 +84,6 @@ export function ProductCreateModal({
   onCreated,
 }: ProductCreateModalProps) {
   const activeInventoryItems = inventoryItems.filter((item) => item.isActive);
-  const activeOtherMaterials = activeInventoryItems.filter((item) => !item.paperSize);
   const activeVariants = variants.filter((variant) => variant.isActive);
   const activePrintTypes = printTypes.filter((printType) => printType.isActive);
   const defaultPrintType = activePrintTypes.find((printType) => printType.key === "black_and_white")?.key
@@ -95,6 +94,8 @@ export function ProductCreateModal({
   const [form, setForm] = useState<ProductFormState>(() => blankProduct(defaultPrintType, defaultOperationKind, defaultPricingCategoryKey));
   const compatibleCategories = pricingCategories.filter((category) => category.isActive && category.operationKind === form.operationKind);
   const selectedPricingCategory = pricingCategories.find((category) => category.key === form.pricingCategoryKey);
+  const activeOtherMaterials = activeInventoryItems.filter((item) =>
+    !item.paperSize && selectedPricingCategory?.materialIds.includes(item.id));
   const selectedPrintType = printTypes.find((printType) => printType.key === form.printType);
   const [nameTouched, setNameTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -417,7 +418,7 @@ export function ProductCreateModal({
                     disabled={saving}
                   />
                 ) : (
-                  <p className="workspace-form__hint">No additional production supplies are registered.</p>
+                  <p className="workspace-form__hint">No additional production supplies are assigned to this pricing category.</p>
                 )}
               </section>
             </div>

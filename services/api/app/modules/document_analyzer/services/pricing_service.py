@@ -25,7 +25,7 @@ class PricingService:
         self._engine = PricingEngine()
 
     def ensure_defaults(self, db: Session) -> list[DocumentPricingRule]:
-        """Create rates only for paper explicitly assigned to a category."""
+        """Create rates for assigned paper; other assignments remain unpriced supplies."""
         print_types = ensure_builtin_print_types(db)
         self.ensure_builtin_categories(db)
         assignments = db.query(PricingCategoryMaterial).all()
@@ -35,6 +35,8 @@ class PricingService:
         }
         created_default = False
         for assignment in assignments:
+            if assignment.inventory_item.paper_size is None:
+                continue
             for print_type in print_types:
                 key = (assignment.inventory_item_id, print_type.key, assignment.pricing_category_key)
                 if key in existing:

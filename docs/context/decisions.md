@@ -724,9 +724,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 ### Make Pricing Categories Owner-Managed and Material-Explicit
 
-- Decision: Keep Printing and Scan or Photocopy as seeded pricing categories, allow additional categories with a compatible physical workflow, and require explicit paper assignment per category. Each physical product links to one category.
-- Rationale: A stocked material being eligible for one service does not mean it should appear in every commercial price table, and products with the same workflow may need separate base matrices.
-- Impact: Category membership is the source of available paper-rate rows. Existing rates are seeded as assignments during migration; newly registered paper remains unassigned until the owner chooses where it belongs.
+- Decision: Keep Printing and Scan or Photocopy as seeded pricing categories, allow additional categories with a compatible physical workflow, and require explicit inventory-material assignment per category. Paper assignments receive print-type rate rows; other material types remain unpriced production-supply assignments.
+- Rationale: A stocked material being eligible for one service does not mean it should appear in every product workflow. Paper drives per-page pricing, while ink, toner, binding, laminate, and other supplies still need category-level availability without pretending they are paper rates.
+- Impact: Category membership is the source of available paper-rate rows and additional supplies for new products. Existing paper rates remain unchanged; newly registered materials remain unassigned until the owner chooses where they belong.
 
 ### Track Ad Hoc Work Without Device Control
 

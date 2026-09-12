@@ -25,6 +25,7 @@ function localToday() {
 export function StockPurchaseModal({ open, items, initialItemId, templatePurchase, onClose, onSaved }: Props) {
   const activeItems = useMemo(() => items.filter((item) => item.isActive), [items]);
   const [itemId, setItemId] = useState("");
+  const [materialSearch, setMaterialSearch] = useState("");
   const [quantity, setQuantity] = useState("");
   const [sheetsPerReam, setSheetsPerReam] = useState("");
   const [totalCost, setTotalCost] = useState("");
@@ -41,6 +42,7 @@ export function StockPurchaseModal({ open, items, initialItemId, templatePurchas
     if (!open) return;
     const requestedItemId = templatePurchase?.inventoryItemId ?? initialItemId;
     setItemId(activeItems.some((item) => item.id === requestedItemId) ? requestedItemId ?? "" : activeItems[0]?.id ?? "");
+    setMaterialSearch("");
     setQuantity(templatePurchase ? String(templatePurchase.quantityPurchased) : "");
     const requestedItem = activeItems.find((item) => item.id === requestedItemId);
     setSheetsPerReam(String(templatePurchase?.sheetsPerReam ?? requestedItem?.sheetsPerReam ?? ""));
@@ -55,6 +57,9 @@ export function StockPurchaseModal({ open, items, initialItemId, templatePurchas
   }, [activeItems, initialItemId, open, templatePurchase]);
 
   const selectedItem = activeItems.find((item) => item.id === itemId);
+  const normalizedMaterialSearch = materialSearch.trim().toLocaleLowerCase();
+  const matchingItems = activeItems.filter((item) => !normalizedMaterialSearch || [item.name, item.category, item.unit].some((value) => value.toLocaleLowerCase().includes(normalizedMaterialSearch)));
+  const visibleItems = selectedItem && !matchingItems.some((item) => item.id === selectedItem.id) ? [selectedItem, ...matchingItems] : matchingItems;
   const purchaseUnit = selectedItem?.purchasePriceBasis === "ream" ? "ream" : selectedItem?.unit ?? "unit";
   const numericQuantity = Number(quantity);
   const numericCost = Number(totalCost);
@@ -97,11 +102,16 @@ export function StockPurchaseModal({ open, items, initialItemId, templatePurchas
     <Modal open={open} title={initialItemId && selectedItem ? `Restock ${selectedItem.name}` : "Record stock purchase"} description="Log a material purchase for expenditure tracking. Production inventory remains unchanged." onClose={onClose} busy={saving} status={saveError ? "error" : saving ? "loading" : "idle"} className="inventory-modal stock-purchase-modal">
       <form className="inventory-modal__form" onSubmit={handleSubmit} noValidate>
         <div className="inventory-modal__fields">
+          <label className="form-field">
+            <span>Search materials</span>
+            <input autoFocus type="search" value={materialSearch} onChange={(event) => setMaterialSearch(event.target.value)} placeholder="Name, category, or unit" aria-describedby="stock-purchase-search-message" />
+            <span id="stock-purchase-search-message" className="form-field__message">{normalizedMaterialSearch && matchingItems.length === 0 ? "No materials match. The current selection remains available below." : `${matchingItems.length} material${matchingItems.length === 1 ? "" : "s"} shown.`}</span>
+          </label>
           <label className={`form-field${showError("material") && !itemId ? " form-field--error" : ""}`}>
             <span>Material</span>
-            <select autoFocus value={itemId} onChange={(event) => { const nextId = event.target.value; setItemId(nextId); setSheetsPerReam(String(activeItems.find((item) => item.id === nextId)?.sheetsPerReam ?? "")); }} onBlur={() => setTouched((current) => ({ ...current, material: true }))} aria-invalid={showError("material") && !itemId} aria-describedby="stock-purchase-material-message">
+            <select value={itemId} onChange={(event) => { const nextId = event.target.value; setItemId(nextId); setSheetsPerReam(String(activeItems.find((item) => item.id === nextId)?.sheetsPerReam ?? "")); }} onBlur={() => setTouched((current) => ({ ...current, material: true }))} aria-invalid={showError("material") && !itemId} aria-describedby="stock-purchase-material-message">
               <option value="">Select a material</option>
-              {activeItems.map((item) => <option value={item.id} key={item.id}>{item.name} · purchases tracked by {item.purchasePriceBasis === "ream" ? "ream" : item.unit}</option>)}
+              {visibleItems.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.category} · purchases tracked by {item.purchasePriceBasis === "ream" ? "ream" : item.unit}</option>)}
             </select>
             <span id="stock-purchase-material-message" className={`form-field__message${showError("material") && !itemId ? " form-field__message--error" : ""}`}>{showError("material") && !itemId ? "Select the purchased material." : "The material link categorizes spending; it does not change usable stock."}</span>
           </label>

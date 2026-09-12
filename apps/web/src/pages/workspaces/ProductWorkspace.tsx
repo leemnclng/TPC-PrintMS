@@ -218,7 +218,6 @@ export function ProductWorkspace() {
       item.isActive ||
       (!isNew && form.materialAssignments.some((assignment) => assignment.inventoryItemId === item.id)),
   ) ?? [];
-  const assignableOtherMaterials = assignableInventoryItems.filter((item) => !item.paperSize);
   const assignableVariants = data?.variants.filter(
     (variant) => variant.isActive || form.variants.some((selection) => selection.variantId === variant.id),
   ) ?? [];
@@ -230,6 +229,11 @@ export function ProductWorkspace() {
   const isScan = form.operationKind === "scan";
   const compatibleCategories = data?.pricingCategories.filter((category) => (category.isActive || category.key === form.pricingCategoryKey) && category.operationKind === form.operationKind) ?? [];
   const selectedPricingCategory = data?.pricingCategories.find((category) => category.key === form.pricingCategoryKey);
+  const assignableOtherMaterials = assignableInventoryItems.filter((item) =>
+    !item.paperSize && (
+      selectedPricingCategory?.materialIds.includes(item.id)
+      || form.materialAssignments.some((assignment) => assignment.inventoryItemId === item.id)
+    ));
   const scanPricingTiers = [...(data?.scanPricingTiers ?? [])].sort((left, right) => left.minPages - right.minPages);
   const activeScanTiers = scanPricingTiers.filter((tier) => tier.isActive);
   const referencePrice = isScan ? resolveScanPricePerPage(form.standalonePricePerPage, 1, scanPricingTiers) ?? 0 : computeReferencePrice(
@@ -449,7 +453,7 @@ export function ProductWorkspace() {
                     disabled={saving}
                   />
                 ) : (
-                  <p className="workspace-form__hint">No additional production supplies are registered.</p>
+                  <p className="workspace-form__hint">No additional production supplies are assigned to this pricing category.</p>
                 )}
               </section>
             </div>

@@ -425,3 +425,5 @@ Track notable app changes by date.
 - Added: Every ream purchase records its own sheets-per-ream value and shows its unique purchase ID in the ledger.
 - Added: Materials with available purchases can apply a selected purchase once to usable inventory, with a before/after preview and purchase-linked stock history.
 - Changed: Applied purchases are locked against duplicate restocking and deletion; the ledger distinguishes Available and Applied entries, and repeat ordering is labeled Buy again.
+- Changed: Pricing-category material assignments now show all configured material types; paper creates rate rows while other types become category-approved production supplies.
+- Added: Search by material name, category, unit, or paper size in pricing assignments, plus name/category/unit search when recording a stock purchase.
