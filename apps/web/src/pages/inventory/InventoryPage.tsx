@@ -14,6 +14,7 @@ import { paperSizeDisplay } from "../../lib/paperSizes";
 import type { InventoryItem, InventoryMovement } from "../../types/domain";
 import { DeleteInventoryItemModal } from "./DeleteInventoryItemModal";
 import { InventoryItemModal } from "./InventoryItemModal";
+import { PurchaseRestockModal } from "./PurchaseRestockModal";
 import { StockAdjustmentModal } from "./StockAdjustmentModal";
 import "./InventoryPage.css";
 
@@ -72,6 +73,7 @@ export function InventoryPage() {
   const [itemModalOpen, setItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [adjustingItem, setAdjustingItem] = useState<InventoryItem | null>(null);
+  const [restockingItem, setRestockingItem] = useState<InventoryItem | null>(null);
   const [deletingItem, setDeletingItem] = useState<InventoryItem | null>(null);
 
   useEffect(() => {
@@ -116,6 +118,13 @@ export function InventoryPage() {
       ? { ...item, quantityOnHand: movement.balanceAfter, updatedAt: movement.occurredAt }
       : item));
     setAdjustingItem(null);
+  }
+
+  function handleRestocked(movement: InventoryMovement) {
+    setItems((current) => current.map((item) => item.id === movement.inventoryItemId
+      ? { ...item, quantityOnHand: movement.balanceAfter, availableStockPurchaseCount: Math.max(0, item.availableStockPurchaseCount - 1), updatedAt: movement.occurredAt }
+      : item));
+    setRestockingItem(null);
   }
 
   function handleDeleted(deleted: InventoryItem) {
@@ -224,7 +233,7 @@ export function InventoryPage() {
                         <td data-label="Status"><StatusPill label={status.label} tone={status.tone} /></td>
                         <td className="inventory-register__actions">
                           <Link to={`/inventory/${item.id}/history`}>History</Link>
-                          {item.stockPurchaseCount > 0 ? <LinkButton to={`/inventory/stocks?restock=${encodeURIComponent(item.id)}`} variant="secondary" size="sm">Restock</LinkButton> : null}
+                          {item.availableStockPurchaseCount > 0 ? <Button type="button" variant="secondary" size="sm" title={`Apply one of ${item.availableStockPurchaseCount} available purchases.`} onClick={() => setRestockingItem(item)}>Restock</Button> : null}
                           <Button type="button" variant="secondary" size="sm" onClick={() => setAdjustingItem(item)}>Adjust</Button>
                           <Button type="button" variant="ghost" size="sm" onClick={() => openEdit(item)}>Edit</Button>
                           <Button
@@ -253,12 +262,18 @@ export function InventoryPage() {
         item={editingItem}
         onClose={() => setItemModalOpen(false)}
         onSaved={handleSaved}
+        onRestock={(item) => { setItemModalOpen(false); setRestockingItem(item); }}
       />
       <StockAdjustmentModal
         open={Boolean(adjustingItem)}
         item={adjustingItem}
         onClose={() => setAdjustingItem(null)}
         onAdjusted={handleAdjusted}
+      />
+      <PurchaseRestockModal
+        item={restockingItem}
+        onClose={() => setRestockingItem(null)}
+        onApplied={handleRestocked}
       />
       <DeleteInventoryItemModal
         open={Boolean(deletingItem)}

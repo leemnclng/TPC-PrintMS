@@ -177,6 +177,7 @@ export interface InventoryItem {
   paperHeightMm?: number | null;
   linkedProductCount: number;
   stockPurchaseCount: number;
+  availableStockPurchaseCount: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -194,6 +195,7 @@ export interface InventoryMovement {
   balanceAfter: number;
   jobOrderId?: string | null;
   productId?: string | null;
+  stockPurchaseId?: string | null;
   note?: string | null;
   occurredAt: string;
 }
@@ -204,12 +206,15 @@ export interface InventoryStockPurchase {
   materialName: string;
   purchaseUnit: string;
   quantityPurchased: number;
+  sheetsPerReam?: number | null;
+  stockQuantity?: number | null;
   totalCost: number;
   unitCost: number;
   supplier?: string | null;
   reference?: string | null;
   notes?: string | null;
   purchasedOn: string;
+  appliedAt?: string | null;
   createdAt: string;
 }
 

@@ -25,7 +25,7 @@ export function StockPurchaseDeleteModal({ purchase, onClose, onDeleted }: Props
   }, [purchase]);
 
   async function removePurchase() {
-    if (!purchase || deleting) return;
+    if (!purchase || purchase.appliedAt || deleting) return;
     setDeleting(true);
     setError(null);
     try {

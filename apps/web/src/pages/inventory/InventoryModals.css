@@ -42,6 +42,28 @@
   font-size: var(--text-sm);
 }
 
+.inventory-modal__purchase-restock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border: 1px solid var(--color-hairline);
+  padding: var(--space-4);
+  background: var(--color-paper-2);
+}
+
+.inventory-modal__purchase-restock span {
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  letter-spacing: .05em;
+}
+
+.inventory-modal__purchase-restock p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+}
+
 .inventory-modal__cost-fields {
   display: grid;
   grid-template-columns: minmax(8rem, .85fr) minmax(12rem, 1.15fr);
@@ -213,6 +235,7 @@
 }
 
 @media (max-width: 39.99rem) {
+  .inventory-modal__purchase-restock { align-items: stretch; flex-direction: column; }
   .inventory-modal__cost {
     grid-template-columns: minmax(0, 1fr);
   }

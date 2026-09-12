@@ -745,3 +745,9 @@ Chronological notes about app progress.
 - Summary: Added a Void & correct flow for paid and completed transactions.
 - Completed: Voiding retains each payment with its timestamp and reason, excludes it from verified sales, and returns the transaction to Ready. Compatible product and line-price corrections preserve production, files, quantities, material usage, and both product/transaction audit trails before payment is recorded again.
 - Improved: The Complete job dialog now scrolls long paper-reconciliation content inside the viewport while keeping Cancel and Complete job visible.
+
+## 2026-09-13 (purchase-backed material restocking)
+
+- Summary: Connected purchase history to explicit, auditable material restocking without making purchase entry mutate inventory automatically.
+- Completed: Ream purchases snapshot their own sheets-per-ream value and expose a UUID. Inventory can select and apply one available purchase once, preview the converted stock and balance, and trace the resulting stock-in movement back to that purchase. Applied ledger entries are protected from deletion.
+- Verified: All 57 API tests, renderer lint/build, migration-head validation, and development database migration pass.

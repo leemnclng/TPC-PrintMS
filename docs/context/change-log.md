@@ -419,3 +419,9 @@ Track notable app changes by date.
 - Added: Paid and completed job orders now expose Void & correct, returning them to the Ready payment step while retaining voided payments in audit history.
 - Added: Reopened Ready jobs can correct a recorded product to another compatible workflow product and set the corrected line price without repeating production or changing consumed inventory.
 - Improved: The Complete job dialog now scrolls when its reconciliation content is taller than the available screen, with its actions fixed in place.
+
+## 2026-09-13
+
+- Added: Every ream purchase records its own sheets-per-ream value and shows its unique purchase ID in the ledger.
+- Added: Materials with available purchases can apply a selected purchase once to usable inventory, with a before/after preview and purchase-linked stock history.
+- Changed: Applied purchases are locked against duplicate restocking and deletion; the ledger distinguishes Available and Applied entries, and repeat ordering is labeled Buy again.

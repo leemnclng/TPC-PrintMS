@@ -697,7 +697,7 @@ class JobOrderMaterialPlan(Base):
 
 
 class InventoryStockPurchase(TimestampMixin, Base):
-    """Immutable spending ledger linked to a material without changing production stock."""
+    """Purchase snapshot that can be applied once to its material's usable stock."""
 
     __tablename__ = "inventory_stock_purchases"
     __table_args__ = (
@@ -712,13 +712,18 @@ class InventoryStockPurchase(TimestampMixin, Base):
     material_name: Mapped[str] = mapped_column(String, nullable=False)
     purchase_unit: Mapped[str] = mapped_column(String, nullable=False)
     quantity_purchased: Mapped[float] = mapped_column(Float, nullable=False)
+    sheets_per_ream: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_cost: Mapped[float] = mapped_column(Float, nullable=False)
     supplier: Mapped[str | None] = mapped_column(String, nullable=True)
     reference: Mapped[str | None] = mapped_column(String, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     purchased_on: Mapped[date] = mapped_column(Date, nullable=False)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     inventory_item: Mapped["InventoryItem | None"] = relationship(back_populates="stock_purchases")
+    stock_movement: Mapped["InventoryMovement | None"] = relationship(
+        back_populates="stock_purchase", uselist=False
+    )
 
 
 class InventoryMovement(Base):
@@ -733,12 +738,18 @@ class InventoryMovement(Base):
     balance_after: Mapped[float] = mapped_column(Float, nullable=False)
     job_order_id: Mapped[str | None] = mapped_column(ForeignKey("job_orders.id"), nullable=True)
     product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id"), nullable=True)
+    stock_purchase_id: Mapped[str | None] = mapped_column(
+        ForeignKey("inventory_stock_purchases.id"), nullable=True, unique=True
+    )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     inventory_item: Mapped["InventoryItem"] = relationship(back_populates="movements")
     job_order: Mapped["JobOrder | None"] = relationship(back_populates="inventory_movements")
     product: Mapped["Product | None"] = relationship()
+    stock_purchase: Mapped["InventoryStockPurchase | None"] = relationship(
+        back_populates="stock_movement"
+    )
 
 
 class Payment(Base):

@@ -48,7 +48,7 @@ export function MaterialHistoryPage() {
     { key: "kind", header: "Movement", render: (row) => row.kind.replace(/_/g, " ") },
     { key: "delta", header: "Stock change", numeric: true, render: (row) => `${row.quantityDelta > 0 ? "+" : ""}${quantity(row.quantityDelta)}` },
     { key: "balance", header: "Balance after", numeric: true, render: (row) => quantity(row.balanceAfter) },
-    { key: "note", header: "Audit note", render: (row) => row.note || "—" },
+    { key: "note", header: "Audit note", render: (row) => <>{row.note || "—"}{row.stockPurchaseId ? <small className="material-history-detail">Purchase ID {row.stockPurchaseId}</small> : null}</> },
   ];
   columns.find((column) => column.key === "job")!.filter = <input type="search" aria-label="Search job, product or note" placeholder="Search history…" value={query} onChange={(event) => setQuery(event.target.value)} />;
   columns.find((column) => column.key === "kind")!.filter = <select aria-label="Filter movement type" value={kind} onChange={(event) => setKind(event.target.value)}><option value="">All movements</option><option value="jobs">Linked to a job</option>{["opening_balance", "stock_in", "stock_out", "job_usage", "adjustment"].map((value) => <option key={value} value={value}>{value.replace(/_/g, " ")}</option>)}</select>;

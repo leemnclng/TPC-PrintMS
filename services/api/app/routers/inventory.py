@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
@@ -54,6 +54,11 @@ def _item_to_read(item: InventoryItem) -> InventoryItemRead:
         paper_height_mm=item.paper_height_mm,
         linked_product_count=len(item.product_assignments),
         stock_purchase_count=len(item.stock_purchases),
+        available_stock_purchase_count=sum(
+            purchase.applied_at is None
+            and (purchase.purchase_unit != "ream" or purchase.sheets_per_ream is not None)
+            for purchase in item.stock_purchases
+        ),
         created_at=item.created_at,
         updated_at=item.updated_at,
     )
@@ -74,24 +79,31 @@ def _movement_to_read(movement: InventoryMovement) -> InventoryMovementRead:
         balance_after=movement.balance_after,
         job_order_id=movement.job_order_id,
         product_id=movement.product_id,
+        stock_purchase_id=movement.stock_purchase_id,
         note=movement.note,
         occurred_at=movement.occurred_at,
     )
 
 
 def _purchase_to_read(purchase: InventoryStockPurchase) -> InventoryStockPurchaseRead:
+    stock_quantity = None if purchase.purchase_unit == "ream" and purchase.sheets_per_ream is None else (
+        purchase.quantity_purchased * (purchase.sheets_per_ream or 1)
+    )
     return InventoryStockPurchaseRead(
         id=purchase.id,
         inventory_item_id=purchase.inventory_item_id,
         material_name=purchase.material_name,
         purchase_unit=purchase.purchase_unit,
         quantity_purchased=purchase.quantity_purchased,
+        sheets_per_ream=purchase.sheets_per_ream,
+        stock_quantity=round(stock_quantity, 6) if stock_quantity is not None else None,
         total_cost=purchase.total_cost,
         unit_cost=round(purchase.total_cost / purchase.quantity_purchased, 6),
         supplier=purchase.supplier,
         reference=purchase.reference,
         notes=purchase.notes,
         purchased_on=purchase.purchased_on,
+        applied_at=purchase.applied_at,
         created_at=purchase.created_at,
     )
 
@@ -191,11 +203,16 @@ def create_inventory_stock_purchase(
         raise HTTPException(status_code=422, detail="Quantity must be at least 0.000001.")
     total_cost = round(payload.total_cost, 2)
     purchase_unit = "ream" if item.purchase_price_basis == "ream" else item.unit
+    if purchase_unit == "ream" and payload.sheets_per_ream is None:
+        raise HTTPException(status_code=422, detail="Enter the sheets contained in each purchased ream.")
+    if purchase_unit != "ream" and payload.sheets_per_ream is not None:
+        raise HTTPException(status_code=422, detail="Sheets per ream is only used for ream purchases.")
     purchase = InventoryStockPurchase(
         inventory_item_id=item.id,
         material_name=item.name,
         purchase_unit=purchase_unit,
         quantity_purchased=quantity,
+        sheets_per_ream=payload.sheets_per_ream,
         total_cost=total_cost,
         supplier=payload.supplier.strip() if payload.supplier and payload.supplier.strip() else None,
         reference=payload.reference.strip() if payload.reference and payload.reference.strip() else None,
@@ -216,8 +233,69 @@ def delete_inventory_stock_purchase(
     purchase = db.get(InventoryStockPurchase, purchase_id)
     if not purchase:
         raise HTTPException(status_code=404, detail="Stock purchase not found.")
+    if purchase.applied_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Applied purchases cannot be deleted because they are linked to inventory history.",
+        )
     db.delete(purchase)
     db.commit()
+
+
+@router.post(
+    "/inventory-stock-purchases/{purchase_id}/apply",
+    response_model=InventoryMovementRead,
+    status_code=201,
+)
+def apply_inventory_stock_purchase(
+    purchase_id: str,
+    db: Session = Depends(get_db),
+) -> InventoryMovementRead:
+    purchase = db.get(InventoryStockPurchase, purchase_id)
+    if not purchase:
+        raise HTTPException(status_code=404, detail="Stock purchase not found.")
+    if purchase.applied_at is not None or purchase.stock_movement is not None:
+        raise HTTPException(status_code=409, detail="This stock purchase has already been applied.")
+    item = purchase.inventory_item
+    if not item:
+        raise HTTPException(status_code=409, detail="The material linked to this purchase no longer exists.")
+    if not item.is_active:
+        raise HTTPException(status_code=409, detail="Reactivate this material before restocking it.")
+
+    if purchase.purchase_unit == "ream":
+        if item.unit != "sheet":
+            raise HTTPException(status_code=409, detail="A ream purchase can only restock a sheet-counted material.")
+        if purchase.sheets_per_ream is None:
+            raise HTTPException(status_code=409, detail="This purchase has no sheets-per-ream value and cannot be applied.")
+        quantity_delta = purchase.quantity_purchased * purchase.sheets_per_ream
+        conversion_note = (
+            f"{purchase.quantity_purchased:g} ream × {purchase.sheets_per_ream} sheets"
+        )
+    else:
+        if purchase.purchase_unit != item.unit:
+            raise HTTPException(
+                status_code=409,
+                detail="The purchase unit no longer matches this material's inventory unit.",
+            )
+        quantity_delta = purchase.quantity_purchased
+        conversion_note = f"{purchase.quantity_purchased:g} {purchase.purchase_unit}"
+
+    quantity_delta = round(quantity_delta, 6)
+    balance_after = round(item.quantity_on_hand + quantity_delta, 6)
+    purchase.applied_at = datetime.utcnow()
+    item.quantity_on_hand = balance_after
+    movement = InventoryMovement(
+        inventory_item_id=item.id,
+        kind=InventoryMovementKind.stock_in,
+        quantity_delta=quantity_delta,
+        balance_after=balance_after,
+        stock_purchase_id=purchase.id,
+        note=f"Stock purchase {purchase.id}: {conversion_note}",
+    )
+    db.add(movement)
+    db.commit()
+    db.refresh(movement)
+    return _movement_to_read(movement)
 
 
 @router.post("/inventory-items", response_model=InventoryItemRead, status_code=201)

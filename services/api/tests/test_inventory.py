@@ -147,6 +147,7 @@ def test_inventory_stock_ledger_and_product_assignments(tmp_path) -> None:
     assert inventory_item["sheetsPerReam"] == 500
     assert inventory_item["linkedProductCount"] == 0
     assert inventory_item["stockPurchaseCount"] == 0
+    assert inventory_item["availableStockPurchaseCount"] == 0
 
     ream_purchase_response = client.post(
         "/inventory-stock-purchases",
@@ -154,12 +155,16 @@ def test_inventory_stock_ledger_and_product_assignments(tmp_path) -> None:
         json={
             "inventoryItemId": inventory_item["id"],
             "quantityPurchased": 2,
+            "sheetsPerReam": 100,
             "totalCost": 500,
             "purchasedOn": "2026-09-12",
         },
     )
     assert ream_purchase_response.status_code == 201
     assert ream_purchase_response.json()["purchaseUnit"] == "ream"
+    assert ream_purchase_response.json()["sheetsPerReam"] == 100
+    assert ream_purchase_response.json()["stockQuantity"] == 200
+    assert ream_purchase_response.json()["appliedAt"] is None
     unchanged_ream_item = client.get(
         f"/inventory-items/{inventory_item['id']}", headers=headers
     ).json()
@@ -184,6 +189,27 @@ def test_inventory_stock_ledger_and_product_assignments(tmp_path) -> None:
     assert updated_response.json()["purchasePrice"] == 0.8
     assert updated_response.json()["purchasePriceBasis"] == "unit"
     assert updated_response.json()["sheetsPerReam"] is None
+
+    applied_purchase = client.post(
+        f"/inventory-stock-purchases/{ream_purchase_response.json()['id']}/apply",
+        headers=headers,
+        json={},
+    )
+    assert applied_purchase.status_code == 201
+    assert applied_purchase.json()["quantityDelta"] == 200
+    assert applied_purchase.json()["balanceAfter"] == 700
+    assert applied_purchase.json()["stockPurchaseId"] == ream_purchase_response.json()["id"]
+    assert client.post(
+        f"/inventory-stock-purchases/{ream_purchase_response.json()['id']}/apply",
+        headers=headers,
+        json={},
+    ).status_code == 409
+    assert client.delete(
+        f"/inventory-stock-purchases/{ream_purchase_response.json()['id']}",
+        headers=headers,
+    ).status_code == 409
+    applied_item = client.get(f"/inventory-items/{inventory_item['id']}", headers=headers).json()
+    assert applied_item["availableStockPurchaseCount"] == 0
 
     invalid_cost_response = client.post(
         "/inventory-items",
@@ -280,6 +306,7 @@ def test_inventory_stock_ledger_and_product_assignments(tmp_path) -> None:
     assert refreshed_purchase_item["quantityOnHand"] == 10
     assert refreshed_purchase_item["purchasePrice"] == 45
     assert refreshed_purchase_item["stockPurchaseCount"] == 1
+    assert refreshed_purchase_item["availableStockPurchaseCount"] == 1
     backdated_purchase = client.post(
         "/inventory-stock-purchases",
         headers=headers,
@@ -350,19 +377,19 @@ def test_inventory_stock_ledger_and_product_assignments(tmp_path) -> None:
         json={"quantityDelta": -25, "kind": "stock_out", "note": "Damaged sheets"},
     )
     assert adjustment_response.status_code == 201
-    assert adjustment_response.json()["balanceAfter"] == 475
+    assert adjustment_response.json()["balanceAfter"] == 675
 
     movements = client.get(
         "/inventory-movements",
         headers=headers,
         params={"inventory_item_id": inventory_item["id"]},
     ).json()
-    assert [movement["kind"] for movement in movements] == ["stock_out", "opening_balance"]
+    assert [movement["kind"] for movement in movements] == ["stock_out", "stock_in", "opening_balance"]
 
     negative_balance = client.post(
         f"/inventory-items/{inventory_item['id']}/adjustments",
         headers=headers,
-        json={"quantityDelta": -500, "kind": "stock_out"},
+        json={"quantityDelta": -700, "kind": "stock_out"},
     )
     assert negative_balance.status_code == 409
 

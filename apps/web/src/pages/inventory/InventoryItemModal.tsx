@@ -71,9 +71,10 @@ interface InventoryItemModalProps {
   item: InventoryItem | null;
   onClose: () => void;
   onSaved: (item: InventoryItem) => void;
+  onRestock?: (item: InventoryItem) => void;
 }
 
-export function InventoryItemModal({ open, item, onClose, onSaved }: InventoryItemModalProps) {
+export function InventoryItemModal({ open, item, onClose, onSaved, onRestock }: InventoryItemModalProps) {
   const [form, setForm] = useState(() => formFor(item));
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -128,6 +129,7 @@ export function InventoryItemModal({ open, item, onClose, onSaved }: InventoryIt
     ? purchasePriceNumber / sheetsPerReamNumber
     : null;
   const selectedPaperDefinition = paperSizeDefinition(form.paperSize);
+  const hasUnsavedChanges = Boolean(item) && JSON.stringify(form) !== JSON.stringify(formFor(item));
   const customPaperWidth = Number(form.paperWidthMm);
   const customPaperHeight = Number(form.paperHeightMm);
   const customShortEdge = Math.min(customPaperWidth, customPaperHeight);
@@ -351,6 +353,11 @@ export function InventoryItemModal({ open, item, onClose, onSaved }: InventoryIt
               ) : null}
             </div>
           </section>
+
+          {item && item.stockPurchaseCount > 0 ? <section className="inventory-modal__purchase-restock" aria-labelledby="inventory-purchase-restock-title">
+            <div><span id="inventory-purchase-restock-title">PURCHASED STOCK</span><p>{hasUnsavedChanges ? "Save or cancel material changes before restocking." : item.availableStockPurchaseCount > 0 ? `${item.availableStockPurchaseCount} recorded purchase${item.availableStockPurchaseCount === 1 ? " is" : "s are"} ready to add to usable inventory.` : "All recorded purchases for this material have been applied."}</p></div>
+            <Button type="button" variant="secondary" disabled={!item.availableStockPurchaseCount || hasUnsavedChanges} title={hasUnsavedChanges ? "Save or cancel material changes before restocking." : undefined} onClick={() => onRestock?.(item)}>Restock from purchase</Button>
+          </section> : null}
 
           <div className="inventory-modal__row">
             {!item ? (

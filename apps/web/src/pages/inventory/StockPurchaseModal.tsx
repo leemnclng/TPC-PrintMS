@@ -26,6 +26,7 @@ export function StockPurchaseModal({ open, items, initialItemId, templatePurchas
   const activeItems = useMemo(() => items.filter((item) => item.isActive), [items]);
   const [itemId, setItemId] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [sheetsPerReam, setSheetsPerReam] = useState("");
   const [totalCost, setTotalCost] = useState("");
   const [purchasedOn, setPurchasedOn] = useState(localToday());
   const [supplier, setSupplier] = useState("");
@@ -41,6 +42,8 @@ export function StockPurchaseModal({ open, items, initialItemId, templatePurchas
     const requestedItemId = templatePurchase?.inventoryItemId ?? initialItemId;
     setItemId(activeItems.some((item) => item.id === requestedItemId) ? requestedItemId ?? "" : activeItems[0]?.id ?? "");
     setQuantity(templatePurchase ? String(templatePurchase.quantityPurchased) : "");
+    const requestedItem = activeItems.find((item) => item.id === requestedItemId);
+    setSheetsPerReam(String(templatePurchase?.sheetsPerReam ?? requestedItem?.sheetsPerReam ?? ""));
     setTotalCost(templatePurchase ? templatePurchase.totalCost.toFixed(2) : "");
     setPurchasedOn(localToday());
     setSupplier(templatePurchase?.supplier ?? "");
@@ -55,10 +58,12 @@ export function StockPurchaseModal({ open, items, initialItemId, templatePurchas
   const purchaseUnit = selectedItem?.purchasePriceBasis === "ream" ? "ream" : selectedItem?.unit ?? "unit";
   const numericQuantity = Number(quantity);
   const numericCost = Number(totalCost);
+  const numericSheetsPerReam = Number(sheetsPerReam);
   const quantityHasTooManyDecimals = Number.isFinite(numericQuantity) && Math.abs(numericQuantity * 1_000_000 - Math.round(numericQuantity * 1_000_000)) > 0.000001;
   const costHasFractionalCent = Number.isFinite(numericCost) && Math.abs(numericCost * 100 - Math.round(numericCost * 100)) > 0.000001;
   const quantityInvalid = quantity.trim() === "" || !Number.isFinite(numericQuantity) || numericQuantity <= 0 || quantityHasTooManyDecimals;
   const costInvalid = totalCost.trim() === "" || !Number.isFinite(numericCost) || numericCost < 0 || costHasFractionalCent;
+  const sheetsPerReamInvalid = purchaseUnit === "ream" && (sheetsPerReam.trim() === "" || !Number.isInteger(numericSheetsPerReam) || numericSheetsPerReam <= 0);
   const dateInvalid = !purchasedOn || purchasedOn > localToday();
   const showError = (field: string) => submitted || touched[field];
   const unitCost = quantityInvalid || costInvalid ? 0 : numericCost / numericQuantity;
@@ -67,12 +72,13 @@ export function StockPurchaseModal({ open, items, initialItemId, templatePurchas
     event.preventDefault();
     setSubmitted(true);
     setSaveError(null);
-    if (!itemId || quantityInvalid || costInvalid || dateInvalid || saving) return;
+    if (!itemId || quantityInvalid || sheetsPerReamInvalid || costInvalid || dateInvalid || saving) return;
     setSaving(true);
     try {
       const purchase = await api.post<InventoryStockPurchase>("/inventory-stock-purchases", {
         inventoryItemId: itemId,
         quantityPurchased: numericQuantity,
+        sheetsPerReam: purchaseUnit === "ream" ? numericSheetsPerReam : null,
         totalCost: numericCost,
         purchasedOn,
         supplier: supplier.trim() || null,
@@ -93,12 +99,18 @@ export function StockPurchaseModal({ open, items, initialItemId, templatePurchas
         <div className="inventory-modal__fields">
           <label className={`form-field${showError("material") && !itemId ? " form-field--error" : ""}`}>
             <span>Material</span>
-            <select autoFocus value={itemId} onChange={(event) => setItemId(event.target.value)} onBlur={() => setTouched((current) => ({ ...current, material: true }))} aria-invalid={showError("material") && !itemId} aria-describedby="stock-purchase-material-message">
+            <select autoFocus value={itemId} onChange={(event) => { const nextId = event.target.value; setItemId(nextId); setSheetsPerReam(String(activeItems.find((item) => item.id === nextId)?.sheetsPerReam ?? "")); }} onBlur={() => setTouched((current) => ({ ...current, material: true }))} aria-invalid={showError("material") && !itemId} aria-describedby="stock-purchase-material-message">
               <option value="">Select a material</option>
               {activeItems.map((item) => <option value={item.id} key={item.id}>{item.name} · purchases tracked by {item.purchasePriceBasis === "ream" ? "ream" : item.unit}</option>)}
             </select>
             <span id="stock-purchase-material-message" className={`form-field__message${showError("material") && !itemId ? " form-field__message--error" : ""}`}>{showError("material") && !itemId ? "Select the purchased material." : "The material link categorizes spending; it does not change usable stock."}</span>
           </label>
+
+          {purchaseUnit === "ream" ? <label className={`form-field${showError("sheetsPerReam") && sheetsPerReamInvalid ? " form-field--error" : ""}`}>
+            <span>Sheets per purchased ream</span>
+            <input className="numeric" type="number" min="1" step="1" inputMode="numeric" value={sheetsPerReam} onChange={(event) => setSheetsPerReam(event.target.value)} onBlur={() => setTouched((current) => ({ ...current, sheetsPerReam: true }))} aria-invalid={showError("sheetsPerReam") && sheetsPerReamInvalid} aria-describedby="stock-purchase-ream-message" />
+            <span id="stock-purchase-ream-message" className={`form-field__message${showError("sheetsPerReam") && sheetsPerReamInvalid ? " form-field__message--error" : ""}`}>{showError("sheetsPerReam") && sheetsPerReamInvalid ? "Enter a whole number greater than zero." : "Saved on this purchase, so it can differ from the material’s usual ream size."}</span>
+          </label> : null}
 
           <div className="inventory-modal__row">
             <label className={`form-field${showError("quantity") && quantityInvalid ? " form-field--error" : ""}`}>
@@ -124,6 +136,7 @@ export function StockPurchaseModal({ open, items, initialItemId, templatePurchas
           <div className="stock-purchase-preview" aria-live="polite">
             <div><span>Cost per {purchaseUnit}</span><strong className="numeric">{formatCurrency(unitCost)}</strong></div>
             <div><span>Purchase being logged</span><strong className="numeric">{quantityInvalid ? "0" : numericQuantity.toLocaleString(undefined, { maximumFractionDigits: 6 })} {purchaseUnit}</strong></div>
+            {purchaseUnit === "ream" ? <div><span>Usable stock when applied</span><strong className="numeric">{quantityInvalid || sheetsPerReamInvalid ? "0" : (numericQuantity * numericSheetsPerReam).toLocaleString(undefined, { maximumFractionDigits: 6 })} sheets</strong></div> : null}
           </div>
           {saveError ? <p className="workspace-form__error" role="alert">{saveError}</p> : null}
         </div>
