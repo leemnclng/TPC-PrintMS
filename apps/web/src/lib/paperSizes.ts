@@ -77,7 +77,7 @@ export function paperSizeDisplay(
   return key ? `${label} · ${paperSizeDimensions(key, widthMm, heightMm)}` : label;
 }
 
-export function comparePaperSizes(left: string, right: string): number {
+export function comparePaperSizes(left?: string | null, right?: string | null): number {
   const leftIndex = PAPER_SIZE_DEFINITIONS.findIndex((definition) => definition.key === left);
   const rightIndex = PAPER_SIZE_DEFINITIONS.findIndex((definition) => definition.key === right);
   return (leftIndex < 0 ? Number.MAX_SAFE_INTEGER : leftIndex)

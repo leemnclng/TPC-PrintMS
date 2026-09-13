@@ -25,7 +25,16 @@ class PricingService:
         self._engine = PricingEngine()
 
     def ensure_defaults(self, db: Session) -> list[DocumentPricingRule]:
-        """Create rates for assigned paper; other assignments remain unpriced supplies."""
+        """Create rates for assigned materials that can carry a page/unit rate.
+
+        Printing genuinely needs real paper geometry (the analyzer fits pages
+        against physical dimensions) and Photocopy's job creation always
+        requires a paper-tagged material (a physical photocopier feeds real
+        paper), so both only get a rate for paper-tagged assignments. Ad Hoc
+        has no such requirement — its "priced material" is just whichever
+        assignment the owner picks per job order (e.g. a lamination pouch or
+        film), so every assignment in an Ad Hoc category is priceable, not
+        only ones tagged with a paper size."""
         print_types = ensure_builtin_print_types(db)
         self.ensure_builtin_categories(db)
         assignments = db.query(PricingCategoryMaterial).all()
@@ -35,7 +44,7 @@ class PricingService:
         }
         created_default = False
         for assignment in assignments:
-            if assignment.inventory_item.paper_size is None:
+            if assignment.category.operation_kind != "adhoc" and assignment.inventory_item.paper_size is None:
                 continue
             for print_type in print_types:
                 key = (assignment.inventory_item_id, print_type.key, assignment.pricing_category_key)

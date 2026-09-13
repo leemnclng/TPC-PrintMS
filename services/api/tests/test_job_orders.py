@@ -164,6 +164,110 @@ def test_ad_hoc_transaction_tracks_external_work_and_material_usage(tmp_path, mo
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 34
 
 
+def test_ad_hoc_material_without_a_paper_size_is_still_priceable(tmp_path, monkeypatch) -> None:
+    """Ad Hoc has no physical paper to feed, so a lamination pouch, film, or
+    any other assigned material — none of which are tagged with a paper
+    size — must still get a rate row and be usable to price a job, unlike
+    Printing/Photocopy where only a paper-tagged material is priceable."""
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'ad-hoc-non-paper.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "app-data")
+
+    def override_db():
+        db = test_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(services.router)
+    app.include_router(products.router)
+    app.include_router(inventory.router)
+    app.include_router(job_orders.router)
+    app.include_router(variants.router)
+    app.include_router(document_analyzer_router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    # No paper_size on either — these are lamination pouches, not paper.
+    pouch = _create_material(client, headers, "A4 laminate pouch", "Piece", 40)
+    adhesive = _create_material(client, headers, "Laminate adhesive sheet", "Piece", 40)
+    category_response = client.post(
+        "/document-analyzer/pricing-categories",
+        headers=headers,
+        json={
+            "name": "Lamination",
+            "description": "External lamination work.",
+            "operationKind": "adhoc",
+            "materialIds": [pouch["id"], adhesive["id"]],
+        },
+    )
+    assert category_response.status_code == 201, category_response.text
+    category = category_response.json()
+
+    # Both non-paper materials get a rate row automatically — previously only
+    # a paper-tagged material would (`ensure_defaults` used to skip the rest).
+    rules = client.get("/document-analyzer/pricing-rules", headers=headers).json()
+    scoped_rule_material_ids = {rule["inventoryItemId"] for rule in rules if rule["pricingScope"] == category["key"]}
+    assert {pouch["id"], adhesive["id"]} <= scoped_rule_material_ids
+    pouch_rule = next(rule for rule in rules if rule["pricingScope"] == category["key"] and rule["inventoryItemId"] == pouch["id"] and rule["printType"] == "black_and_white")
+    assert pouch_rule["paperSize"] is None
+    assert client.put(
+        "/document-analyzer/pricing-rules",
+        headers=headers,
+        json={"rules": [{"id": pouch_rule["id"], "pricePerPage": 15, "isActive": True}]},
+    ).status_code == 200
+
+    service = client.post(
+        "/services",
+        headers=headers,
+        json={"name": "Lamination counter", "category": "custom", "isActive": True},
+    ).json()
+    product = client.post(
+        "/products",
+        headers=headers,
+        json={
+            "serviceId": service["id"],
+            "name": "A4 lamination",
+            "printType": "black_and_white",
+            "operationKind": "adhoc",
+            "pricingCategoryKey": category["key"],
+            "isActive": True,
+            "variants": [],
+            "materialAssignments": [{"inventoryItemId": pouch["id"]}],
+            "documentRates": [],
+        },
+    ).json()
+
+    transaction_response = client.post(
+        "/job-orders/transactions",
+        headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": "Lamination job",
+                "initialServiceId": service["id"],
+                "items": [{
+                    "clientKey": "lamination-line",
+                    "productId": product["id"],
+                    "paperInventoryItemId": pouch["id"],
+                    "pagesPerCopy": 2,
+                    "copies": 1,
+                }],
+            }),
+        },
+    )
+    assert transaction_response.status_code == 201, transaction_response.text
+    item = transaction_response.json()["items"][0]
+    assert item["lineTotal"] == 30
+    assert item["materials"][0]["inventoryItemId"] == pouch["id"]
+
+
 @pytest.mark.parametrize("cancel_after_front", [None, 1, 0])
 def test_photo_duplex_combines_files_and_consumes_one_sheet_per_pair(tmp_path, monkeypatch, cancel_after_front) -> None:
     engine = create_engine(

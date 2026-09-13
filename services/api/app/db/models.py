@@ -378,7 +378,7 @@ class DocumentPricingRule(TimestampMixin, Base):
     product_rates: Mapped[list["ProductDocumentRate"]] = relationship(back_populates="pricing_rule")
 
     @property
-    def paper_size(self) -> InventoryPaperSize:
+    def paper_size(self) -> InventoryPaperSize | None:
         return self.inventory_item.paper_size
 
 
@@ -484,7 +484,7 @@ class ProductDocumentRate(Base):
     pricing_rule: Mapped["DocumentPricingRule"] = relationship(back_populates="product_rates")
 
     @property
-    def paper_size(self) -> str:
+    def paper_size(self) -> InventoryPaperSize | None:
         return self.pricing_rule.paper_size
 
     @property

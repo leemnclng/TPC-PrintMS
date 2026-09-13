@@ -21,10 +21,13 @@ def reference_price_per_page(
     override price, e.g. `{rate.pricing_rule_id: rate.price_per_page for rate
     in product.document_rates}` (or the equivalent from a not-yet-saved
     payload). The reference is the lowest usable rate among the product's
-    assigned paper materials within `pricing_scope`, so catalog surfaces can
+    assigned materials within `pricing_scope`, so catalog surfaces can
     honestly show a starting price. Resolution per material is product
-    override -> matching active global rate; a product without a priced paper
-    material resolves to 0."""
+    override -> matching active global rate; a product without a priced
+    material resolves to 0. Rule existence is itself the gate on which
+    materials are priceable — Printing and Photocopy only ever get a rule for
+    a paper-tagged material (see `PricingService.ensure_defaults`), so no
+    separate paper-size filter is needed here."""
     if not inventory_item_ids:
         return 0.0
     rules = (
@@ -37,7 +40,6 @@ def reference_price_per_page(
         )
         .filter(
             InventoryItem.id.in_(inventory_item_ids),
-            InventoryItem.paper_size.isnot(None),
             InventoryItem.is_active.is_(True),
             DocumentPricingRule.print_type == print_type,
             DocumentPricingRule.pricing_scope == pricing_scope,
@@ -66,7 +68,9 @@ def price_per_page_for_material(
     *,
     require_override: bool = False,
 ) -> float | None:
-    """Return the exact active rate for one selected paper material."""
+    """Return the exact active rate for one selected material (a real paper
+    material for Printing/Photocopy, or any assigned material for Ad Hoc —
+    see `PricingService.ensure_defaults`)."""
     rule = (
         db.query(DocumentPricingRule)
         .join(InventoryItem)
@@ -77,7 +81,6 @@ def price_per_page_for_material(
         )
         .filter(
             InventoryItem.id == inventory_item_id,
-            InventoryItem.paper_size.isnot(None),
             InventoryItem.is_active.is_(True),
             DocumentPricingRule.print_type == print_type,
             DocumentPricingRule.pricing_scope == pricing_scope,

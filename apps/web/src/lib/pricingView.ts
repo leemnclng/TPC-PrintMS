@@ -6,7 +6,9 @@ export interface ProductPricePoint {
   materialName?: string;
   amount: number;
   custom: boolean;
-  paperSize?: InventoryPaperSize;
+  /** Null/undefined for an Ad Hoc material (e.g. a lamination pouch or
+   *  film) — Ad Hoc has no physical paper size. */
+  paperSize?: InventoryPaperSize | null;
 }
 
 export interface ProductPriceRange {
@@ -87,7 +89,7 @@ export function resolveProductPricePoints(product: Product, rules: DocumentPrici
     const override = overrides.get(rule.id);
     return [{
       key: rule.id,
-      label: `${rule.paperSize} · ${assignment.inventoryItemName}`,
+      label: rule.paperSize ? `${rule.paperSize} · ${assignment.inventoryItemName}` : assignment.inventoryItemName,
       materialName: assignment.inventoryItemName,
       amount: override?.pricePerPage ?? rule.pricePerPage,
       custom: Boolean(override),

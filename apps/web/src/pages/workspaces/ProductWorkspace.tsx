@@ -381,8 +381,8 @@ export function ProductWorkspace() {
             <div className="product-setup-grid__configuration">
               <section className="product-setup-section">
                 <div className="product-setup-section__heading">
-                  <h3>Paper materials &amp; pricing</h3>
-                  <p>Select the paper this product can use, then keep its workflow's global price or set a custom product rate.</p>
+                  <h3>{form.operationKind === "adhoc" ? "Priced materials & pricing" : "Paper materials & pricing"}</h3>
+                  <p>{form.operationKind === "adhoc" ? "Select the material this product bills against, then keep its workflow's global price or set a custom product rate." : "Select the paper this product can use, then keep its workflow's global price or set a custom product rate."}</p>
                 </div>
                 {pricingRules.length ? (
                   <ProductDocumentRateSelector
@@ -403,7 +403,7 @@ export function ProductWorkspace() {
                   />
                 ) : (
                   <div className="workspace-materials__empty">
-                    <span>Tag an inventory material with a supported Canon paper size before pricing by size.</span>
+                    <span>{form.operationKind === "adhoc" ? "Assign an inventory material to a pricing category before pricing it." : "Tag an inventory material with a supported Canon paper size before pricing by size."}</span>
                     <LinkButton to="/inventory" variant="secondary" size="sm">Open inventory</LinkButton>
                   </div>
                 )}

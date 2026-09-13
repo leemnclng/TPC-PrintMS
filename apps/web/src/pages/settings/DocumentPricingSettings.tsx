@@ -17,7 +17,8 @@ import { PrintTypeCreateModal } from "./PrintTypeCreateModal";
 interface MaterialSummary {
   id: string;
   name: string;
-  paperSize: InventoryPaperSize;
+  /** Null for an Ad Hoc material (e.g. a lamination pouch or film). */
+  paperSize: InventoryPaperSize | null;
   paperWidthMm?: number | null;
   paperHeightMm?: number | null;
 }

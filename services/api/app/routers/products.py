@@ -369,10 +369,14 @@ def _validate_pricing_category(
         raise HTTPException(status_code=422, detail="The pricing category does not match this product's workflow.")
     if require_active and not category.is_active:
         raise HTTPException(status_code=409, detail=f"Pricing category is inactive: {category.name}.")
-    paper_ids = {
+    assignment_ids = [entry["inventory_item_id"] for entry in material_assignments]
+    # Ad Hoc has no separate "paper" concept — any assigned material can be
+    # the priced one — so every assignment must belong to the category, not
+    # only paper-tagged ones as with Printing/Photocopy.
+    priced_candidate_ids = {
         item_id for (item_id,) in db.query(InventoryItem.id).filter(
-            InventoryItem.id.in_([entry["inventory_item_id"] for entry in material_assignments]),
-            InventoryItem.paper_size.isnot(None),
+            InventoryItem.id.in_(assignment_ids),
+            *([] if operation_kind == "adhoc" else [InventoryItem.paper_size.isnot(None)]),
         ).all()
     }
     assigned_ids = {
@@ -380,11 +384,11 @@ def _validate_pricing_category(
             PricingCategoryMaterial.pricing_category_key == resolved_key
         ).all()
     }
-    if unavailable := paper_ids - assigned_ids:
+    if unavailable := priced_candidate_ids - assigned_ids:
         item = db.get(InventoryItem, next(iter(unavailable)))
         raise HTTPException(
             status_code=422,
-            detail=f"{item.name if item else 'The selected paper'} is not assigned to {category.name}.",
+            detail=f"{item.name if item else 'The selected material'} is not assigned to {category.name}.",
         )
     return resolved_key
 
@@ -433,13 +437,20 @@ def _validate_photocopy_materials(
     material_assignments: list[dict],
     db: Session,
 ) -> None:
+    """Photocopy always needs a real paper-tagged material (a physical
+    photocopier feeds actual paper). Ad Hoc has no such requirement — any
+    assigned material (e.g. a lamination pouch or film) can be the priced
+    material, since ensure_defaults() prices every Ad Hoc assignment."""
     if operation_kind not in {"photocopy", "adhoc"}:
         return
     assignment_ids = [entry["inventory_item_id"] for entry in material_assignments]
-    has_paper = db.query(InventoryItem).filter(
-        InventoryItem.id.in_(assignment_ids),
-        InventoryItem.paper_size.isnot(None),
-    ).first()
-    if not has_paper:
+    if operation_kind == "adhoc":
+        has_priceable = bool(assignment_ids)
+    else:
+        has_priceable = db.query(InventoryItem).filter(
+            InventoryItem.id.in_(assignment_ids),
+            InventoryItem.paper_size.isnot(None),
+        ).first() is not None
+    if not has_priceable:
         label = "an Ad Hoc" if operation_kind == "adhoc" else "a photocopy"
-        raise HTTPException(status_code=422, detail=f"Assign at least one priced paper material to {label} product.")
+        raise HTTPException(status_code=422, detail=f"Assign at least one priced material to {label} product.")

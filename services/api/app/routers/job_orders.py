@@ -922,17 +922,21 @@ async def _save_transaction_lines(
             scan_rate = round(resolve_scan_price_per_page(product.standalone_price_per_page, pages, db) or 0.0, 2)
             suggested, price_breakdown = _adjusted_price_breakdown([{"kind": "base", "label": "Scan base price", "basis": f"{pages} provisional page × {scan_rate:.2f}", "amount": scan_rate}], product, copies, db)
         else:
+            # Ad Hoc has no physical paper to feed, so its priced material is
+            # any active assignment (e.g. a lamination pouch or film) rather
+            # than one tagged with a paper size — see ensure_defaults().
+            requires_paper_size = product.operation_kind != "adhoc"
             assignment = next(
                 (
                     value for value in product.material_assignments
                     if value.inventory_item_id == line.paper_inventory_item_id
                     and value.inventory_item.is_active
-                    and value.inventory_item.paper_size is not None
+                    and (not requires_paper_size or value.inventory_item.paper_size is not None)
                 ),
                 None,
             )
             if assignment is None:
-                raise HTTPException(status_code=422, detail=f"Select an active configured paper for {product.name}.")
+                raise HTTPException(status_code=422, detail=f"Select an active configured material for {product.name}.")
             if line.variant_id:
                 variant = next((value for value in product.variants if value.variant_id == line.variant_id), None)
                 if variant is None:

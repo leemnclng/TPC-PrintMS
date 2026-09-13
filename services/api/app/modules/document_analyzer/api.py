@@ -61,6 +61,17 @@ analysis_service = AnalysisService()
 pricing_service = PricingService()
 
 
+def _rule_sort_key(rule):
+    return (
+        rule.pricing_category.sort_order,
+        rule.pricing_category.name,
+        # Ad Hoc materials (e.g. a lamination pouch or film) carry no paper
+        # size; sort those after real paper sizes, by name.
+        rule.paper_size.value if rule.paper_size else "￿" + rule.inventory_item.name,
+        rule.print_type_definition.sort_order,
+    )
+
+
 @router.post("/analyze", response_model=AnalysisResponse, response_model_exclude_none=True)
 async def analyze_document(
     file: UploadFile = File(...),
@@ -254,14 +265,7 @@ async def analyze_photo_duplex(
 @router.get("/pricing-rules", response_model=list[PricingRuleRead])
 def list_pricing_rules(db: Session = Depends(get_db)) -> list[PricingRuleRead]:
     rules = pricing_service.ensure_defaults(db)
-    rules.sort(
-        key=lambda rule: (
-            rule.pricing_category.sort_order,
-            rule.pricing_category.name,
-            rule.paper_size.value,
-            rule.print_type_definition.sort_order,
-        )
-    )
+    rules.sort(key=_rule_sort_key)
     return [pricing_service.to_read(rule) for rule in rules]
 
 
@@ -283,14 +287,7 @@ def update_pricing_rules(
         rule.is_active = item.is_active
     db.commit()
     all_rules = pricing_service.ensure_defaults(db)
-    all_rules.sort(
-        key=lambda rule: (
-            rule.pricing_category.sort_order,
-            rule.pricing_category.name,
-            rule.paper_size.value,
-            rule.print_type_definition.sort_order,
-        )
-    )
+    all_rules.sort(key=_rule_sort_key)
     return [pricing_service.to_read(rule) for rule in all_rules]
 
 

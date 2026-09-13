@@ -109,7 +109,7 @@ export type InventoryPaperSize =
 export interface ProductDocumentRate {
   id: string;
   pricingRuleId: string;
-  paperSize: InventoryPaperSize;
+  paperSize: InventoryPaperSize | null;
   printType: ProductPrintType;
   pricingScope: string;
   pricePerPage: number;
@@ -599,7 +599,9 @@ export interface DocumentPricingRule {
   id: string;
   inventoryItemId: string;
   inventoryItemName: string;
-  paperSize: InventoryPaperSize;
+  /** Null for an Ad Hoc material (e.g. a lamination pouch or film) — Ad Hoc
+   *  has no physical paper, so any assigned material can be priced. */
+  paperSize: InventoryPaperSize | null;
   paperWidthMm?: number | null;
   paperHeightMm?: number | null;
   printType: ProductPrintType;

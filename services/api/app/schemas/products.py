@@ -27,7 +27,7 @@ class ProductDocumentRateIn(CamelModel):
 
 class ProductDocumentRateRead(ProductDocumentRateIn):
     id: str
-    paper_size: InventoryPaperSize
+    paper_size: InventoryPaperSize | None = None
     print_type: str
     pricing_scope: str
 

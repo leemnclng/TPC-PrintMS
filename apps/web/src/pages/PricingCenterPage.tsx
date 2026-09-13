@@ -87,8 +87,11 @@ export function PricingCenterPage() {
   }, [data, filter, query]);
 
   const customProducts = data?.products.filter(hasCustomPricing).length ?? 0;
-  const configuredPaperSizes = useMemo(() => Array.from(new Set(data?.rules.map((rule) => rule.paperSize) ?? []))
-    .sort(comparePaperSizes), [data]);
+  // Ad Hoc rules (e.g. a lamination pouch or film) have no paper size and
+  // don't fit this paper-size-keyed matrix — Additional Pricing covers them.
+  const configuredPaperSizes = useMemo(() => Array.from(new Set(
+    data?.rules.map((rule) => rule.paperSize).filter((paperSize): paperSize is InventoryPaperSize => paperSize !== null) ?? [],
+  )).sort(comparePaperSizes), [data]);
   const pricingColumnCount = configuredPaperSizes.length + 5;
   const customEntries = data?.products.reduce((total, product) => total + product.documentRates.length + product.variants.length + (product.standalonePricePerPage == null ? 0 : 1), 0) ?? 0;
   const missingProducts = data?.products.filter((product) => {
