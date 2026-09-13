@@ -27,6 +27,7 @@ from .routers import (
     health,
     inventory,
     job_orders,
+    maintenance,
     overview,
     print_types,
     printers,
@@ -209,6 +210,7 @@ app.include_router(inventory.router)
 app.include_router(quotations.router)
 app.include_router(reports.router)
 app.include_router(job_orders.router)
+app.include_router(maintenance.router)
 app.include_router(printers.router)
 app.include_router(settings_router.router)
 

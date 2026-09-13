@@ -446,6 +446,14 @@ export interface BusinessProfile {
   jobOrderPrefix: string;
 }
 
+export interface MaintenanceReminder {
+  id: string;
+  message: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StorageStatus {
   stage: "development" | "production" | "test";
   environmentDirectory: string;

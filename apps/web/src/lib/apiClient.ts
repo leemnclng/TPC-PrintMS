@@ -64,6 +64,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, message);
   }
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method !== "GET" && path.startsWith("/job-orders")) {
+    window.dispatchEvent(new CustomEvent("maintenance-reminder:transaction"));
+  }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }

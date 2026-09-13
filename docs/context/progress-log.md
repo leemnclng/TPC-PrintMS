@@ -1,5 +1,12 @@
 # Progress Log
 
+## 2026-09-14 — Canon printer maintenance workspace
+
+- Added a top-level Maintenance page for the Canon PIXMA MegaTank G4070-series family, explicitly covering the G4770 and leaving a data-driven path for later brands and families.
+- Added preventive routines, symptom filters, Canon's ordered print-quality recovery flow, feed/scanner/consumable care, safety boundaries, and direct manufacturer references. Maintenance remains guidance-only and never implies a hardware action was started.
+- Added persistent owner-authored care reminders with create, edit, pause/reactivate, and confirmed removal flows. Active tips rotate in a dismissible top-right prompt and every successful job-order mutation immediately shows the next tip.
+- Verification: all 62 API tests, TypeScript, ESLint, production web build, Python compilation, migration-head, and diff checks passed.
+
 ## 2026-09-10 — Product-level job corrections
 
 - Added audited product repricing and individual cancellation inside unpaid job orders, including total/status recalculation and active-print guards.

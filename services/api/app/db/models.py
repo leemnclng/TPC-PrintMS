@@ -189,6 +189,16 @@ class BusinessProfile(TimestampMixin, Base):
     job_order_prefix: Mapped[str] = mapped_column(String, default="JOB", nullable=False)
 
 
+class MaintenanceReminder(TimestampMixin, Base):
+    """Owner-authored care tip rotated through the global reminder surface."""
+
+    __tablename__ = "maintenance_reminders"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    message: Mapped[str] = mapped_column(String(240), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
 class Customer(TimestampMixin, Base):
     __tablename__ = "customers"
 

@@ -1,5 +1,8 @@
 # Change Log
 
+- 2026-09-14: Added Maintenance under Operations with Canon PIXMA MegaTank G4070-series guidance for the G4770, symptom-based action filters, safe recovery order, regular care, warnings, and official references.
+- 2026-09-14: Maintenance reminders can now be added, edited, paused, reactivated, or removed. Active tips rotate in a top-right prompt, disappear after ten seconds, and surface after each successful job-order action.
+
 - 2026-09-10: Unpaid job products can now be repriced or cancelled individually with an audit reason. Retained product files can be opened from the configuration pane and clearly show when the managed file is missing.
 
 - 2026-09-10: Global pricing variables now live on Pricing beside a new product-discount pane. Owners can create percentage or fixed discounts, assign products, and include them automatically in new estimates and visible effective prices.

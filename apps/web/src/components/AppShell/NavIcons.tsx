@@ -69,6 +69,15 @@ export function DocumentAnalyzerIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function MaintenanceIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M5.4 8V3.8h9.2V8M6 13.2H3.2V8h13.6v5.2H14" />
+      <path d="M6 11.4h8v5.4H6zM8.1 14.1h3.8M14.4 10.1h.1" />
+    </svg>
+  );
+}
+
 export function CatalogIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
@@ -123,6 +132,7 @@ export const navIcons = {
   printCenter: PrintCenterIcon,
   documentAnalyzer: DocumentAnalyzerIcon,
   inventory: InventoryIcon,
+  maintenance: MaintenanceIcon,
   catalog: CatalogIcon,
   customers: CustomersIcon,
   reports: ReportsIcon,

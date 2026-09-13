@@ -4,6 +4,7 @@ import { Topbar } from "./Topbar";
 import { useHealth } from "../../hooks/useHealth";
 import { ExternalPrintPrompt } from "../ExternalPrintPrompt/ExternalPrintPrompt";
 import { GlobalPrintActivity } from "../GlobalPrintActivity/GlobalPrintActivity";
+import { MaintenanceReminderToast } from "../MaintenanceReminderToast/MaintenanceReminderToast";
 import "./AppShell.css";
 
 export function AppShell() {
@@ -22,6 +23,7 @@ export function AppShell() {
       </div>
       <GlobalPrintActivity />
       <ExternalPrintPrompt />
+      <MaintenanceReminderToast />
     </div>
   );
 }

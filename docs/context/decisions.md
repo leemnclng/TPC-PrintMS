@@ -1,5 +1,12 @@
 # Decisions
 
+## 2026-09-14 — Make printer maintenance condition-based and manufacturer-led
+
+- Classify the Canon PIXMA G4770 under the refillable ink-tank PIXMA MegaTank G4070-series family and structure maintenance content so later brands and families can be added without changing the page pattern.
+- Do not present normal cleaning, deep cleaning, or ink replacement as calendar tasks. Follow Canon's nozzle-check recovery order and stop as soon as the pattern passes.
+- Keep maintenance informational until a verified printer-control interface exists. Clearly separate Canon instructions from conservative community practice and exclude manual flushing, solvents, syringes, and disassembly.
+- Keep owner-authored reminders distinct from scheduled maintenance: active tips rotate in a non-blocking global prompt, auto-hide after ten seconds, and advance after each successful job-order mutation. Reminder failures must never interrupt a transaction.
+
 ## 2026-09-10 — Keep product corrections auditable before payment
 
 - Allow price changes and individual product cancellation only while the transaction is unpaid and active. Require a reason for both and retain same-status pricing events in product history.
