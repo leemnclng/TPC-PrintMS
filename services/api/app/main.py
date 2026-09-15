@@ -37,6 +37,7 @@ from .routers import (
     reports,
     services,
     settings as settings_router,
+    templates,
     variants,
 )
 from .seed import seed_business_profile
@@ -215,6 +216,7 @@ app.include_router(job_orders.router)
 app.include_router(maintenance.router)
 app.include_router(printers.router)
 app.include_router(settings_router.router)
+app.include_router(templates.router)
 
 
 def run() -> None:

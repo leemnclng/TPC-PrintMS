@@ -97,6 +97,16 @@ export function CatalogIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function TemplatesIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="2.8" y="3.2" width="14.4" height="13.6" rx="1.2" />
+      <rect x="5.2" y="6.1" width="6.2" height="4" rx=".5" />
+      <path d="M13.6 6.1h1.2M13.6 8.1h1.2M5.2 13.7h9.6" />
+    </svg>
+  );
+}
+
 export function CustomersIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
@@ -145,6 +155,7 @@ export const navIcons = {
   maintenance: MaintenanceIcon,
   expenses: ExpensesIcon,
   catalog: CatalogIcon,
+  templates: TemplatesIcon,
   customers: CustomersIcon,
   reports: ReportsIcon,
   configuration: ConfigurationIcon,

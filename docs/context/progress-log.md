@@ -796,3 +796,11 @@ Chronological notes about app progress.
 - Completed: Every material assigned to an Ad Hoc category now gets a rate row regardless of paper size; Printing and Photocopy are unchanged (both still require real paper geometry/feed). `DocumentPricingRule.paper_size` (backend model/schema and frontend types) is now nullable end to end. The Price Book excludes paper-less rules from its per-paper-size columns. "Paper" is relabeled "Priced material" for Ad Hoc products in the product workspace and the live transaction modal.
 - Fixed along the way: two `/document-analyzer/pricing-rules` sort keys and a JSON schema field crashed on a null paper size — caught by the new test before it could ship.
 - Verified: New backend test pricing a non-paper Ad Hoc material end to end through job creation; full API suite (60 tests); renderer typecheck, lint, and production build.
+
+## 2026-09-16 (business-card production template)
+
+- Summary: Added Templates as an Operations destination and shipped Business Card as its first working layout.
+- Completed: The dedicated workspace accepts paired single-page PDF/image artwork, calculates an A4/Letter grid from finished size, margin, gap, and bleed, previews front/back sheets, adds crop marks, applies bounded back-side X/Y calibration, and downloads a two-page imposed PDF for the existing supervised duplex workflow.
+- Verified: Two focused backend PDF/layout tests pass; renderer lint and production build pass.
+- Improved: Each side now behaves as a bounded master canvas. The first card supports pointer dragging, arrow-key nudging, percentage resizing, and six alignment actions; artwork is clipped to the configurable safe margin and replicated identically across the sheet and exported PDF.
+- Verified: Three focused backend PDF/layout/bounds tests pass; the renderer build/lint pass and both exported pages were rendered for visual inspection.

@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-09-16 — Keep imposition in reusable Templates
+
+- Put complex layout generation in a dedicated Templates workspace rather than expanding final printer setup.
+- Start with Business Card and produce one two-page PDF whose front and back are derived from the same centered grid.
+- Match the existing supervised rear-tray workflow by rotating the back layout 180 degrees, and expose bounded X/Y calibration because feed registration is physical and printer-specific.
+- Treat the first card in the sheet proof as the editable master. Constrain movable artwork to a configurable safe margin, replicate its normalized placement to every card, and use those same coordinates in PDF generation.
+- Keep uploaded artwork transient in this first version; the generated PDF downloads locally and can be attached to a job order through the existing flow.
+
 ## 2026-09-14 — Unify expenses without duplicating stock purchases
 
 - Store non-stock operating expenses in their own editable ledger. Project existing inventory purchases into Expenses as read-only entries and send owners back to Inventory for purchase changes or removal.

@@ -88,6 +88,26 @@ async function download(path: string): Promise<Blob> {
   return response.blob();
 }
 
+async function uploadDownload(path: string, body: FormData): Promise<Blob> {
+  const { baseUrl, token } = await resolveConfig();
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { "X-Print-MS-Token": token },
+    body,
+  });
+  if (!response.ok) {
+    let message = "The file could not be generated.";
+    try {
+      const payload = await response.json();
+      message = payload?.detail ?? message;
+    } catch {
+      // Keep the useful generic message when the backend returns no JSON.
+    }
+    throw new ApiError(response.status, message);
+  }
+  return response.blob();
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
@@ -96,6 +116,7 @@ export const api = {
     request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
   upload: <T>(path: string, body: FormData) =>
     request<T>(path, { method: "POST", body }),
+  uploadDownload,
   download,
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };

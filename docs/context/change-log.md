@@ -440,3 +440,10 @@ Track notable app changes by date.
 - Fixed: The Configuration pricing-category modal now scrolls its fields and materials list independently of its Cancel/Save actions, so a short window no longer clips off unreachable content.
 - Fixed: Non-paper materials assigned to a printing/photocopy/adhoc product (ink, toner, binding, laminate…) can now actually be selected, with a planned quantity, on each product line when creating or adding to a job order. Previously they were assignable but never appeared anywhere at job creation, so they never deducted.
 - Fixed: Materials assigned to an Ad Hoc pricing category (e.g. a lamination pouch or film) can now be priced even without a paper size — previously only paper-tagged materials in a category got a priceable rate, silently dropping everything else.
+
+## 2026-09-16
+
+- Added: A Templates page under Operations, beginning with a complete Business Card layout studio.
+- Added: Paired front/back artwork upload, automatic cards-per-sheet calculation, A4/Letter orientation, finished-size, margin, gap, bleed, crop-mark, and reverse-side calibration controls.
+- Added: Downloadable two-page print-ready PDFs arranged for OMS's supervised 180-degree rear-tray reload workflow.
+- Improved: Front and back images can now be dragged, resized, keyboard-nudged, and edge/center aligned on the first card. Movement stays clipped inside the configurable safe margin and automatically updates every repeated card.
