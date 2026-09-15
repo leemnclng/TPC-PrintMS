@@ -454,6 +454,37 @@ export interface MaintenanceReminder {
   updatedAt: string;
 }
 
+export type ExpenseSource = "manual" | "stock_purchase";
+
+export interface ExpenseLedgerEntry {
+  id: string;
+  source: ExpenseSource;
+  category: string;
+  description: string;
+  amount: number;
+  paidTo?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+  spentOn: string;
+  createdAt: string;
+}
+
+export interface ExpenseCategoryTotal {
+  category: string;
+  amount: number;
+  entryCount: number;
+}
+
+export interface ExpenseLedger {
+  entries: ExpenseLedgerEntry[];
+  totalAmount: number;
+  manualExpenseTotal: number;
+  stockPurchaseTotal: number;
+  entryCount: number;
+  categoryTotals: ExpenseCategoryTotal[];
+  availableCategories: string[];
+}
+
 export interface StorageStatus {
   stage: "development" | "production" | "test";
   environmentDirectory: string;

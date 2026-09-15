@@ -13,6 +13,7 @@ import { CustomersPage } from "./pages/CustomersPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { MaintenancePage } from "./pages/MaintenancePage";
+import { ExpensesPage } from "./pages/expenses/ExpensesPage";
 import { ConfigurationPage } from "./pages/ConfigurationPage";
 import { PricingCenterPage } from "./pages/PricingCenterPage";
 import { PricingOverviewWindow } from "./pages/PricingOverviewWindow";
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="inventory/stocks" element={<StockPurchasesPage />} />
         <Route path="inventory/:materialId/history" element={<MaterialHistoryPage />} />
         <Route path="maintenance" element={<MaintenancePage />} />
+        <Route path="expenses" element={<ExpensesPage />} />
 
         <Route path="product-catalog" element={<ProductCatalogPage />} />
         <Route path="product-catalog/variants" element={<Navigate to="/configuration/variants" replace />} />

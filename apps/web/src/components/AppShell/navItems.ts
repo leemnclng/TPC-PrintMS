@@ -33,6 +33,7 @@ export const navGroups: NavGroup[] = [
       { label: "Document Analyzer", path: "/document-analyzer", matchPrefix: "/document-analyzer", icon: "documentAnalyzer" },
       { label: "Inventory", path: "/inventory", matchPrefix: "/inventory", icon: "inventory" },
       { label: "Maintenance", path: "/maintenance", matchPrefix: "/maintenance", icon: "maintenance" },
+      { label: "Expenses", path: "/expenses", matchPrefix: "/expenses", icon: "expenses" },
     ],
   },
   {

@@ -199,6 +199,22 @@ class MaintenanceReminder(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
+class BusinessExpense(TimestampMixin, Base):
+    """Non-stock operating cost; stock purchases remain their own ledger."""
+
+    __tablename__ = "business_expenses"
+    __table_args__ = (CheckConstraint("amount > 0", name="ck_business_expenses_amount"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str] = mapped_column(String(240), nullable=False)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    paid_to: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    spent_on: Mapped[date] = mapped_column(Date, nullable=False)
+
+
 class Customer(TimestampMixin, Base):
     __tablename__ = "customers"
 

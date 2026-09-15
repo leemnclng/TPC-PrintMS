@@ -1,5 +1,7 @@
 # Change Log
 
+- 2026-09-14: Added Expenses under Operations. Operating costs can be recorded, edited, and removed; stock purchases are included automatically without duplication; daily, weekly, monthly, custom-date, search, source, and category filtering drive the ledger totals and breakdown.
+
 - 2026-09-14: Added Maintenance under Operations with Canon PIXMA MegaTank G4070-series guidance for the G4770, symptom-based action filters, safe recovery order, regular care, warnings, and official references.
 - 2026-09-14: Maintenance reminders can now be added, edited, paused, reactivated, or removed. Active tips rotate in a top-right prompt, disappear after ten seconds, and surface after each successful job-order action.
 

@@ -1,5 +1,11 @@
 # Progress Log
 
+## 2026-09-14 — Unified business expense ledger
+
+- Added Expenses under Operations with complete operating-expense create/edit/remove flows and a combined read-only projection of Inventory stock-purchase spending.
+- Added daily, weekly, monthly, and custom intervals; search, source, and category filters; filtered totals; and a category spending breakdown.
+- Added the business-expense schema migration and API regression coverage. Verification: all API tests, TypeScript, ESLint, production web build, Python compilation, migration-head, and diff checks passed.
+
 ## 2026-09-14 — Canon printer maintenance workspace
 
 - Added a top-level Maintenance page for the Canon PIXMA MegaTank G4070-series family, explicitly covering the G4770 and leaving a data-driven path for later brands and families.

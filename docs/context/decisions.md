@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-09-14 — Unify expenses without duplicating stock purchases
+
+- Store non-stock operating expenses in their own editable ledger. Project existing inventory purchases into Expenses as read-only entries and send owners back to Inventory for purchase changes or removal.
+- Calculate all totals and category breakdowns from the same date/search/source/category-filtered entry set shown in the ledger.
+- Reserve the Stock purchase category for Inventory-linked costs so a manual expense cannot masquerade as or duplicate that source.
+
 ## 2026-09-14 — Make printer maintenance condition-based and manufacturer-led
 
 - Classify the Canon PIXMA G4770 under the refillable ink-tank PIXMA MegaTank G4070-series family and structure maintenance content so later brands and families can be added without changing the page pattern.

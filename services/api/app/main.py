@@ -24,6 +24,7 @@ from .db.session import SessionLocal
 from .modules.document_analyzer import router as document_analyzer_router
 from .routers import (
     customers,
+    expenses,
     health,
     inventory,
     job_orders,
@@ -201,6 +202,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(overview.router)
 app.include_router(customers.router)
+app.include_router(expenses.router)
 app.include_router(services.router)
 app.include_router(variants.router)
 app.include_router(print_types.router)
