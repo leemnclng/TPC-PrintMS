@@ -1,6 +1,7 @@
 from io import BytesIO
 
 import pymupdf
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -35,8 +36,8 @@ def test_business_card_template_generates_paired_imposed_pages() -> None:
             "margin_mm": "5",
             "gap_mm": "4",
             "bleed_mm": "3",
-            "back_offset_x_mm": "0.3",
-            "back_offset_y_mm": "-0.2",
+            "back_offset_x_mm": "0",
+            "back_offset_y_mm": "0",
             "crop_marks": "true",
         },
     )
@@ -49,6 +50,11 @@ def test_business_card_template_generates_paired_imposed_pages() -> None:
         assert document.page_count == 2
         assert round(document[0].rect.width * 25.4 / 72) == 210
         assert round(document[0].rect.height * 25.4 / 72) == 297
+        front_boxes = sorted(tuple(item["bbox"]) for item in document[0].get_image_info())
+        back_boxes = sorted(tuple(item["bbox"]) for item in document[1].get_image_info())
+        assert len(front_boxes) == len(back_boxes) == 8
+        for front_box, back_box in zip(front_boxes, back_boxes, strict=True):
+            assert back_box == pytest.approx(front_box)
     finally:
         document.close()
 

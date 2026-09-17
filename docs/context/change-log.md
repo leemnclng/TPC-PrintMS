@@ -447,3 +447,6 @@ Track notable app changes by date.
 - Added: Paired front/back artwork upload, automatic cards-per-sheet calculation, A4/Letter orientation, finished-size, margin, gap, bleed, crop-mark, and reverse-side calibration controls.
 - Added: Downloadable two-page print-ready PDFs arranged for OMS's supervised 180-degree rear-tray reload workflow.
 - Improved: Front and back images can now be dragged, resized, keyboard-nudged, and edge/center aligned on the first card. Movement stays clipped inside the configurable safe margin and automatically updates every repeated card.
+- Changed: Business Card no longer rotates or mirrors the back page. Both exported pages use the same orientation, card dimensions, grid, margins, gaps, bleed, and crop-mark geometry for separate printing.
+- Added: Zoom controls for the live business-card sheet canvas, from 50% to 250%, with scrolling at larger sizes.
+- Changed: Preview print-ready PDF now opens both generated pages in an in-app PDF viewer before a separate Download PDF action saves the file.

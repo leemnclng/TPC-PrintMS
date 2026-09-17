@@ -804,3 +804,6 @@ Chronological notes about app progress.
 - Verified: Two focused backend PDF/layout tests pass; renderer lint and production build pass.
 - Improved: Each side now behaves as a bounded master canvas. The first card supports pointer dragging, arrow-key nudging, percentage resizing, and six alignment actions; artwork is clipped to the configurable safe margin and replicated identically across the sheet and exported PDF.
 - Verified: Three focused backend PDF/layout/bounds tests pass; the renderer build/lint pass and both exported pages were rendered for visual inspection.
+- Changed: Removed automatic 180-degree back-page rotation and mirroring. Front and back now export with identical sheet orientation and grid coordinates for independent printing; shared sheet/card/spacing settings still control both pages.
+- Improved: Added 50–250% zoom and scrollable inspection to the editable sheet canvas. PDF generation now opens a two-page continuous preview with independent zoom/fit/rotate controls; the owner downloads only after review.
+- Verified: Renderer production build and lint pass; all three focused template PDF tests remain green.

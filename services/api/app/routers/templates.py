@@ -156,20 +156,19 @@ def _build_business_card_pdf(
                 for column in range(columns):
                     x = origin_x + column * (slot_width + gap_mm)
                     y = origin_y + row * (slot_height + gap_mm)
-                    rotation = 0
                     if side == "back":
-                        # Matches OMS's supervised rear-tray instruction: rotate
-                        # the complete sheet 180° before the back pass.
-                        x = sheet_width_mm - x - slot_width + back_offset_x_mm
-                        y = sheet_height_mm - y - slot_height + back_offset_y_mm
-                        rotation = 180
+                        # Templates are neutral layout documents. The owner
+                        # prints each page separately and handles the physical
+                        # sheet turn, so both PDF pages retain one orientation.
+                        x += back_offset_x_mm
+                        y += back_offset_y_mm
                     artwork = pymupdf.Rect(
                         x * MM_TO_POINTS,
                         y * MM_TO_POINTS,
                         (x + slot_width) * MM_TO_POINTS,
                         (y + slot_height) * MM_TO_POINTS,
                     )
-                    page.show_pdf_page(artwork, source, 0, rotate=rotation, keep_proportion=True)
+                    page.show_pdf_page(artwork, source, 0, keep_proportion=True)
                     if crop_marks:
                         trim = pymupdf.Rect(
                             (x + bleed_mm) * MM_TO_POINTS,

@@ -25,7 +25,7 @@ export function TemplatesPage() {
           <div className="template-card__body">
             <span className="numeric">SHEET IMPOSITION</span>
             <h2>Business Card</h2>
-            <p>Arrange paired artwork, add bleed and crop marks, calibrate the reverse side, then export a two-page PDF.</p>
+            <p>Arrange paired artwork on one shared grid, add bleed and crop marks, then export two same-orientation pages for separate printing.</p>
             <span className="template-card__action">Open layout studio <b aria-hidden="true">→</b></span>
           </div>
         </Link>

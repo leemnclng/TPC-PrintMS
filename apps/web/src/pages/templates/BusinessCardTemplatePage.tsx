@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "../../components/Button/Button";
+import { Modal } from "../../components/Modal/Modal";
+import { PdfViewer } from "../../components/PdfViewer/PdfViewer";
 import { ApiError, api } from "../../lib/apiClient";
 import "./BusinessCardTemplatePage.css";
 
@@ -42,6 +44,9 @@ export function BusinessCardTemplatePage() {
   const [submitted, setSubmitted] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [canvasZoom, setCanvasZoom] = useState(1);
+  const [pdfPreview, setPdfPreview] = useState<{ file: File; url: string } | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; placement: Placement; side: Side; width: number; height: number } | null>(null);
 
   const [sheetWidth, sheetHeight] = sheet === "a4-landscape" ? [297, 210] : sheet === "letter-portrait" ? [215.9, 279.4] : sheet === "letter-landscape" ? [279.4, 215.9] : [210, 297];
@@ -66,6 +71,10 @@ export function BusinessCardTemplatePage() {
     setBackUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [back]);
+  useEffect(() => {
+    const url = pdfPreview?.url;
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [pdfPreview?.url]);
 
   async function generate(event: FormEvent) {
     event.preventDefault();
@@ -96,11 +105,8 @@ export function BusinessCardTemplatePage() {
     try {
       const blob = await api.uploadDownload("/templates/business-card/pdf", body);
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "business-card-print-ready.pdf";
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setPdfPreview({ file: new File([blob], "business-card-print-ready.pdf", { type: "application/pdf" }), url });
+      setPreviewOpen(true);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "The print-ready PDF could not be generated.");
     } finally {
@@ -128,7 +134,16 @@ export function BusinessCardTemplatePage() {
     "--artwork-top": `${placementMetrics.top}%`,
     "--artwork-width": `${placementMetrics.width}%`,
     "--artwork-height": `${placementMetrics.height}%`,
+    "--canvas-height": `${35 * canvasZoom}rem`,
   } as CSSProperties;
+
+  function downloadPreview() {
+    if (!pdfPreview) return;
+    const anchor = document.createElement("a");
+    anchor.href = pdfPreview.url;
+    anchor.download = pdfPreview.file.name;
+    anchor.click();
+  }
 
   function updatePlacement(side: Side, change: Partial<Placement>) {
     const setter = side === "front" ? setFrontPlacement : setBackPlacement;
@@ -177,8 +192,8 @@ export function BusinessCardTemplatePage() {
   return (
     <form className="business-card-studio" onSubmit={generate} noValidate>
       <header className="business-card-studio__header">
-        <div><Link to="/templates">← Templates</Link><span className="numeric">BUSINESS CARD / IMPOSITION 01</span><h1>Business Card</h1><p>Pair the artwork once. Every card inherits the same measured front-to-back geometry.</p></div>
-        <Button type="submit" variant="primary" loading={generating} disabled={Boolean(workspaceError)}>Generate print-ready PDF</Button>
+        <div><Link to="/templates">← Templates</Link><span className="numeric">BUSINESS CARD / IMPOSITION 01</span><h1>Business Card</h1><p>Front and back share one measured grid and page orientation, ready to print as two separate sheets.</p></div>
+        <Button type="submit" variant="primary" loading={generating} disabled={Boolean(workspaceError)}>Preview print-ready PDF</Button>
       </header>
 
       <div className="business-card-studio__workspace">
@@ -186,12 +201,12 @@ export function BusinessCardTemplatePage() {
           <section><h2><span>01</span> Artwork</h2><ArtworkField label="Front image" file={front} onChange={(file) => { setFront(file); setFrontPlacement({ x: .5, y: .5, scale: 70 }); }} invalid={submitted && !front} /><ArtworkField label="Back image" file={back} onChange={(file) => { setBack(file); setBackPlacement({ x: .5, y: .5, scale: 70 }); }} invalid={submitted && !back} /></section>
           <section><h2><span>02</span> Finished size</h2><div className="business-card-fields business-card-fields--two"><NumberField label="Width" value={cardWidth} min={40} max={220} onChange={setCardWidth} /><NumberField label="Height" value={cardHeight} min={25} max={220} onChange={setCardHeight} /></div><button className="business-card-preset" type="button" onClick={() => { setCardWidth(90); setCardHeight(54); }}>Use 90 × 54 mm standard</button></section>
           <section><h2><span>03</span> Sheet & spacing</h2><label className="form-field"><span>Sheet</span><select value={sheet} onChange={(event) => setSheet(event.target.value)}><option value="a4-portrait">A4 · portrait</option><option value="a4-landscape">A4 · landscape</option><option value="letter-portrait">Letter · portrait</option><option value="letter-landscape">Letter · landscape</option></select></label><div className="business-card-fields business-card-fields--two"><NumberField label="Sheet margin" value={margin} min={0} max={50} onChange={setMargin} /><NumberField label="Card gap" value={gap} min={0} max={30} onChange={setGap} /><NumberField label="Bleed" value={bleed} min={0} max={10} onChange={setBleed} /><NumberField label="Safe margin" value={safeMargin} min={0} max={20} step={0.5} onChange={setSafeMargin} /></div></section>
-          <section className="business-card-position"><h2><span>04</span> Position image</h2><p className="business-card-controls__hint">Editing the {activeSide}. Drag the outlined image on the first card, use arrow keys for fine movement, or align it precisely. The back is edited upright; export rotates it for the rear tray.</p><label className="form-field"><span>Image size <output>{Math.round(placement.scale)}%</output></span><input type="range" min="10" max="100" value={placement.scale} onChange={(event) => updatePlacement(activeSide, { scale: Number(event.target.value) })} /></label><div className="business-card-align" aria-label="Align image"><button type="button" onClick={() => updatePlacement(activeSide, { x: 0 })}>Left</button><button type="button" onClick={() => updatePlacement(activeSide, { x: .5 })}>Center</button><button type="button" onClick={() => updatePlacement(activeSide, { x: 1 })}>Right</button><button type="button" onClick={() => updatePlacement(activeSide, { y: 0 })}>Top</button><button type="button" onClick={() => updatePlacement(activeSide, { y: .5 })}>Middle</button><button type="button" onClick={() => updatePlacement(activeSide, { y: 1 })}>Bottom</button></div></section>
-          <section><h2><span>05</span> Back calibration</h2><p className="business-card-controls__hint">For the OMS rear-tray workflow: rotate the complete stack 180°. Fine-tune only after a test sheet.</p><div className="business-card-fields business-card-fields--two"><NumberField label="Horizontal" value={offsetX} min={-10} max={10} step={0.1} onChange={setOffsetX} /><NumberField label="Vertical" value={offsetY} min={-10} max={10} step={0.1} onChange={setOffsetY} /></div><label className="business-card-check"><input type="checkbox" checked={cropMarks} onChange={(event) => setCropMarks(event.target.checked)} /><span><strong>Crop marks</strong><small>Print trim guides on both sides</small></span></label></section>
+          <section className="business-card-position"><h2><span>04</span> Position image</h2><p className="business-card-controls__hint">Editing the {activeSide}. Drag the outlined image on the first card, use arrow keys for fine movement, or align it precisely. Both exported pages keep this same upright orientation.</p><label className="form-field"><span>Image size <output>{Math.round(placement.scale)}%</output></span><input type="range" min="10" max="100" value={placement.scale} onChange={(event) => updatePlacement(activeSide, { scale: Number(event.target.value) })} /></label><div className="business-card-align" aria-label="Align image"><button type="button" onClick={() => updatePlacement(activeSide, { x: 0 })}>Left</button><button type="button" onClick={() => updatePlacement(activeSide, { x: .5 })}>Center</button><button type="button" onClick={() => updatePlacement(activeSide, { x: 1 })}>Right</button><button type="button" onClick={() => updatePlacement(activeSide, { y: 0 })}>Top</button><button type="button" onClick={() => updatePlacement(activeSide, { y: .5 })}>Middle</button><button type="button" onClick={() => updatePlacement(activeSide, { y: 1 })}>Bottom</button></div></section>
+          <section><h2><span>05</span> Back alignment</h2><p className="business-card-controls__hint">Both pages use the same grid. Apply a small correction only if a separately printed test sheet shows a consistent back-side shift.</p><div className="business-card-fields business-card-fields--two"><NumberField label="Horizontal" value={offsetX} min={-10} max={10} step={0.1} onChange={setOffsetX} /><NumberField label="Vertical" value={offsetY} min={-10} max={10} step={0.1} onChange={setOffsetY} /></div><label className="business-card-check"><input type="checkbox" checked={cropMarks} onChange={(event) => setCropMarks(event.target.checked)} /><span><strong>Crop marks</strong><small>Print trim guides on both pages</small></span></label></section>
         </aside>
 
         <main className="business-card-proof">
-          <header><div><span className="numeric">LIVE SHEET PROOF</span><h2>{workspaceError ?? `${layout.columns} × ${layout.rows} grid · ${layout.count} cards per sheet`}</h2></div><div className="business-card-side-tabs" role="group" aria-label="Preview side"><button type="button" className={activeSide === "front" ? "is-active" : ""} onClick={() => setActiveSide("front")}>Front</button><button type="button" className={activeSide === "back" ? "is-active" : ""} onClick={() => setActiveSide("back")}>Back</button></div></header>
+          <header><div><span className="numeric">LIVE SHEET PROOF</span><h2>{workspaceError ?? `${layout.columns} × ${layout.rows} grid · ${layout.count} cards per sheet`}</h2></div><div className="business-card-proof-tools"><div className="business-card-zoom" role="group" aria-label="Canvas zoom"><button type="button" onClick={() => setCanvasZoom((value) => clamp(value - .25, .5, 2.5))} disabled={canvasZoom <= .5} aria-label="Zoom canvas out">−</button><output>{Math.round(canvasZoom * 100)}%</output><button type="button" onClick={() => setCanvasZoom((value) => clamp(value + .25, .5, 2.5))} disabled={canvasZoom >= 2.5} aria-label="Zoom canvas in">+</button><button type="button" onClick={() => setCanvasZoom(1)}>Fit</button></div><div className="business-card-side-tabs" role="group" aria-label="Preview side"><button type="button" className={activeSide === "front" ? "is-active" : ""} onClick={() => setActiveSide("front")}>Front</button><button type="button" className={activeSide === "back" ? "is-active" : ""} onClick={() => setActiveSide("back")}>Back</button></div></div></header>
           <div className="business-card-proof__stage" style={previewStyle}>
             <div className={`business-card-sheet is-${activeSide}${cropMarks ? " has-marks" : ""}`}>
               {layout.count > 0 && <div className="business-card-grid">{Array.from({ length: layout.count }, (_, index) => <div className="business-card-cell" key={index}><span className="business-card-trim" /><div className="business-card-safe">{previewImage ? index === 0 ? <button className="business-card-artwork is-editable" type="button" aria-label={`Move ${activeSide} image. Use drag or arrow keys.`} onPointerDown={(event) => startDrag(event, activeSide)} onPointerMove={moveArtwork} onPointerUp={() => { dragRef.current = null; }} onPointerCancel={() => { dragRef.current = null; }} onKeyDown={(event) => { if (event.key.startsWith("Arrow")) { event.preventDefault(); nudgeArtwork(activeSide, event.key); } }}><img src={previewImage} alt="" onLoad={(event) => (activeSide === "front" ? setFrontAspect : setBackAspect)(event.currentTarget.naturalWidth / event.currentTarget.naturalHeight)} draggable={false} /></button> : <span className="business-card-artwork" aria-hidden="true"><img src={previewImage} alt="" draggable={false} /></span> : <div className="business-card-placeholder"><span>{activeSide.toUpperCase()}</span><strong>{index + 1}</strong><small>{previewFile?.name ?? "Image required"}</small></div>}</div></div>)}</div>}
@@ -203,6 +218,9 @@ export function BusinessCardTemplatePage() {
           {error && <p className="business-card-error" role="alert">{error} Your layout and artwork are still here; correct the issue and retry.</p>}
         </main>
       </div>
+      <Modal open={previewOpen && Boolean(pdfPreview)} title="Print-ready PDF preview" description="Review both same-orientation pages before downloading the final file." onClose={() => setPreviewOpen(false)} className="business-card-pdf-modal">
+        {pdfPreview ? <div className="business-card-pdf-preview"><PdfViewer file={pdfPreview.file} filename={pdfPreview.file.name} downloadUrl={null} /><footer><Button type="button" variant="ghost" onClick={() => setPreviewOpen(false)}>Return to layout</Button><Button type="button" variant="primary" onClick={downloadPreview}>Download PDF</Button></footer></div> : null}
+      </Modal>
     </form>
   );
 }

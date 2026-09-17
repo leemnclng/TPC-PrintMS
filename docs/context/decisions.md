@@ -4,8 +4,11 @@
 
 - Put complex layout generation in a dedicated Templates workspace rather than expanding final printer setup.
 - Start with Business Card and produce one two-page PDF whose front and back are derived from the same centered grid.
-- Match the existing supervised rear-tray workflow by rotating the back layout 180 degrees, and expose bounded X/Y calibration because feed registration is physical and printer-specific.
+- Export front and back as separate pages with identical grid coordinates and upright orientation. Templates owns imposition only; it does not prescribe or encode the owner's physical sheet turn for a manual-duplex printer.
+- Keep bounded back-page X/Y correction because feed registration remains physical and printer-specific.
 - Treat the first card in the sheet proof as the editable master. Constrain movable artwork to a configurable safe margin, replicate its normalized placement to every card, and use those same coordinates in PDF generation.
+- Keep sheet-canvas zoom separate from artwork scale: zoom changes only the editing view, while artwork scale changes exported geometry.
+- Generate the final PDF in memory and require a preview-first handoff. Download remains an explicit action after both pages can be inspected in the existing continuous PDF viewer.
 - Keep uploaded artwork transient in this first version; the generated PDF downloads locally and can be attached to a job order through the existing flow.
 
 ## 2026-09-14 — Unify expenses without duplicating stock purchases
