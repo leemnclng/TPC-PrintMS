@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ..db.models import InventoryPaperSize, JobOrderStatus, PaymentMethod, PrintResult, PrintSides
 from .common import CamelModel
@@ -86,6 +86,21 @@ class TransactionItemCreate(CamelModel):
     observed_print_job_id: str | None = None
 
 
+class JobOrderDiscountInput(CamelModel):
+    template_id: str | None = None
+    name: str | None = Field(default=None, max_length=120)
+    calculation_type: Literal["percentage", "fixed"] | None = None
+    value: float | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_discount(self):
+        if not self.template_id and (not self.name or not self.calculation_type or self.value is None):
+            raise ValueError("Choose a discount template or complete the custom discount.")
+        if self.calculation_type == "percentage" and self.value is not None and self.value > 100:
+            raise ValueError("Percentage discounts cannot exceed 100%.")
+        return self
+
+
 class TransactionCreate(CamelModel):
     name: str = Field(min_length=1, max_length=100)
     initial_service_id: str
@@ -93,6 +108,7 @@ class TransactionCreate(CamelModel):
     due_date: datetime | None = None
     notes: str | None = None
     items: list[TransactionItemCreate] = Field(min_length=1, max_length=50)
+    discount: JobOrderDiscountInput | None = None
 
 
 class JobOrderMaterialPlanRead(CamelModel):
@@ -326,6 +342,12 @@ class JobOrderRead(CamelModel):
     quotation_id: str | None
     status: JobOrderStatus
     total: float
+    subtotal: float
+    discount_template_id: str | None
+    discount_name: str | None
+    discount_calculation_type: Literal["percentage", "fixed"] | None
+    discount_value: float | None
+    discount_amount: float
     suggested_total: float
     price_overridden: bool
     amount_paid: float

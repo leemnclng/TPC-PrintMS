@@ -56,6 +56,8 @@ The external business flow explains why OMS exists; it is not itself the applica
 
 OMS is the central application supporting this flow through the initial modules listed above. Whether Messenger and Gmail are directly integrated or handled through manual data entry is not yet decided.
 
+Discount configuration supports automatic product-specific reductions and reusable whole-job templates. During transaction creation or before payment in the job workspace, the owner can select a whole-job template or enter a custom percentage/fixed discount. The payable total is the product-line subtotal less the capped discount; the saved snapshot feeds the paginated Reports → Discounted job orders ledger.
+
 ## Template
 
 ### Feature Name

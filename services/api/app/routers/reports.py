@@ -5,11 +5,11 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..core.security import require_token
-from ..db.models import InventoryItem, JobOrderItem, JobOrderItemStatusEvent, Payment, Product
+from ..db.models import InventoryItem, JobOrder, JobOrderItem, JobOrderItemStatusEvent, Payment, Product, Customer
 from ..db.session import get_db
 from ..schemas.reports import (
     OperationalReportRead,
@@ -19,6 +19,8 @@ from ..schemas.reports import (
     ReportReattemptProductRead,
     ReportReattemptsRead,
     ReportSalesRead,
+    DiscountedJobOrderRead,
+    DiscountedJobOrderPageRead,
 )
 
 router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(require_token)])
@@ -42,6 +44,55 @@ def _inventory_status(item: InventoryItem) -> Literal["healthy", "low", "out"]:
     if item.quantity_on_hand <= item.reorder_level:
         return "low"
     return "healthy"
+
+
+@router.get("/discounted-job-orders/page", response_model=DiscountedJobOrderPageRead)
+def get_discounted_job_orders(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    timezone_offset_minutes: int = Query(default=0, ge=-840, le=840),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=120),
+    db: Session = Depends(get_db),
+) -> DiscountedJobOrderPageRead:
+    if end_date < start_date:
+        raise HTTPException(status_code=422, detail="Report end date must be on or after its start date.")
+    query_start, query_end = _utc_query_bounds(start_date, end_date, timezone_offset_minutes)
+    query = db.query(JobOrder).outerjoin(Customer).filter(
+        JobOrder.created_at >= query_start,
+        JobOrder.created_at < query_end,
+        JobOrder.discount_amount > 0,
+    )
+    if term := (search or "").strip():
+        match = f"%{term}%"
+        query = query.filter(or_(JobOrder.number.ilike(match), JobOrder.name.ilike(match), Customer.display_name.ilike(match)))
+    totals = query.with_entities(
+        func.coalesce(func.sum(JobOrder.total + JobOrder.discount_amount), 0),
+        func.coalesce(func.sum(JobOrder.discount_amount), 0),
+        func.coalesce(func.sum(JobOrder.total), 0),
+    ).one()
+    total = query.count()
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, total_pages)
+    jobs = query.order_by(JobOrder.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return DiscountedJobOrderPageRead(
+        items=[DiscountedJobOrderRead(
+            id=job.id, number=job.number, name=job.name,
+            customer_name=job.customer.display_name if job.customer else None,
+            status=job.status.value, created_at=job.created_at,
+            subtotal=round(job.total + job.discount_amount, 2),
+            discount_name=job.discount_name or "Order discount",
+            discount_calculation_type=job.discount_calculation_type or "fixed",
+            discount_value=job.discount_value or 0,
+            discount_amount=job.discount_amount, total=job.total,
+        ) for job in jobs],
+        page=page, page_size=page_size, total=total, total_pages=total_pages,
+        has_next=page < total_pages, has_previous=page > 1,
+        subtotal_amount=round(float(totals[0]), 2),
+        total_discount_amount=round(float(totals[1]), 2),
+        final_amount=round(float(totals[2]), 2),
+    )
 
 
 @router.get("", response_model=OperationalReportRead)

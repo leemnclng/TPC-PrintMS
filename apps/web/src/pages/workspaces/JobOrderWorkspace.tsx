@@ -16,7 +16,7 @@ import { api } from "../../lib/apiClient";
 import { formatCurrency, formatDate, formatDateTime } from "../../lib/format";
 import { printMediaLabel } from "../../lib/printProfiles";
 import { jobOrderStatusMeta } from "../../types/statusMeta";
-import type { DocumentPricingRule, InventoryItem, InventoryMovement, JobFile, JobOrder, JobOrderItem, Product, ScanPricingTier, Service, SpoolerMonitorInfo } from "../../types/domain";
+import type { DocumentPricingRule, InventoryItem, InventoryMovement, JobFile, JobOrder, JobOrderItem, PricingDiscount, Product, ScanPricingTier, Service, SpoolerMonitorInfo } from "../../types/domain";
 import { JobMaterialUsageModal } from "../jobOrders/JobMaterialUsageModal";
 import { JobPaymentModal } from "../jobOrders/JobPaymentModal";
 import { JobPrintSetupModal } from "../jobOrders/JobPrintSetupModal";
@@ -80,10 +80,11 @@ export function JobOrderWorkspace() {
   const [correctionItem, setCorrectionItem] = useState<JobOrderItem | null>(null);
   const [cancelItem, setCancelItem] = useState<JobOrderItem | null>(null);
   const [voidOpen, setVoidOpen] = useState(false);
+  const [discountOpen, setDiscountOpen] = useState(false);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const { health } = useHealth();
   const { data, state, error, reload } = useResource(async () => {
-    const [order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, spoolerMonitor] = await Promise.all([
+    const [order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, pricingDiscounts, spoolerMonitor] = await Promise.all([
       api.get<JobOrder>(`/job-orders/${jobOrderId}`),
       api.get<InventoryMovement[]>(`/inventory-movements?job_order_id=${encodeURIComponent(jobOrderId ?? "")}`),
       api.get<Service[]>("/services"),
@@ -91,9 +92,10 @@ export function JobOrderWorkspace() {
       api.get<InventoryItem[]>("/inventory-items"),
       api.get<DocumentPricingRule[]>("/document-analyzer/pricing-rules"),
       api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
+      api.get<PricingDiscount[]>("/document-analyzer/pricing-discounts"),
       api.get<SpoolerMonitorInfo>("/printers/spooler-jobs").catch(() => null),
     ]);
-    return { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, spoolerMonitor };
+    return { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, pricingDiscounts, spoolerMonitor };
   }, [jobOrderId]);
 
   // Arriving here from the "Add to order" picker (ExternalPrintPrompt →
@@ -128,7 +130,7 @@ export function JobOrderWorkspace() {
   if (state === "error") return <ErrorState description={error ?? undefined} onRetry={reload} />;
   if (!data) return <EmptyState title="Job order not found" description="It may have been removed." />;
 
-  const { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, spoolerMonitor } = data;
+  const { order, materialMovements, services, products, inventoryItems, pricingRules, scanPricingTiers, pricingDiscounts, spoolerMonitor } = data;
   const otherObservedPrintJobs = (spoolerMonitor?.jobs ?? []).filter(
     (job) => job.reviewStatus === "unreviewed" && job.id !== attachedSpoolerJobId,
   );
@@ -240,7 +242,7 @@ export function JobOrderWorkspace() {
 
       <div className="job-command-grid">
         <Card>
-          <CardHeader title="Transaction" meta={order.customerName || "Walk-in"} />
+          <CardHeader title="Transaction" meta={order.customerName || "Walk-in"} action={["queued", "printing", "ready"].includes(order.status) && order.amountPaid === 0 ? <Button size="sm" variant="secondary" onClick={() => setDiscountOpen(true)}>{order.discountAmount ? "Edit discount" : "Apply discount"}</Button> : undefined} />
           <dl className="job-essential-facts">
             <div className="is-primary"><dt>Final price</dt><dd>{formatCurrency(order.total)}</dd></div>
             <div><dt>Paid</dt><dd>{formatCurrency(order.amountPaid)}</dd></div>
@@ -248,6 +250,7 @@ export function JobOrderWorkspace() {
             <div><dt>Due</dt><dd>{formatDate(order.dueDate)}</dd></div>
           </dl>
           {order.priceOverridden && <p className="job-compact-note">Owner price · engine suggested {formatCurrency(order.suggestedTotal)}</p>}
+          {order.discountAmount > 0 ? <p className="job-compact-note"><strong>{order.discountName}:</strong> {formatCurrency(order.subtotal)} subtotal − {formatCurrency(order.discountAmount)}</p> : null}
           {order.notes && <p className="job-compact-note"><strong>Note:</strong> {order.notes}</p>}
         </Card>
 
@@ -387,11 +390,53 @@ export function JobOrderWorkspace() {
       {qualityFailureItem ? <JobQualityFailureModal open order={order} item={qualityFailureItem} onClose={() => setQualityFailureItem(null)} onReprocessed={handleUpdated} /> : null}
       <JobCancelModal open={cancelOpen} order={order} onClose={() => setCancelOpen(false)} onCancelled={handleUpdated} />
       <JobVoidModal open={voidOpen} order={order} onClose={() => setVoidOpen(false)} onUpdated={handleUpdated} />
+      <JobOrderDiscountModal open={discountOpen} order={order} templates={pricingDiscounts.filter((discount) => discount.scope === "job_order" && discount.isActive)} onClose={() => setDiscountOpen(false)} onUpdated={() => { setDiscountOpen(false); reload(); }} />
       {priceItem ? <JobProductPriceModal open order={order} item={priceItem} onClose={() => setPriceItem(null)} onUpdated={handleUpdated} /> : null}
       {correctionItem ? <JobProductCorrectionModal open order={order} item={correctionItem} products={products} onClose={() => setCorrectionItem(null)} onUpdated={handleUpdated} /> : null}
       {cancelItem ? <JobProductCancelModal open order={order} item={cancelItem} onClose={() => setCancelItem(null)} onUpdated={handleUpdated} /> : null}
     </>
   );
+}
+
+function JobOrderDiscountModal({ open, order, templates, onClose, onUpdated }: { open: boolean; order: JobOrder; templates: PricingDiscount[]; onClose: () => void; onUpdated: () => void }) {
+  const [choice, setChoice] = useState("");
+  const [name, setName] = useState("Wholesale discount");
+  const [calculationType, setCalculationType] = useState<"percentage" | "fixed">("percentage");
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    setChoice(order.discountTemplateId ?? (order.discountAmount ? "custom" : ""));
+    setName(order.discountName ?? "Wholesale discount");
+    setCalculationType(order.discountCalculationType ?? "percentage");
+    setValue(order.discountValue != null ? String(order.discountValue) : "");
+    setError(null);
+  }, [open, order]);
+  const selected = templates.find((template) => template.id === choice);
+  const type = selected?.calculationType ?? calculationType;
+  const numericValue = selected?.value ?? Number(value || 0);
+  const amount = Math.min(order.subtotal, type === "percentage" ? order.subtotal * numericValue / 100 : numericValue);
+  async function save() {
+    if (!choice) return;
+    setSaving(true); setError(null);
+    try {
+      await api.put(`/job-orders/${order.id}/discount`, choice === "custom" ? { name: name.trim(), calculationType, value: Number(value) } : { templateId: choice });
+      onUpdated();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "The discount could not be saved."); }
+    finally { setSaving(false); }
+  }
+  async function remove() {
+    setSaving(true); setError(null);
+    try { await api.del(`/job-orders/${order.id}/discount`); onUpdated(); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "The discount could not be removed."); }
+    finally { setSaving(false); }
+  }
+  return <Modal open={open} title="Whole-order discount" description="Apply one reusable or custom owner discount to this job's subtotal." onClose={onClose} busy={saving}>
+    <div className="workspace-form"><label><span>Discount</span><select value={choice} onChange={(event) => setChoice(event.target.value)}><option value="">Choose a discount</option>{templates.map((template) => <option value={template.id} key={template.id}>{template.name} · {template.calculationType === "percentage" ? `${template.value}%` : formatCurrency(template.value)}</option>)}<option value="custom">Custom owner discount</option></select></label>
+    {choice === "custom" ? <><label><span>Name</span><input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /></label><label><span>Calculation</span><select value={calculationType} onChange={(event) => setCalculationType(event.target.value as "percentage" | "fixed")}><option value="percentage">Percentage</option><option value="fixed">Fixed amount</option></select></label><label><span>Value</span><input type="number" min={0} max={calculationType === "percentage" ? 100 : undefined} step="0.01" value={value} onChange={(event) => setValue(event.target.value)} /></label></> : null}
+    {choice ? <p>Subtotal {formatCurrency(order.subtotal)} · discount {formatCurrency(amount)} · <strong>new total {formatCurrency(order.subtotal - amount)}</strong></p> : null}{error ? <p className="workspace-form__error">{error}</p> : null}<footer>{order.discountAmount ? <Button variant="danger" onClick={remove} disabled={saving}>Remove discount</Button> : null}<Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button><Button variant="primary" onClick={save} disabled={!choice || (choice === "custom" && (!name.trim() || !value || Number(value) < 0 || (calculationType === "percentage" && Number(value) > 100)))} loading={saving}>Apply discount</Button></footer></div>
+  </Modal>;
 }
 
 function ScanOutputPreviewModal({ open, orderId, jobFile, onClose }: { open: boolean; orderId: string; jobFile: JobFile; onClose: () => void }) {

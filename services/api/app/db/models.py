@@ -349,17 +349,19 @@ class GlobalPricingVariable(TimestampMixin, Base):
 
 
 class PricingDiscount(TimestampMixin, Base):
-    """Owner-managed discount automatically applied to selected products."""
+    """Reusable product discount or manually selected job-order template."""
 
     __tablename__ = "pricing_discounts"
     __table_args__ = (
         CheckConstraint("calculation_type IN ('percentage', 'fixed')", name="ck_pricing_discount_type"),
+        CheckConstraint("scope IN ('product', 'job_order')", name="ck_pricing_discount_scope"),
         CheckConstraint("value >= 0", name="ck_pricing_discount_value"),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     calculation_type: Mapped[str] = mapped_column(String, nullable=False)
+    scope: Mapped[str] = mapped_column(String, default="product", nullable=False)
     value: Mapped[float] = mapped_column(Float, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -651,6 +653,11 @@ class JobOrder(TimestampMixin, Base):
         Enum(JobOrderStatus), default=JobOrderStatus.queued, nullable=False
     )
     total: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    discount_template_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    discount_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    discount_calculation_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    discount_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    discount_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     suggested_total: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     price_overridden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     due_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

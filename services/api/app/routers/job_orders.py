@@ -72,6 +72,7 @@ from ..schemas.job_orders import (
     JobOrderItemTransitionCreate,
     JobOrderItemCorrectionUpdate,
     JobOrderItemPriceUpdate,
+    JobOrderDiscountInput,
     JobOrderItemCancelCreate,
     JobOrderTransitionCreate,
     JobOrderVoidCreate,
@@ -94,6 +95,57 @@ from ..services.product_pricing import (
 router = APIRouter(prefix="/job-orders", tags=["job-orders"], dependencies=[Depends(require_token)])
 analysis_service = AnalysisService()
 pricing_service = PricingService()
+
+
+def _job_subtotal(job_order: JobOrder) -> float:
+    return round(sum(item.line_total for item in job_order.items), 2)
+
+
+def _recalculate_job_total(job_order: JobOrder) -> None:
+    subtotal = _job_subtotal(job_order)
+    requested = 0.0
+    if job_order.discount_calculation_type and job_order.discount_value is not None:
+        requested = (
+            subtotal * job_order.discount_value / 100
+            if job_order.discount_calculation_type == "percentage"
+            else job_order.discount_value
+        )
+    job_order.discount_amount = round(min(max(requested, 0), subtotal), 2)
+    job_order.total = round(subtotal - job_order.discount_amount, 2)
+
+
+def _apply_job_discount(job_order: JobOrder, payload: JobOrderDiscountInput, db: Session) -> None:
+    if payload.template_id:
+        discount = db.get(PricingDiscount, payload.template_id)
+        if discount is None or not discount.is_active or discount.scope != "job_order":
+            raise HTTPException(status_code=422, detail="Select an active job-order discount template.")
+        job_order.discount_template_id = discount.id
+        job_order.discount_name = discount.name
+        job_order.discount_calculation_type = discount.calculation_type
+        job_order.discount_value = discount.value
+    else:
+        if not (payload.name or "").strip():
+            raise HTTPException(status_code=422, detail="Enter a name for the custom discount.")
+        job_order.discount_template_id = None
+        job_order.discount_name = (payload.name or "").strip()
+        job_order.discount_calculation_type = payload.calculation_type
+        job_order.discount_value = payload.value
+    _recalculate_job_total(job_order)
+
+
+def _clear_job_discount(job_order: JobOrder) -> None:
+    job_order.discount_template_id = None
+    job_order.discount_name = None
+    job_order.discount_calculation_type = None
+    job_order.discount_value = None
+    _recalculate_job_total(job_order)
+
+
+def _ensure_discount_editable(job_order: JobOrder) -> None:
+    if job_order.status in {JobOrderStatus.paid, JobOrderStatus.released, JobOrderStatus.delivered, JobOrderStatus.completed, JobOrderStatus.cancelled}:
+        raise HTTPException(status_code=409, detail="Discounts cannot be changed after payment or closure.")
+    if any(payment.verified and payment.voided_at is None for payment in job_order.payments):
+        raise HTTPException(status_code=409, detail="Void the verified payment before changing this discount.")
 
 
 def _apply_product_discounts(amount: float, product_id: str, db: Session, fixed_multiplier: int = 1) -> float:
@@ -170,6 +222,12 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
         quotation_id=job_order.quotation_id,
         status=job_order.status,
         total=job_order.total,
+        subtotal=_job_subtotal(job_order),
+        discount_template_id=job_order.discount_template_id,
+        discount_name=job_order.discount_name,
+        discount_calculation_type=job_order.discount_calculation_type,
+        discount_value=job_order.discount_value,
+        discount_amount=job_order.discount_amount,
         suggested_total=job_order.suggested_total,
         price_overridden=job_order.price_overridden,
         amount_paid=sum(payment.amount for payment in job_order.payments if payment.verified),
@@ -728,7 +786,7 @@ async def _submit_scan_output(
         item.unit_price = scan_price
         item.line_total, scan_breakdown = _adjusted_price_breakdown([{"kind": "base", "label": "Scan base price", "basis": f"{analysis.page_count} page(s) × {scan_price:.2f}", "amount": round(scan_price * analysis.page_count, 2)}], product, 1, db)
         item.pricing_breakdown_snapshot = json.dumps(scan_breakdown)
-        job_order.total = round(sum(value.line_total for value in job_order.items), 2)
+        _recalculate_job_total(job_order)
         job_order.suggested_total = round(job_order.suggested_total - previous_suggested + item.line_total, 2)
         _record_item_status(item, "ready", "Scanner softcopy attached; this product is ready for delivery.")
         _sync_transaction_status(job_order, f"Scan completed for {item.product.name}.")
@@ -1115,6 +1173,10 @@ async def _save_transaction_lines(
             filename, data, analysis = prepared_files[line.client_key]
             file_specs.append((item, filename, data, analysis))
 
+    if payload.discount and not existing_job_order:
+        _apply_job_discount(job_order, payload.discount, db)
+    else:
+        _recalculate_job_total(job_order)
     job_order.price_overridden = job_order.price_overridden or any_override
     all_categories = {
         (product_by_id.get(item.product_id) or item.product).service.category
@@ -1325,10 +1387,10 @@ async def create_analyzed_job_order(
         relative_path = stored_path.relative_to(settings.resolved_data_dir)
         job_order.suggested_total = suggested_total
         job_order.price_overridden = payload.price_mode == "custom"
-        job_order.total = final_total
         billable_quantity = max(analysis.page_count * payload.copies, 1)
         job_order.items[0].unit_price = round(final_total / billable_quantity, 2)
         job_order.items[0].line_total = final_total
+        _recalculate_job_total(job_order)
         job_order.files.append(
             JobFile(
                 original_filename=filename,
@@ -1545,6 +1607,45 @@ def _create_job_order(
         StatusEvent(from_status=None, to_status=job_order.status.value, note="Job order created.")
     )
     db.add(job_order)
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.put("/{job_order_id}/discount", response_model=JobOrderRead)
+def update_job_order_discount(
+    job_order_id: str,
+    payload: JobOrderDiscountInput,
+    db: Session = Depends(get_db),
+) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    if job_order is None:
+        raise HTTPException(status_code=404, detail="Job order not found.")
+    _ensure_discount_editable(job_order)
+    _apply_job_discount(job_order, payload, db)
+    job_order.status_events.append(StatusEvent(
+        from_status=job_order.status.value,
+        to_status=job_order.status.value,
+        note=f"Order discount applied: {job_order.discount_name} ({job_order.discount_amount:.2f}).",
+    ))
+    db.commit()
+    db.refresh(job_order)
+    return _to_read(job_order)
+
+
+@router.delete("/{job_order_id}/discount", response_model=JobOrderRead)
+def delete_job_order_discount(job_order_id: str, db: Session = Depends(get_db)) -> JobOrderRead:
+    job_order = db.get(JobOrder, job_order_id)
+    if job_order is None:
+        raise HTTPException(status_code=404, detail="Job order not found.")
+    _ensure_discount_editable(job_order)
+    previous_name = job_order.discount_name
+    _clear_job_discount(job_order)
+    job_order.status_events.append(StatusEvent(
+        from_status=job_order.status.value,
+        to_status=job_order.status.value,
+        note=f"Order discount removed: {previous_name}." if previous_name else "Order discount cleared.",
+    ))
     db.commit()
     db.refresh(job_order)
     return _to_read(job_order)
@@ -1806,7 +1907,7 @@ def update_job_order_item_price(
     item.line_total = round(payload.line_total, 2)
     item.unit_price = round(item.line_total / max(item.pages_per_copy * item.copies, 1), 2)
     item.pricing_breakdown_snapshot = json.dumps(_with_owner_price(_load_price_breakdown(item), item.line_total))
-    job_order.total = round(sum(value.line_total for value in job_order.items), 2)
+    _recalculate_job_total(job_order)
     job_order.price_overridden = True
     item.status_events.append(JobOrderItemStatusEvent(
         from_status=item.status,
@@ -1864,7 +1965,7 @@ def correct_job_order_item(
         "basis": f"{previous_product} at {previous_total:.2f} changed to {new_product.name}: {reason}",
         "amount": item.line_total,
     }])
-    job_order.total = round(sum(value.line_total for value in job_order.items), 2)
+    _recalculate_job_total(job_order)
     workflow_categories = {
         value.product.service.category for value in job_order.items if value.status != "cancelled"
     }
@@ -1916,7 +2017,7 @@ def cancel_job_order_item(
     item.pricing_breakdown_snapshot = json.dumps(breakdown)
     item.line_total = 0
     _record_item_status(item, "cancelled", f"Product cancelled by owner; removed {previous_total:.2f} from the transaction: {payload.reason.strip()}")
-    job_order.total = round(sum(value.line_total for value in job_order.items), 2)
+    _recalculate_job_total(job_order)
     _sync_transaction_status(job_order, f"{item.product.name} was cancelled.")
     db.commit()
     db.refresh(job_order)

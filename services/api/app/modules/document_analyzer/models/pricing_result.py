@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.db.models import InventoryPaperSize
 from app.schemas.common import CamelModel
@@ -99,8 +99,19 @@ class PricingDiscountBase(CamelModel):
     name: str = Field(min_length=1, max_length=120)
     calculation_type: Literal["percentage", "fixed"]
     value: float = Field(ge=0)
-    product_ids: list[str] = Field(min_length=1)
+    scope: Literal["product", "job_order"] = "product"
+    product_ids: list[str] = Field(default_factory=list)
     is_active: bool = True
+
+    @model_validator(mode="after")
+    def validate_scope(self):
+        if self.scope == "product" and not self.product_ids:
+            raise ValueError("Select at least one product for a product discount.")
+        if self.scope == "job_order" and self.product_ids:
+            raise ValueError("Job-order discounts cannot be assigned to products.")
+        if self.calculation_type == "percentage" and self.value > 100:
+            raise ValueError("Percentage discounts cannot exceed 100%.")
+        return self
 
 
 class PricingDiscountCreate(PricingDiscountBase):

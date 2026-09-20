@@ -4,11 +4,13 @@ import { EmptyState } from "../components/EmptyState/EmptyState";
 import { ErrorState } from "../components/ErrorState/ErrorState";
 import { LoadingState } from "../components/LoadingState/LoadingState";
 import { PageHeader } from "../components/PageHeader/PageHeader";
+import { Pagination } from "../components/Pagination/Pagination";
 import { StatusPill } from "../components/StatusPill/StatusPill";
 import { useResource } from "../hooks/useResource";
+import { usePaginatedResource } from "../hooks/usePaginatedResource";
 import { api } from "../lib/apiClient";
 import { formatCurrency } from "../lib/format";
-import type { OperationalReport, ReportInventoryStatus, ReportPeriod } from "../types/domain";
+import type { DiscountedJobOrderPage, OperationalReport, ReportInventoryStatus, ReportPeriod } from "../types/domain";
 import "./ReportsPage.css";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -70,9 +72,14 @@ export function ReportsPage() {
   const [draftEndDate, setDraftEndDate] = useState(initialSelection.endDate);
   const [selection, setSelection] = useState<ReportSelection>(initialSelection);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"operations" | "discounts">("operations");
   const { data, state, error, reload } = useResource(
     () => api.get<OperationalReport>(`/reports?period=${selection.period}&start_date=${selection.startDate}&end_date=${selection.endDate}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
     [selection.period, selection.startDate, selection.endDate],
+  );
+  const discountReport = usePaginatedResource(
+    (page, pageSize) => api.get<DiscountedJobOrderPage>(`/reports/discounted-job-orders/page?start_date=${selection.startDate}&end_date=${selection.endDate}&timezone_offset_minutes=${new Date().getTimezoneOffset()}&page=${page}&page_size=${pageSize}`),
+    `${selection.startDate}|${selection.endDate}`,
   );
 
   function generateReport(event: FormEvent) {
@@ -123,6 +130,8 @@ export function ReportsPage() {
         description="Generate an accountable sales, production re-attempt, and live inventory report for a day, week, or month."
       />
 
+      <nav className="report-tabs" aria-label="Report type"><button type="button" className={tab === "operations" ? "is-active" : ""} onClick={() => setTab("operations")}>Operations</button><button type="button" className={tab === "discounts" ? "is-active" : ""} onClick={() => setTab("discounts")}>Discounted job orders</button></nav>
+
       <form className="report-generator" onSubmit={generateReport} noValidate>
         <fieldset>
           <legend>Quick interval</legend>
@@ -144,9 +153,9 @@ export function ReportsPage() {
         {validationError ? <small id="report-date-error" className="report-generator__error" role="alert">{validationError}</small> : null}
       </form>
 
-      {state === "loading" ? <LoadingState label={`Generating ${selection.period} report…`} /> : null}
-      {state === "error" ? <ErrorState title="The report could not be generated" description={error ?? undefined} onRetry={reload} /> : null}
-      {state === "ready" && data ? (
+      {tab === "operations" && state === "loading" ? <LoadingState label={`Generating ${selection.period} report…`} /> : null}
+      {tab === "operations" && state === "error" ? <ErrorState title="The report could not be generated" description={error ?? undefined} onRetry={reload} /> : null}
+      {tab === "operations" && state === "ready" && data ? (
         <div className="report-sheet">
           <header className="report-sheet__header">
             <div><span className="numeric">{data.period.toUpperCase()} REPORT</span><h2>{periodLabel(data)}</h2><p>Generated {dateTimeFormatter.format(new Date(data.generatedAt))}</p></div>
@@ -181,6 +190,14 @@ export function ReportsPage() {
           </section>
         </div>
       ) : null}
+      {tab === "discounts" && discountReport.state === "loading" ? <LoadingState label="Loading discounted job orders…" /> : null}
+      {tab === "discounts" && discountReport.state === "error" ? <ErrorState title="Discount report unavailable" description={discountReport.error ?? undefined} onRetry={discountReport.reload} /> : null}
+      {tab === "discounts" && discountReport.data ? <div className="report-sheet discount-report">
+        <header className="report-sheet__header"><div><span className="numeric">DISCOUNT LEDGER</span><h2>Discounted job orders</h2><p>Jobs are included by creation date. Saved discount snapshots remain unchanged if a template is edited later.</p></div></header>
+        <section className="report-scoreboard" aria-label="Discount summary"><article><span>Original subtotal</span><strong>{formatCurrency(discountReport.data.subtotalAmount)}</strong></article><article className="has-attention"><span>Discounts given</span><strong>{formatCurrency(discountReport.data.totalDiscountAmount)}</strong></article><article><span>Final value</span><strong>{formatCurrency(discountReport.data.finalAmount)}</strong></article><article><span>Discounted jobs</span><strong className="numeric">{discountReport.data.total}</strong></article></section>
+        {discountReport.data.items.length ? <div className="report-inventory-table"><table><thead><tr><th>Job order</th><th>Customer</th><th>Discount</th><th>Subtotal</th><th>Discount given</th><th>Final</th></tr></thead><tbody>{discountReport.data.items.map((job) => <tr key={job.id}><th scope="row"><a href={`/job-orders/${job.id}`}><strong>{job.number} · {job.name}</strong></a><small>{dateFormatter.format(new Date(job.createdAt))}</small></th><td>{job.customerName || "Walk-in"}</td><td><strong>{job.discountName}</strong><small>{job.discountCalculationType === "percentage" ? `${job.discountValue}% off` : `${formatCurrency(job.discountValue)} off`}</small></td><td>{formatCurrency(job.subtotal)}</td><td>−{formatCurrency(job.discountAmount)}</td><td><strong>{formatCurrency(job.total)}</strong></td></tr>)}</tbody></table></div> : <EmptyState title="No discounted jobs" description="No whole-order discount was recorded during this period." />}
+        <Pagination page={discountReport.page} pageSize={discountReport.pageSize} total={discountReport.data.total} totalPages={discountReport.data.totalPages} loading={discountReport.pageLoading} onPageChange={discountReport.setPage} onPageSizeChange={discountReport.setPageSize} itemLabel="discounted jobs" />
+      </div> : null}
     </>
   );
 }

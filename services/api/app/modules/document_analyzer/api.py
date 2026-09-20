@@ -344,6 +344,7 @@ def _discount_to_read(discount: PricingDiscount) -> PricingDiscountRead:
         name=discount.name,
         calculation_type=discount.calculation_type,
         value=discount.value,
+        scope=discount.scope,
         product_ids=[assignment.product_id for assignment in discount.product_assignments],
         is_active=discount.is_active,
         created_at=discount.created_at,
@@ -370,9 +371,10 @@ def create_pricing_discount(payload: PricingDiscountCreate, db: Session = Depend
     name = payload.name.strip()
     if db.query(PricingDiscount).filter(func.lower(PricingDiscount.name) == name.lower()).first():
         raise HTTPException(status_code=409, detail="A discount with this name already exists.")
-    _validate_discount_products(payload.product_ids, db)
+    if payload.scope == "product":
+        _validate_discount_products(payload.product_ids, db)
     discount = PricingDiscount(
-        name=name, calculation_type=payload.calculation_type, value=payload.value,
+        name=name, calculation_type=payload.calculation_type, value=payload.value, scope=payload.scope,
         is_active=payload.is_active,
         sort_order=(db.query(func.max(PricingDiscount.sort_order)).scalar() or 0) + 1,
         product_assignments=[PricingDiscountProduct(product_id=product_id) for product_id in payload.product_ids],
@@ -392,8 +394,9 @@ def update_pricing_discount(discount_id: str, payload: PricingDiscountUpdate, db
     duplicate = db.query(PricingDiscount).filter(func.lower(PricingDiscount.name) == name.lower(), PricingDiscount.id != discount_id).first()
     if duplicate:
         raise HTTPException(status_code=409, detail="A discount with this name already exists.")
-    _validate_discount_products(payload.product_ids, db)
-    discount.name, discount.calculation_type, discount.value, discount.is_active = name, payload.calculation_type, payload.value, payload.is_active
+    if payload.scope == "product":
+        _validate_discount_products(payload.product_ids, db)
+    discount.name, discount.calculation_type, discount.value, discount.scope, discount.is_active = name, payload.calculation_type, payload.value, payload.scope, payload.is_active
     discount.product_assignments = [PricingDiscountProduct(product_id=product_id) for product_id in payload.product_ids]
     db.commit()
     db.refresh(discount)

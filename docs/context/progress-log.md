@@ -842,3 +842,9 @@ Chronological notes about app progress.
 - Completed: Settings now owns a desktop-local, read-only print-source folder. Printing lines created from tracked jobs recursively match supported filenames, attach exactly one match up to 25 MB, and retain manual selection for missing, unavailable, oversized, or ambiguous results. Analysis remains an explicit owner action.
 - Verified: Renderer/desktop typechecks and lint pass; the desktop build and a compiled matcher smoke test pass.
 - Improved: Moved tracked-print selection from a transaction-wide checklist into each product line. A tracked event can be assigned to only one product, triggers trusted-folder attachment in that product, and preserves a file the owner already selected manually.
+
+## 2026-09-20 (whole-job and wholesale discounts)
+
+- Summary: Added explicit job-level discounting without changing automatic product pricing reductions.
+- Completed: Reusable whole-job templates, custom owner discounts, creation/workspace application, payment-safe editing rules, historical snapshots, total recalculation, and a paginated discount report.
+- Verified: All 73 API tests pass under the environment's Intel/Rosetta runtime; renderer production build and lint pass; web/desktop typechecks and the desktop build pass; Python sources compile.

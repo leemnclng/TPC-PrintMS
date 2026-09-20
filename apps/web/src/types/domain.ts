@@ -68,6 +68,7 @@ export interface PricingDiscount {
   name: string;
   calculationType: "percentage" | "fixed";
   value: number;
+  scope: "product" | "job_order";
   productIds: string[];
   isActive: boolean;
   createdAt?: string;
@@ -270,6 +271,12 @@ export interface JobOrder {
   quotationId?: string | null;
   status: JobOrderStatus;
   total: number;
+  subtotal: number;
+  discountTemplateId?: string | null;
+  discountName?: string | null;
+  discountCalculationType?: "percentage" | "fixed" | null;
+  discountValue?: number | null;
+  discountAmount: number;
   suggestedTotal: number;
   priceOverridden: boolean;
   amountPaid: number;
@@ -283,6 +290,27 @@ export interface JobOrder {
   statusEvents: StatusEvent[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DiscountedJobOrder {
+  id: string;
+  number: string;
+  name: string;
+  customerName?: string | null;
+  status: string;
+  createdAt: string;
+  subtotal: number;
+  discountName: string;
+  discountCalculationType: "percentage" | "fixed";
+  discountValue: number;
+  discountAmount: number;
+  total: number;
+}
+
+export interface DiscountedJobOrderPage extends PaginatedResponse<DiscountedJobOrder> {
+  subtotalAmount: number;
+  totalDiscountAmount: number;
+  finalAmount: number;
 }
 
 export interface JobFile {

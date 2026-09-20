@@ -119,6 +119,10 @@ export function TransactionCreateModal({
   const [error, setError] = useState<string | null>(null);
   const [pricingVariables, setPricingVariables] = useState<GlobalPricingVariable[]>([]);
   const [pricingDiscounts, setPricingDiscounts] = useState<PricingDiscount[]>([]);
+  const [orderDiscount, setOrderDiscount] = useState("");
+  const [customDiscountName, setCustomDiscountName] = useState("Wholesale discount");
+  const [customDiscountType, setCustomDiscountType] = useState<"percentage" | "fixed">("percentage");
+  const [customDiscountValue, setCustomDiscountValue] = useState("");
   const [sourceMatchMessages, setSourceMatchMessages] = useState<Record<string, { tone: "checking" | "matched" | "fallback"; message: string }>>({});
   const attemptedSourceMatches = useRef(new Set<string>());
 
@@ -136,6 +140,10 @@ export function TransactionCreateModal({
     setSubmitted(false);
     setSaving(false);
     setError(null);
+    setOrderDiscount("");
+    setCustomDiscountName("Wholesale discount");
+    setCustomDiscountType("percentage");
+    setCustomDiscountValue("");
     setSourceMatchMessages({});
     attemptedSourceMatches.current.clear();
   }, [open, initialService.id, order?.customerId, order?.name, sourceSpoolerJobId]);
@@ -352,6 +360,7 @@ export function TransactionCreateModal({
 
   function validate() {
     if (!name.trim() || lines.length === 0) return false;
+    if (!order && orderDiscount === "custom" && (!customDiscountName.trim() || !customDiscountValue.trim() || Number(customDiscountValue) < 0 || (customDiscountType === "percentage" && Number(customDiscountValue) > 100))) return false;
     return lines.every((line) => {
       const { product, papers, scanConfigured } = lineContext(line);
       if (!product) return false;
@@ -396,6 +405,9 @@ export function TransactionCreateModal({
         otherMaterials: line.otherMaterials,
         observedPrintJobId: line.observedPrintJobId || null,
       })),
+      discount: !order && orderDiscount ? orderDiscount === "custom" ? {
+        name: customDiscountName.trim(), calculationType: customDiscountType, value: Number(customDiscountValue),
+      } : { templateId: orderDiscount } : null,
     }));
     lines.forEach((line) => {
       line.files.forEach((file) => {
@@ -412,6 +424,14 @@ export function TransactionCreateModal({
   }
 
   const combinedTotal = lines.reduce((sum, line) => sum + lineContext(line).total, 0);
+  const jobDiscountTemplates = pricingDiscounts.filter((discount) => discount.scope === "job_order" && discount.isActive);
+  const selectedDiscount = jobDiscountTemplates.find((discount) => discount.id === orderDiscount);
+  const discountType = selectedDiscount?.calculationType ?? customDiscountType;
+  const discountValue = selectedDiscount?.value ?? (Number(customDiscountValue) || 0);
+  const orderDiscountAmount = !order && orderDiscount
+    ? Math.min(combinedTotal, discountType === "percentage" ? combinedTotal * discountValue / 100 : discountValue)
+    : 0;
+  const finalTransactionTotal = combinedTotal - orderDiscountAmount;
 
   return (
     <Modal
@@ -494,10 +514,14 @@ export function TransactionCreateModal({
             })}
           </section>
 
-          {!order ? <section className="transaction-create__notes"><label className="form-field"><span>Transaction notes</span><textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Shared instructions, customer requests, or pickup details" /></label></section> : null}
+          {!order ? <section className="transaction-create__notes">
+            <label className="form-field"><span>Order discount</span><select value={orderDiscount} onChange={(event) => setOrderDiscount(event.target.value)}><option value="">No whole-order discount</option>{jobDiscountTemplates.map((discount) => <option key={discount.id} value={discount.id}>{discount.name} · {discount.calculationType === "percentage" ? `${discount.value}%` : formatCurrency(discount.value)}</option>)}<option value="custom">Custom owner discount</option></select><small>Applied once to the combined job subtotal.</small></label>
+            {orderDiscount === "custom" ? <div className="transaction-create__identity"><label className="form-field"><span>Discount name</span><input value={customDiscountName} maxLength={120} onChange={(event) => setCustomDiscountName(event.target.value)} required /></label><label className="form-field"><span>Calculation</span><select value={customDiscountType} onChange={(event) => setCustomDiscountType(event.target.value as "percentage" | "fixed")}><option value="percentage">Percentage</option><option value="fixed">Fixed amount</option></select></label><label className="form-field"><span>{customDiscountType === "percentage" ? "Percentage off" : "Amount off"}</span><input type="number" min={0} max={customDiscountType === "percentage" ? 100 : undefined} step="0.01" value={customDiscountValue} onChange={(event) => setCustomDiscountValue(event.target.value)} required /></label></div> : null}
+            <label className="form-field"><span>Transaction notes</span><textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Shared instructions, customer requests, or pickup details" /></label>
+          </section> : null}
           {error ? <p className="workspace-form__error" role="alert">{error}</p> : null}
         </div>
-        <footer className="transaction-create__checkout"><div><span>{order ? "Updated transaction total" : "Combined transaction total"}</span><strong>{formatCurrency((order?.total ?? 0) + combinedTotal)}</strong><small>{order ? `${formatCurrency(combinedTotal)} being added · transaction returns to production` : `${lines.length} product ${lines.length === 1 ? "line" : "lines"} · paid together after all work is ready`}</small></div><Button type="button" variant="ghost" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" disabled={saving}>{saving ? "Saving…" : order ? "Add to transaction" : "Create transaction"}</Button></footer>
+        <footer className="transaction-create__checkout"><div><span>{order ? "Updated transaction total" : orderDiscount ? `Subtotal ${formatCurrency(combinedTotal)} · discount −${formatCurrency(orderDiscountAmount)}` : "Combined transaction total"}</span><strong>{formatCurrency(order ? order.total + combinedTotal : finalTransactionTotal)}</strong><small>{order ? `${formatCurrency(combinedTotal)} being added · transaction returns to production` : `${lines.length} product ${lines.length === 1 ? "line" : "lines"} · paid together after all work is ready`}</small></div><Button type="button" variant="ghost" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" disabled={saving}>{saving ? "Saving…" : order ? "Add to transaction" : "Create transaction"}</Button></footer>
       </form>
     </Modal>
   );

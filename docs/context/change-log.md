@@ -472,3 +472,6 @@ Track notable app changes by date.
 - Improved: Creating a job or adding a Printing product from a tracked Canon/Windows print automatically attaches one exact matching source file, leaving only paper selection and Analyze when successful.
 - Preserved: Missing, ambiguous, unavailable, unsupported, or oversized matches fall back to manual file selection; OMS never guesses between multiple files.
 - Changed: Other tracked Windows prints are selected inside the relevant product line instead of from a transaction-wide list. Already selected product files are retained, and a tracked print cannot be assigned to two products.
+- Added: Discount configuration now distinguishes automatic product discounts from manually selected whole-job templates for wholesale pricing.
+- Added: Owners can apply a template or custom percentage/fixed discount while creating a transaction or from an unpaid job workspace. The job stores a historical snapshot and recalculates the payable balance when product lines change.
+- Added: Reports now includes a paginated Discounted job orders ledger with original subtotal, discount given, final value, and links to each job.

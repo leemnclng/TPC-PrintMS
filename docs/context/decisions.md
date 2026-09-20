@@ -876,3 +876,9 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Rationale: Windows exposes a print-job display name but not the original file path. Copying driver spool data is unreliable, while searching arbitrary workstation storage would be invasive and error-prone.
 - Impact: The folder path is stored as a machine-local Electron setting and is not included in OMS data backups. No file is modified or retained by OMS until the owner creates the analyzed transaction through the existing flow.
 - Interaction: Assign tracked prints per product line, not at transaction scope, because each observed spooler event maps to one product and one retained source. Preserve an existing manual file and disable events already owned by another line.
+
+## 2026-09-20 — Snapshot manually selected whole-job discounts
+
+- Decision: Keep automatic product discounts separate from whole-job templates. A whole-job discount is applied only when an owner selects it, and its name/type/value are copied onto the job.
+- Rationale: Wholesale pricing is a negotiated transaction decision; silently applying it would undercharge ordinary jobs. Snapshots keep completed-job totals and reports stable when configuration changes later.
+- Impact: Discount edits are blocked after verified payment or closure. Reports classify discounted jobs by creation date and show the saved discount rather than the current template.

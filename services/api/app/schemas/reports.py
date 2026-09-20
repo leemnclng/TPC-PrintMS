@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from .common import CamelModel
+from .common import CamelModel, PageRead
 
 
 ReportPeriod = Literal["daily", "weekly", "monthly", "custom"]
@@ -66,3 +66,24 @@ class OperationalReportRead(CamelModel):
     sales: ReportSalesRead
     re_attempts: ReportReattemptsRead
     inventory: ReportInventoryRead
+
+
+class DiscountedJobOrderRead(CamelModel):
+    id: str
+    number: str
+    name: str
+    customer_name: str | None
+    status: str
+    created_at: datetime
+    subtotal: float
+    discount_name: str
+    discount_calculation_type: str
+    discount_value: float
+    discount_amount: float
+    total: float
+
+
+class DiscountedJobOrderPageRead(PageRead[DiscountedJobOrderRead]):
+    subtotal_amount: float
+    total_discount_amount: float
+    final_amount: float
