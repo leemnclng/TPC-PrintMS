@@ -5,15 +5,16 @@ from datetime import datetime
 import json
 from math import ceil
 from pathlib import Path
+import re
 import shutil
 from uuid import uuid4
 
 import pymupdf
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
-from sqlalchemy import func, update
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func, or_, update
+from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 
 from ..core.config import settings
@@ -67,6 +68,7 @@ from ..schemas.job_orders import (
     JobOrderCancelCreate,
     JobOrderMaterialUsageCreate,
     JobOrderRead,
+    JobOrderPageRead,
     JobOrderItemTransitionCreate,
     JobOrderItemCorrectionUpdate,
     JobOrderItemPriceUpdate,
@@ -307,9 +309,92 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
     )
 
 
+def _job_order_load_options():
+    return (
+        selectinload(JobOrder.customer),
+        selectinload(JobOrder.payments),
+        selectinload(JobOrder.files),
+        selectinload(JobOrder.status_events),
+        selectinload(JobOrder.items).selectinload(JobOrderItem.product).selectinload(Product.service),
+        selectinload(JobOrder.items).selectinload(JobOrderItem.product).selectinload(Product.print_type_definition),
+        selectinload(JobOrder.items).selectinload(JobOrderItem.material_plans).selectinload(JobOrderMaterialPlan.inventory_item),
+        selectinload(JobOrder.items).selectinload(JobOrderItem.status_events),
+        selectinload(JobOrder.print_jobs).selectinload(PrintJob.printer),
+        selectinload(JobOrder.print_jobs).selectinload(PrintJob.job_file),
+    )
+
+
 @router.get("", response_model=list[JobOrderRead])
 def list_job_orders(db: Session = Depends(get_db)) -> list[JobOrderRead]:
-    return [_to_read(job_order) for job_order in db.query(JobOrder).order_by(JobOrder.created_at.desc()).all()]
+    return [_to_read(job_order) for job_order in db.query(JobOrder).options(*_job_order_load_options()).order_by(JobOrder.created_at.desc()).all()]
+
+
+@router.get("/page", response_model=JobOrderPageRead)
+def page_job_orders(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=10, le=100),
+    search: str = Query(default="", max_length=200),
+    status: str = Query(default="", max_length=40),
+    reprocess: str = Query(default="", pattern="^(|yes|no)$"),
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    sort: str = Query(default="newest", pattern="^(newest|oldest|name|name-desc|total-high|total-low|due|due-desc)$"),
+    attachable_only: bool = False,
+    db: Session = Depends(get_db),
+) -> JobOrderPageRead:
+    query = db.query(JobOrder)
+    if attachable_only:
+        query = query.filter(JobOrder.status.in_([
+            JobOrderStatus.queued,
+            JobOrderStatus.printing,
+            JobOrderStatus.ready,
+        ]))
+    if status:
+        try:
+            query = query.filter(JobOrder.status == JobOrderStatus(status))
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail="Unknown job-order status.") from error
+    if reprocess:
+        retried = JobOrder.items.any(JobOrderItem.reprocess_count > 0)
+        query = query.filter(retried if reprocess == "yes" else ~retried)
+    if created_from:
+        query = query.filter(JobOrder.created_at >= created_from)
+    if created_to:
+        query = query.filter(JobOrder.created_at < created_to)
+
+    terms = [term for term in re.split(r"\W+", search.strip().lower()) if term]
+    for term in terms:
+        contains = f"%{term}%"
+        query = query.filter(or_(
+            func.lower(JobOrder.name).like(contains),
+            func.lower(JobOrder.number).like(contains),
+            JobOrder.customer.has(func.lower(Customer.display_name).like(contains)),
+            JobOrder.items.any(JobOrderItem.product.has(func.lower(Product.name).like(contains))),
+        ))
+
+    ordering = {
+        "newest": (JobOrder.created_at.desc(), JobOrder.number.desc()),
+        "oldest": (JobOrder.created_at.asc(), JobOrder.number.asc()),
+        "name": (func.lower(JobOrder.name).asc(), JobOrder.created_at.desc()),
+        "name-desc": (func.lower(JobOrder.name).desc(), JobOrder.created_at.desc()),
+        "total-high": (JobOrder.total.desc(), JobOrder.created_at.desc()),
+        "total-low": (JobOrder.total.asc(), JobOrder.created_at.desc()),
+        "due": (case((JobOrder.due_date.is_(None), 1), else_=0), JobOrder.due_date.asc(), JobOrder.created_at.desc()),
+        "due-desc": (case((JobOrder.due_date.is_(None), 1), else_=0), JobOrder.due_date.desc(), JobOrder.created_at.desc()),
+    }[sort]
+    total = query.count()
+    total_pages = max(1, ceil(total / page_size))
+    safe_page = min(page, total_pages)
+    orders = query.options(*_job_order_load_options()).order_by(*ordering).offset((safe_page - 1) * page_size).limit(page_size).all()
+    return JobOrderPageRead(
+        items=[_to_read(order) for order in orders],
+        page=safe_page,
+        page_size=page_size,
+        total=total,
+        total_pages=total_pages,
+        has_next=safe_page < total_pages,
+        has_previous=safe_page > 1,
+    )
 
 
 @router.get("/{job_order_id}", response_model=JobOrderRead)

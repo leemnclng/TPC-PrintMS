@@ -4,6 +4,7 @@ from datetime import datetime
 
 from ..db.models import SourceChannel
 from .common import CamelModel
+from .common import PageRead
 
 
 class CustomerBase(CamelModel):
@@ -29,3 +30,7 @@ class CustomerRead(CustomerBase):
     job_order_count: int = 0
     created_at: datetime
     updated_at: datetime
+
+
+class CustomerPageRead(PageRead[CustomerRead]):
+    pass

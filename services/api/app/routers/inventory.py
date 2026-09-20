@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from math import ceil
+import re
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import String, cast, func, or_
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..core.security import require_token
 from ..db.models import (
@@ -14,15 +16,19 @@ from ..db.models import (
     InventoryStockPurchase,
     JobOrder,
     Product,
+    ProductMaterialAssignment,
 )
 from ..db.session import get_db
 from ..schemas.inventory import (
     InventoryAdjustmentCreate,
     InventoryItemCreate,
     InventoryItemRead,
+    InventoryItemPageRead,
     InventoryItemUpdate,
     InventoryMovementRead,
+    InventoryMovementPageRead,
     InventoryStockPurchaseCreate,
+    InventoryStockPurchasePageRead,
     InventoryStockPurchaseRead,
     PaperSizeDefinitionRead,
 )
@@ -166,6 +172,65 @@ def list_inventory_items(db: Session = Depends(get_db)) -> list[InventoryItemRea
     return [_item_to_read(item) for item in items]
 
 
+@router.get("/inventory-items/page", response_model=InventoryItemPageRead)
+def page_inventory_items(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=10, le=100),
+    search: str = Query(default="", max_length=200),
+    stock_filter: str = Query(default="all", pattern="^(all|reorder|inactive)$"),
+    db: Session = Depends(get_db),
+) -> InventoryItemPageRead:
+    query = db.query(InventoryItem)
+    if stock_filter == "reorder":
+        query = query.filter(InventoryItem.is_active.is_(True), InventoryItem.quantity_on_hand <= InventoryItem.reorder_level)
+    elif stock_filter == "inactive":
+        query = query.filter(InventoryItem.is_active.is_(False))
+
+    searchable_columns = (
+        func.lower(InventoryItem.name),
+        func.lower(InventoryItem.category),
+        func.lower(InventoryItem.unit),
+        func.lower(func.coalesce(InventoryItem.notes, "")),
+        func.lower(func.coalesce(cast(InventoryItem.paper_size, String), "")),
+    )
+    terms = [term for term in re.findall(r"[a-z0-9]+", search.strip().lower()) if term]
+    for term in terms:
+        contains = f"%{term}%"
+        query = query.filter(or_(*(column.like(contains) for column in searchable_columns)))
+
+    total = query.count()
+    total_pages = max(1, ceil(total / page_size))
+    safe_page = min(page, total_pages)
+    items = (
+        query.options(
+            selectinload(InventoryItem.product_assignments),
+            selectinload(InventoryItem.stock_purchases),
+        )
+        .order_by(func.lower(InventoryItem.category), func.lower(InventoryItem.name))
+        .offset((safe_page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    active_count = db.query(func.count(InventoryItem.id)).filter(InventoryItem.is_active.is_(True)).scalar() or 0
+    reorder_count = db.query(func.count(InventoryItem.id)).filter(
+        InventoryItem.is_active.is_(True),
+        InventoryItem.quantity_on_hand <= InventoryItem.reorder_level,
+    ).scalar() or 0
+    product_link_count = db.query(func.count(ProductMaterialAssignment.id)).scalar() or 0
+    return InventoryItemPageRead(
+        items=[_item_to_read(item) for item in items],
+        page=safe_page,
+        page_size=page_size,
+        total=total,
+        total_pages=total_pages,
+        has_next=safe_page < total_pages,
+        has_previous=safe_page > 1,
+        active_count=active_count,
+        reorder_count=reorder_count,
+        product_link_count=product_link_count,
+    )
+
+
 @router.get("/inventory-stock-purchases", response_model=list[InventoryStockPurchaseRead])
 def list_inventory_stock_purchases(
     inventory_item_id: str | None = None,
@@ -179,6 +244,52 @@ def list_inventory_stock_purchases(
         InventoryStockPurchase.created_at.desc(),
     ).all()
     return [_purchase_to_read(purchase) for purchase in purchases]
+
+
+@router.get("/inventory-stock-purchases/page", response_model=InventoryStockPurchasePageRead)
+def page_inventory_stock_purchases(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=10, le=100),
+    search: str = Query(default="", max_length=200),
+    inventory_item_id: str | None = None,
+    db: Session = Depends(get_db),
+) -> InventoryStockPurchasePageRead:
+    query = db.query(InventoryStockPurchase)
+    if inventory_item_id:
+        query = query.filter(InventoryStockPurchase.inventory_item_id == inventory_item_id)
+    for token in re.findall(r"\S+", search.strip()):
+        pattern = f"%{token}%"
+        query = query.filter(or_(
+            InventoryStockPurchase.id.ilike(pattern),
+            InventoryStockPurchase.material_name.ilike(pattern),
+            InventoryStockPurchase.supplier.ilike(pattern),
+            InventoryStockPurchase.reference.ilike(pattern),
+            InventoryStockPurchase.notes.ilike(pattern),
+        ))
+    total = query.count()
+    total_pages = max(1, ceil(total / page_size))
+    safe_page = min(page, total_pages)
+    purchases = query.order_by(
+        InventoryStockPurchase.purchased_on.desc(),
+        InventoryStockPurchase.created_at.desc(),
+    ).offset((safe_page - 1) * page_size).limit(page_size).all()
+    now = date.today()
+    month_start = date(now.year, now.month, 1)
+    total_spend = query.with_entities(func.coalesce(func.sum(InventoryStockPurchase.total_cost), 0)).scalar() or 0
+    month_spend = query.filter(InventoryStockPurchase.purchased_on >= month_start).with_entities(
+        func.coalesce(func.sum(InventoryStockPurchase.total_cost), 0)
+    ).scalar() or 0
+    return InventoryStockPurchasePageRead(
+        items=[_purchase_to_read(purchase) for purchase in purchases],
+        page=safe_page,
+        page_size=page_size,
+        total=total,
+        total_pages=total_pages,
+        has_next=safe_page < total_pages,
+        has_previous=safe_page > 1,
+        total_spend=round(float(total_spend), 2),
+        month_spend=round(float(month_spend), 2),
+    )
 
 
 @router.post("/inventory-stock-purchases", response_model=InventoryStockPurchaseRead, status_code=201)
@@ -433,3 +544,71 @@ def list_inventory_movements(
         query = query.filter(InventoryMovement.job_order_id == job_order_id)
     movements = query.order_by(InventoryMovement.occurred_at.desc()).all()
     return [_movement_to_read(movement) for movement in movements]
+
+
+@router.get("/inventory-movements/page", response_model=InventoryMovementPageRead)
+def page_inventory_movements(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=10, le=100),
+    search: str = Query(default="", max_length=200),
+    kind: str = Query(default="", max_length=50),
+    inventory_item_id: str | None = None,
+    job_order_id: str | None = None,
+    db: Session = Depends(get_db),
+) -> InventoryMovementPageRead:
+    query = db.query(InventoryMovement).options(
+        joinedload(InventoryMovement.inventory_item),
+        joinedload(InventoryMovement.job_order),
+        joinedload(InventoryMovement.product),
+    )
+    if inventory_item_id:
+        query = query.filter(InventoryMovement.inventory_item_id == inventory_item_id)
+    if job_order_id:
+        query = query.filter(InventoryMovement.job_order_id == job_order_id)
+    if kind == "jobs":
+        query = query.filter(InventoryMovement.job_order_id.isnot(None))
+    elif kind:
+        query = query.filter(InventoryMovement.kind == kind)
+    search_tokens = re.findall(r"\S+", search.strip())
+    if search_tokens:
+        query = query.outerjoin(InventoryMovement.job_order).outerjoin(InventoryMovement.product)
+    for token in search_tokens:
+        pattern = f"%{token}%"
+        query = query.filter(or_(
+            JobOrder.name.ilike(pattern),
+            JobOrder.number.ilike(pattern),
+            Product.name.ilike(pattern),
+            InventoryMovement.note.ilike(pattern),
+        ))
+    total = query.count()
+    total_pages = max(1, ceil(total / page_size))
+    safe_page = min(page, total_pages)
+    movements = query.order_by(InventoryMovement.occurred_at.desc()).offset(
+        (safe_page - 1) * page_size
+    ).limit(page_size).all()
+    balance_query = db.query(func.coalesce(func.sum(InventoryMovement.quantity_delta), 0))
+    if inventory_item_id:
+        balance_query = balance_query.filter(InventoryMovement.inventory_item_id == inventory_item_id)
+    if job_order_id:
+        balance_query = balance_query.filter(InventoryMovement.job_order_id == job_order_id)
+    summary_query = db.query(InventoryMovement)
+    if inventory_item_id:
+        summary_query = summary_query.filter(InventoryMovement.inventory_item_id == inventory_item_id)
+    linked_transaction_count = summary_query.filter(InventoryMovement.job_order_id.isnot(None)).with_entities(
+        func.count(func.distinct(InventoryMovement.job_order_id))
+    ).scalar() or 0
+    net_job_consumption = summary_query.filter(InventoryMovement.job_order_id.isnot(None)).with_entities(
+        func.coalesce(func.sum(-InventoryMovement.quantity_delta), 0)
+    ).scalar() or 0
+    return InventoryMovementPageRead(
+        items=[_movement_to_read(movement) for movement in movements],
+        page=safe_page,
+        page_size=page_size,
+        total=total,
+        total_pages=total_pages,
+        has_next=safe_page < total_pages,
+        has_previous=safe_page > 1,
+        ledger_balance=float(balance_query.scalar() or 0),
+        net_job_consumption=float(net_job_consumption),
+        linked_transaction_count=linked_transaction_count,
+    )

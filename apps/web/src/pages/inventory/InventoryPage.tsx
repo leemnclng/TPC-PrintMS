@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "../../components/Button/Button";
 import { LinkButton } from "../../components/Button/LinkButton";
@@ -6,12 +6,14 @@ import { EmptyState } from "../../components/EmptyState/EmptyState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { PageHeader } from "../../components/PageHeader/PageHeader";
+import { Pagination } from "../../components/Pagination/Pagination";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
-import { useResource } from "../../hooks/useResource";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { usePaginatedResource } from "../../hooks/usePaginatedResource";
 import { api } from "../../lib/apiClient";
 import { formatCurrency } from "../../lib/format";
 import { paperSizeDisplay } from "../../lib/paperSizes";
-import type { InventoryItem, InventoryMovement } from "../../types/domain";
+import type { InventoryItem, InventoryItemPage, InventoryMovement } from "../../types/domain";
 import { DeleteInventoryItemModal } from "./DeleteInventoryItemModal";
 import { InventoryItemModal } from "./InventoryItemModal";
 import { PurchaseRestockModal } from "./PurchaseRestockModal";
@@ -22,27 +24,6 @@ type StockFilter = "all" | "reorder" | "inactive";
 
 function formatQuantity(value: number) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(value);
-}
-
-function searchWords(value: string) {
-  return value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase()
-    .match(/[a-z0-9]+/g) ?? [];
-}
-
-function matchesMaterialSearch(item: InventoryItem, query: string) {
-  const requestedWords = searchWords(query);
-  if (!requestedWords.length) return true;
-  const searchableText = searchWords([
-    item.name,
-    item.category,
-    item.unit,
-    item.notes ?? "",
-    item.paperSize ? paperSizeDisplay(item.paperSize, item.paperWidthMm, item.paperHeightMm) : "",
-  ].join(" ")).join(" ");
-  return requestedWords.every((word) => searchableText.includes(word));
 }
 
 function stockState(item: InventoryItem) {
@@ -66,33 +47,23 @@ function purchaseCost(item: InventoryItem) {
 }
 
 export function InventoryPage() {
-  const { data, state, error, reload } = useResource(() => api.get<InventoryItem[]>("/inventory-items"));
-  const [items, setItems] = useState<InventoryItem[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StockFilter>("all");
+  const debouncedQuery = useDebouncedValue(query);
+  const queryKey = JSON.stringify({ debouncedQuery, filter });
+  const { data, state, error, reload, setPage, setPageSize, pageLoading } = usePaginatedResource<InventoryItem, InventoryItemPage>(
+    (page, pageSize) => {
+      const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), search: debouncedQuery, stock_filter: filter });
+      return api.get<InventoryItemPage>(`/inventory-items/page?${params}`);
+    },
+    queryKey,
+  );
+  const items = data?.items ?? [];
   const [itemModalOpen, setItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [adjustingItem, setAdjustingItem] = useState<InventoryItem | null>(null);
   const [restockingItem, setRestockingItem] = useState<InventoryItem | null>(null);
   const [deletingItem, setDeletingItem] = useState<InventoryItem | null>(null);
-
-  useEffect(() => {
-    if (data) setItems(data);
-  }, [data]);
-
-  const visibleItems = useMemo(() => {
-    return items.filter((item) => {
-      const matchesQuery = matchesMaterialSearch(item, query);
-      const matchesFilter = filter === "all"
-        || (filter === "reorder" && item.isActive && item.quantityOnHand <= item.reorderLevel)
-        || (filter === "inactive" && !item.isActive);
-      return matchesQuery && matchesFilter;
-    });
-  }, [items, query, filter]);
-
-  const activeCount = items.filter((item) => item.isActive).length;
-  const reorderCount = items.filter((item) => item.isActive && item.quantityOnHand <= item.reorderLevel).length;
-  const productLinkCount = items.reduce((total, item) => total + item.linkedProductCount, 0);
 
   function openCreate() {
     setEditingItem(null);
@@ -104,32 +75,24 @@ export function InventoryPage() {
     setItemModalOpen(true);
   }
 
-  function handleSaved(saved: InventoryItem) {
-    setItems((current) => {
-      const exists = current.some((item) => item.id === saved.id);
-      const next = exists ? current.map((item) => item.id === saved.id ? saved : item) : [...current, saved];
-      return next.sort((left, right) => left.category.localeCompare(right.category) || left.name.localeCompare(right.name));
-    });
+  function handleSaved(_saved: InventoryItem) {
     setItemModalOpen(false);
+    reload();
   }
 
-  function handleAdjusted(movement: InventoryMovement) {
-    setItems((current) => current.map((item) => item.id === movement.inventoryItemId
-      ? { ...item, quantityOnHand: movement.balanceAfter, updatedAt: movement.occurredAt }
-      : item));
+  function handleAdjusted(_movement: InventoryMovement) {
     setAdjustingItem(null);
+    reload();
   }
 
-  function handleRestocked(movement: InventoryMovement) {
-    setItems((current) => current.map((item) => item.id === movement.inventoryItemId
-      ? { ...item, quantityOnHand: movement.balanceAfter, availableStockPurchaseCount: Math.max(0, item.availableStockPurchaseCount - 1), updatedAt: movement.occurredAt }
-      : item));
+  function handleRestocked(_movement: InventoryMovement) {
     setRestockingItem(null);
+    reload();
   }
 
-  function handleDeleted(deleted: InventoryItem) {
-    setItems((current) => current.filter((item) => item.id !== deleted.id));
+  function handleDeleted(_deleted: InventoryItem) {
     setDeletingItem(null);
+    reload();
   }
 
   return (
@@ -144,7 +107,7 @@ export function InventoryPage() {
       {state === "loading" ? <LoadingState label="Loading inventory…" /> : null}
       {state === "error" ? <ErrorState description={error ?? undefined} onRetry={reload} /> : null}
 
-      {state === "ready" && items.length === 0 ? (
+      {state === "ready" && data?.total === 0 && !query && filter === "all" ? (
         <EmptyState
           title="No materials registered"
           description="Start with paper, ink, toner, or any consumable used during production."
@@ -152,19 +115,19 @@ export function InventoryPage() {
         />
       ) : null}
 
-      {state === "ready" && items.length > 0 ? (
+      {state === "ready" && data && (data.total > 0 || query || filter !== "all") ? (
         <section className="inventory-workbench" aria-labelledby="inventory-register-title">
           <div className="inventory-workbench__summary" aria-label="Inventory summary">
             <div>
-              <strong className="numeric">{activeCount}</strong>
+              <strong className="numeric">{data.activeCount}</strong>
               <span>active materials</span>
             </div>
-            <div data-alert={reorderCount > 0 ? "true" : undefined}>
-              <strong className="numeric">{reorderCount}</strong>
+            <div data-alert={data.reorderCount > 0 ? "true" : undefined}>
+              <strong className="numeric">{data.reorderCount}</strong>
               <span>need reorder</span>
             </div>
             <div>
-              <strong className="numeric">{productLinkCount}</strong>
+              <strong className="numeric">{data.productLinkCount}</strong>
               <span>product links</span>
             </div>
           </div>
@@ -190,7 +153,7 @@ export function InventoryPage() {
             </div>
           </div>
 
-          {visibleItems.length === 0 ? (
+          {items.length === 0 ? (
             <EmptyState title="No materials match" description="Change the search or stock view to see other materials." />
           ) : (
             <div className="inventory-register">
@@ -208,7 +171,7 @@ export function InventoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleItems.map((item) => {
+                  {items.map((item) => {
                     const status = stockState(item);
                     return (
                       <tr key={item.id}>
@@ -254,6 +217,9 @@ export function InventoryPage() {
               </table>
             </div>
           )}
+          {data.total > 0 ? (
+            <Pagination page={data.page} pageSize={data.pageSize} total={data.total} totalPages={data.totalPages} loading={pageLoading} onPageChange={setPage} onPageSizeChange={setPageSize} itemLabel="materials" />
+          ) : null}
         </section>
       ) : null}
 

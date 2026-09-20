@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
-from app.db.models import JobOrderNumberSequence, ObservedPrintJob, Printer
+from app.db.models import JobOrder, JobOrderNumberSequence, ObservedPrintJob, Printer
 from app.db.session import get_db
 from app.modules.document_analyzer.api import router as document_analyzer_router
 from app.routers import customers, inventory, job_orders, products, services, variants
@@ -47,6 +47,40 @@ def test_job_order_number_sequence_handles_million_scale(tmp_path) -> None:
         assert job_orders._next_job_order_number(db) == "JOB-0001000000"
         db.commit()
         assert job_orders._next_job_order_number(db) == "JOB-0001000001"
+
+
+def test_job_order_page_limits_and_searches_on_the_server(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'paged-jobs.db'}", connect_args={"check_same_thread": False})
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    with test_session() as db:
+        db.add_all([
+            JobOrder(number=f"JOB-{index:010d}", name=f"Order {index:02d}", total=float(index))
+            for index in range(1, 24)
+        ])
+        db.commit()
+
+    def override_db():
+        with test_session() as db:
+            yield db
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(job_orders.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    second = client.get("/job-orders/page?page=2&page_size=10&sort=oldest", headers=headers)
+    assert second.status_code == 200, second.text
+    assert second.json()["total"] == 23
+    assert second.json()["totalPages"] == 3
+    assert len(second.json()["items"]) == 10
+    assert second.json()["hasNext"] is True
+
+    searched = client.get("/job-orders/page?search=Order%2023", headers=headers)
+    assert searched.status_code == 200, searched.text
+    assert searched.json()["total"] == 1
+    assert searched.json()["items"][0]["name"] == "Order 23"
 
 
 def test_ad_hoc_transaction_tracks_external_work_and_material_usage(tmp_path, monkeypatch) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date
+from math import ceil
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
@@ -15,6 +16,7 @@ from ..schemas.expenses import (
     BusinessExpenseUpdate,
     ExpenseCategoryTotalRead,
     ExpenseLedgerEntryRead,
+    ExpenseLedgerPageRead,
     ExpenseLedgerRead,
     ExpenseSource,
 )
@@ -124,6 +126,38 @@ def list_expenses(
         entry_count=len(entries),
         category_totals=category_totals,
         available_categories=sorted(manual_categories | {"Stock purchase"}, key=str.casefold),
+    )
+
+
+@router.get("/page", response_model=ExpenseLedgerPageRead)
+def page_expenses(
+    start_date: date,
+    end_date: date,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=10, le=100),
+    source: ExpenseSource | None = None,
+    category: str | None = None,
+    q: str | None = Query(default=None, max_length=200),
+    db: Session = Depends(get_db),
+) -> ExpenseLedgerPageRead:
+    ledger = list_expenses(start_date, end_date, source, category, q, db)
+    total_pages = max(1, ceil(ledger.entry_count / page_size))
+    safe_page = min(page, total_pages)
+    start = (safe_page - 1) * page_size
+    return ExpenseLedgerPageRead(
+        items=ledger.entries[start:start + page_size],
+        page=safe_page,
+        page_size=page_size,
+        total=ledger.entry_count,
+        total_pages=total_pages,
+        has_next=safe_page < total_pages,
+        has_previous=safe_page > 1,
+        total_amount=ledger.total_amount,
+        manual_expense_total=ledger.manual_expense_total,
+        stock_purchase_total=ledger.stock_purchase_total,
+        entry_count=ledger.entry_count,
+        category_totals=ledger.category_totals,
+        available_categories=ledger.available_categories,
     )
 
 

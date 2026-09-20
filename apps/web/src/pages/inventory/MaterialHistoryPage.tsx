@@ -2,18 +2,21 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button } from "../../components/Button/Button";
 import { PageHeader } from "../../components/PageHeader/PageHeader";
+import { Pagination } from "../../components/Pagination/Pagination";
 import { DataTable, type DataTableColumn } from "../../components/DataTable/DataTable";
 import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { EmptyState } from "../../components/EmptyState/EmptyState";
 import { useResource } from "../../hooks/useResource";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { usePaginatedResource } from "../../hooks/usePaginatedResource";
 import { api } from "../../lib/apiClient";
 import { formatDateTime } from "../../lib/format";
-import type { InventoryItem, InventoryMovement } from "../../types/domain";
+import type { InventoryItem, InventoryMovement, InventoryMovementPage } from "../../types/domain";
 import "./InventoryPage.css";
 import "../JobOrdersPage.css";
 
-type Movement = InventoryMovement & { jobOrderName: string | null; jobOrderNumber: string | null; jobOrderStatus: string | null; productName: string | null };
+type Movement = InventoryMovement;
 const quantity = (value: number) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(value);
 const timestamp = (value: string) => /[zZ]|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`;
 
@@ -21,16 +24,13 @@ export function MaterialHistoryPage() {
   const { materialId } = useParams();
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("");
-  const { data, state, error, reload } = useResource(async () => {
-    const [item, movements] = await Promise.all([
-      api.get<InventoryItem>(`/inventory-items/${materialId}`),
-      api.get<Movement[]>(`/inventory-movements?inventory_item_id=${encodeURIComponent(materialId!)}`),
-    ]);
-    return { item, movements };
-  }, [materialId]);
-  const movements = data?.movements ?? [];
-  const visible = movements.filter((row) => (!kind || (kind === "jobs" ? Boolean(row.jobOrderId) : row.kind === kind))
-    && [row.jobOrderName, row.jobOrderNumber, row.productName, row.note].some((value) => (value ?? "").toLowerCase().includes(query.trim().toLowerCase())));
+  const debouncedQuery = useDebouncedValue(query, 250);
+  const movementQuery = new URLSearchParams({ inventory_item_id: materialId ?? "", search: debouncedQuery, kind }).toString();
+  const { data: item, state: itemState, error: itemError, reload: reloadItem } = useResource(() => api.get<InventoryItem>(`/inventory-items/${materialId}`), [materialId]);
+  const { data, state, error, reload, setPage, pageSize, setPageSize, pageLoading } = usePaginatedResource<Movement, InventoryMovementPage>(
+    (page, size) => api.get<InventoryMovementPage>(`/inventory-movements/page?${movementQuery}&page=${page}&page_size=${size}`), movementQuery,
+  );
+  const movements = data?.items ?? [];
   const transactions = new Map<string, { id: string; name: string; number: string; status: string; deducted: number; returned: number; products: Set<string> }>();
   for (const row of movements) {
     if (!row.jobOrderId) continue;
@@ -40,7 +40,6 @@ export function MaterialHistoryPage() {
     if (row.productName) job.products.add(row.productName);
     transactions.set(job.id, job);
   }
-  const ledgerBalance = movements.reduce((sum, row) => sum + row.quantityDelta, 0);
   const columns: DataTableColumn<Movement>[] = [
     { key: "date", header: "Date", render: (row) => formatDateTime(timestamp(row.occurredAt)) },
     { key: "job", header: "Job order", render: (row) => row.jobOrderId ? <Link to={`/job-orders/${row.jobOrderId}`}>{row.jobOrderName || row.jobOrderNumber || row.jobOrderId}<small className="material-history-detail">{row.jobOrderNumber} · {row.jobOrderStatus?.replace(/_/g, " ")}</small></Link> : "No linked job" },
@@ -54,18 +53,18 @@ export function MaterialHistoryPage() {
   columns.find((column) => column.key === "kind")!.filter = <select aria-label="Filter movement type" value={kind} onChange={(event) => setKind(event.target.value)}><option value="">All movements</option><option value="jobs">Linked to a job</option>{["opening_balance", "stock_in", "stock_out", "job_usage", "adjustment"].map((value) => <option key={value} value={value}>{value.replace(/_/g, " ")}</option>)}</select>;
   return <>
     <Link to="/inventory">← Back to inventory</Link>
-    <PageHeader eyebrow="MATERIAL AUDIT" title={data?.item.name || "Material history"} description="Trace stock changes to their job orders and products. Quantities include failed output, reprints, and owner-confirmed adjustments." actions={<Button variant="secondary" disabled={state === "loading"} onClick={reload}>Refresh</Button>} />
-    {state === "loading" && <LoadingState label="Loading material history…" />}
-    {state === "error" && <ErrorState description={error ?? undefined} onRetry={reload} />}
-    {state === "ready" && data && <>
+    <PageHeader eyebrow="MATERIAL AUDIT" title={item?.name || "Material history"} description="Trace stock changes to their job orders and products. Quantities include failed output, reprints, and owner-confirmed adjustments." actions={<Button variant="secondary" disabled={state === "loading" || itemState === "loading"} onClick={() => { reload(); reloadItem(); }}>Refresh</Button>} />
+    {(state === "loading" || itemState === "loading") && <LoadingState label="Loading material history…" />}
+    {(state === "error" || itemState === "error") && <ErrorState description={error ?? itemError ?? undefined} onRetry={() => { reload(); reloadItem(); }} />}
+    {state === "ready" && itemState === "ready" && data && item && <>
       <div className="inventory-workbench__summary">
-        <div><strong>{quantity(data.item.quantityOnHand)}</strong><span>On hand · {data.item.unit}</span></div>
-        <div><strong>{quantity([...transactions.values()].reduce((sum, job) => sum + job.deducted - job.returned, 0))}</strong><span>Net job consumption · {data.item.unit}</span></div>
-        <div><strong>{transactions.size}</strong><span>Linked transactions</span></div>
+        <div><strong>{quantity(item.quantityOnHand)}</strong><span>On hand · {item.unit}</span></div>
+        <div><strong>{quantity(data.netJobConsumption)}</strong><span>Net job consumption · {item.unit}</span></div>
+        <div><strong>{data.linkedTransactionCount}</strong><span>Linked transactions</span></div>
       </div>
-      <p role="status">Lifetime ledger balance: {quantity(ledgerBalance)} {data.item.unit}. {Math.abs(ledgerBalance - data.item.quantityOnHand) < 0.000001 ? "Matches current inventory." : `Difference from current stock: ${quantity(data.item.quantityOnHand - ledgerBalance)}. Review adjustments before reconciling.`}</p>
-      <h2>Transactions using this material</h2>
-      <p>Lifetime totals: deducted minus returned equals net usage. Job statuses and names reflect their current values.</p>
+      <p role="status">Lifetime ledger balance: {quantity(data.ledgerBalance)} {item.unit}. {Math.abs(data.ledgerBalance - item.quantityOnHand) < 0.000001 ? "Matches current inventory." : `Difference from current stock: ${quantity(item.quantityOnHand - data.ledgerBalance)}. Review adjustments before reconciling.`}</p>
+      <h2>Transactions on this page</h2>
+      <p>These job totals reflect the currently visible ledger page. Lifetime consumption and transaction counts remain in the summary above.</p>
       {transactions.size ? <DataTable columns={[
         { key: "job", header: "Job", render: (row) => <Link to={`/job-orders/${row.id}`}>{row.name}<small className="material-history-detail">{row.number}</small></Link> },
         { key: "status", header: "Current status", render: (row) => row.status.replace(/_/g, " ") },
@@ -75,8 +74,9 @@ export function MaterialHistoryPage() {
         { key: "net", header: "Net used", numeric: true, render: (row) => quantity(row.deducted - row.returned) },
       ]} rows={[...transactions.values()]} /> : <EmptyState title="No linked transactions" description="Job-linked material usage will appear here when recorded." />}
       <h2>Stock movement ledger</h2>
-      <div className="job-orders-filters__summary"><span role="status">{visible.length} of {movements.length} movements · {data.item.unit}</span><Button variant="ghost" onClick={() => { setQuery(""); setKind(""); }}>Clear filters</Button></div>
-      <DataTable columns={columns} rows={visible} />
+      <div className="job-orders-filters__summary"><span role="status">{data.total} matching movements · {item.unit}</span><Button variant="ghost" onClick={() => { setQuery(""); setKind(""); }}>Clear filters</Button></div>
+      <DataTable columns={columns} rows={movements} />
+      <Pagination page={data.page} pageSize={pageSize} total={data.total} totalPages={data.totalPages} loading={pageLoading} onPageChange={setPage} onPageSizeChange={setPageSize} itemLabel="movements" />
     </>}
   </>;
 }

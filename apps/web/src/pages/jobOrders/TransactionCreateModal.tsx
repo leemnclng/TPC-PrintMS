@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, lazy, Suspense, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/Button/Button";
 import { ComboBox } from "../../components/ComboBox/ComboBox";
 import { Modal } from "../../components/Modal/Modal";
@@ -65,6 +65,7 @@ interface Props {
   scanPricingTiers: ScanPricingTier[];
   customers: Customer[];
   sourceSpoolerJobId?: string | null;
+  sourceObservedPrintJob?: ObservedPrintJob | null;
   /** Other unreviewed Windows print events (excluding sourceSpoolerJobId) —
    *  checking one off adds it as its own already-done line, so several
    *  separately-tracked prints can be recorded under one transaction. */
@@ -103,6 +104,7 @@ export function TransactionCreateModal({
   scanPricingTiers,
   customers,
   sourceSpoolerJobId,
+  sourceObservedPrintJob,
   otherObservedPrintJobs = [],
   order,
   onClose,
@@ -118,6 +120,8 @@ export function TransactionCreateModal({
   const [error, setError] = useState<string | null>(null);
   const [pricingVariables, setPricingVariables] = useState<GlobalPricingVariable[]>([]);
   const [pricingDiscounts, setPricingDiscounts] = useState<PricingDiscount[]>([]);
+  const [sourceMatchMessages, setSourceMatchMessages] = useState<Record<string, { tone: "checking" | "matched" | "fallback"; message: string }>>({});
+  const attemptedSourceMatches = useRef(new Set<string>());
 
   const activeServices = services.filter((service) => service.isActive && service.productCount > 0);
   const inventoryById = new Map(inventoryItems.map((item) => [item.id, item]));
@@ -132,7 +136,42 @@ export function TransactionCreateModal({
     setSubmitted(false);
     setSaving(false);
     setError(null);
+    setSourceMatchMessages({});
+    attemptedSourceMatches.current.clear();
   }, [open, initialService.id, order?.customerId, order?.name, sourceSpoolerJobId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const bridge = window.paperClub;
+    const observedJobs = [sourceObservedPrintJob, ...otherObservedPrintJobs].filter((job): job is ObservedPrintJob => Boolean(job));
+    for (const line of lines) {
+      const lineProduct = products.find((product) => product.id === line.productId);
+      if (lineProduct?.operationKind !== "printing") continue;
+      if (!line.observedPrintJobId || line.files.length || attemptedSourceMatches.current.has(line.observedPrintJobId)) continue;
+      const observed = observedJobs.find((job) => job.id === line.observedPrintJobId);
+      if (!observed) continue;
+      attemptedSourceMatches.current.add(observed.id);
+      if (!bridge?.matchPrintSource) {
+        setSourceMatchMessages((current) => ({ ...current, [observed.id]: { tone: "fallback", message: "Automatic matching is available in the desktop app; choose the file manually." } }));
+        continue;
+      }
+      setSourceMatchMessages((current) => ({ ...current, [observed.id]: { tone: "checking", message: "Looking for the printed file in the trusted source folder…" } }));
+      void bridge.matchPrintSource(observed.documentName).then((result) => {
+        if (result.status !== "matched" || !result.base64 || !result.filename) {
+          setSourceMatchMessages((current) => ({ ...current, [observed.id]: { tone: "fallback", message: `${result.message} Choose the file manually.` } }));
+          return;
+        }
+        const binary = window.atob(result.base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        const file = new File([bytes], result.filename, { type: result.mimeType, lastModified: result.modifiedAt ? Date.parse(result.modifiedAt) : Date.now() });
+        setLines((current) => current.map((candidate) => candidate.observedPrintJobId === observed.id && candidate.files.length === 0 ? { ...candidate, files: [file], analysis: null } : candidate));
+        setSourceMatchMessages((current) => ({ ...current, [observed.id]: { tone: "matched", message: `${result.filename} attached from ${result.relativePath ?? "the trusted source folder"}. Select the product and paper, then Analyze.` } }));
+      }).catch((caught: unknown) => {
+        setSourceMatchMessages((current) => ({ ...current, [observed.id]: { tone: "fallback", message: `${caught instanceof Error ? caught.message : "Automatic source matching failed."} Choose the file manually.` } }));
+      });
+    }
+  }, [lines, open, otherObservedPrintJobs, products, sourceObservedPrintJob]);
 
   useEffect(() => {
     if (open) void Promise.all([
@@ -162,6 +201,7 @@ export function TransactionCreateModal({
   }
 
   function chooseService(line: TransactionLine, serviceId: string) {
+    if (line.observedPrintJobId) attemptedSourceMatches.current.delete(line.observedPrintJobId);
     updateLine(line.key, { ...newLine(serviceId), key: line.key, observedPrintJobId: line.observedPrintJobId });
   }
 
@@ -176,6 +216,14 @@ export function TransactionCreateModal({
 
   function chooseProduct(line: TransactionLine, productId: string) {
     const product = products.find((candidate) => candidate.id === productId);
+    if (line.observedPrintJobId) {
+      attemptedSourceMatches.current.delete(line.observedPrintJobId);
+      setSourceMatchMessages((current) => {
+        const next = { ...current };
+        delete next[line.observedPrintJobId!];
+        return next;
+      });
+    }
     updateLine(line.key, {
       productId,
       paperId: "",
@@ -283,6 +331,11 @@ export function TransactionCreateModal({
   function selectFiles(line: TransactionLine, event: ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(event.target.files ?? []);
     updateLine(line.key, { files: selectedFiles, analysis: null });
+    if (line.observedPrintJobId) setSourceMatchMessages((current) => {
+      const next = { ...current };
+      delete next[line.observedPrintJobId!];
+      return next;
+    });
     if (!order && !name.trim() && lines.length === 1 && selectedFiles[0]) {
       setName(selectedFiles[0].name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").slice(0, 100));
     }
@@ -408,7 +461,8 @@ export function TransactionCreateModal({
                     <label className="form-field"><span>Service</span><select value={line.serviceId} disabled={!order && index === 0} onChange={(event) => chooseService(line, event.target.value)}>{activeServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{!order && index === 0 ? <small>Initial service</small> : null}</label>
                     <label className={`form-field form-field--required${!product ? " is-awaiting-input" : ""}`}><span>Product</span><ComboBox value={line.productId} onChange={(productId) => chooseProduct(line, productId)} placeholder="Select product" emptyMessage="No matching products" ariaInvalid={submitted && !product} options={lineProducts.map((candidate) => ({ value: candidate.id, label: `${candidate.name} | ${candidate.printTypeLabel || formatProductPrintType(candidate.printType)}`, meta: `${formatProductPriceRange(resolveProductPriceRange(candidate, pricingRules, scanPricingTiers, pricingVariables, pricingDiscounts), formatCurrency)} effective`, keywords: `${candidate.operationKind} ${candidate.serviceName}` }))} /></label>
                     {product && product.operationKind !== "scan" ? <label className={`form-field form-field--required${!line.paperId ? " is-awaiting-input" : ""}`}><span>{product.operationKind === "adhoc" ? "Priced material" : "Paper"}</span><select value={line.paperId} onChange={(event) => updateLine(line.key, { paperId: event.target.value, analysis: null })} aria-invalid={submitted && !line.paperId} required><option value="">{product.operationKind === "adhoc" ? "Select priced material" : "Select configured paper"}</option>{papers.map((paper) => <option key={paper.id} value={paper.id}>{paper.paperSize ? `${paperSizeDisplay(paper.paperSize, paper.paperWidthMm, paper.paperHeightMm)} · ${paper.name}` : paper.name}</option>)}</select></label> : null}
-                    {product?.operationKind === "printing" ? <label className={`form-field form-field--required transaction-line__file${!hasRequiredFiles ? " is-awaiting-input" : ""}`}><span>{photoDuplex ? "Front/back photo files" : "Customer document"}</span><input key={`${line.key}-${photoDuplex ? "bundle" : "single"}`} type="file" multiple={photoDuplex} accept={photoDuplex ? ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp" : ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.docx,.xlsx,.pptx"} onChange={(event) => selectFiles(line, event)} aria-invalid={submitted && !hasRequiredFiles} required /><small>{line.analysis ? `${line.analysis.analysis.pageCount} sides · best fit ${line.analysis.analysis.paperSize}` : photoDuplex ? `${line.files.length} selected · choose at least 2 in front/back order.` : "Analyze after choosing the file and paper."}</small></label> : null}
+                    {product?.operationKind === "printing" ? <label className={`form-field form-field--required transaction-line__file${!hasRequiredFiles ? " is-awaiting-input" : ""}`}><span>{photoDuplex ? "Front/back photo files" : "Customer document"}</span><input key={`${line.key}-${photoDuplex ? "bundle" : "single"}`} type="file" multiple={photoDuplex} accept={photoDuplex ? ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp" : ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.docx,.xlsx,.pptx"} onChange={(event) => selectFiles(line, event)} aria-invalid={submitted && !hasRequiredFiles} required /><small>{line.analysis ? `${line.analysis.analysis.pageCount} sides · best fit ${line.analysis.analysis.paperSize}` : line.files.length === 1 ? `${line.files[0].name} attached · analyze after choosing paper.` : photoDuplex ? `${line.files.length} selected · choose at least 2 in front/back order.` : "Analyze after choosing the file and paper."}</small></label> : null}
+                    {product?.operationKind === "printing" && line.observedPrintJobId && sourceMatchMessages[line.observedPrintJobId] ? <p className={`transaction-line__source-match is-${sourceMatchMessages[line.observedPrintJobId].tone}`} role="status">{sourceMatchMessages[line.observedPrintJobId].message}</p> : null}
                     {product && ["photocopy", "adhoc"].includes(product.operationKind) ? <label className={`form-field form-field--required${line.pages < 1 ? " is-awaiting-input" : ""}`}><span>Units / pages</span><input type="number" min={1} value={line.pages} onChange={(event) => updateLine(line.key, { pages: Number(event.target.value) })} aria-invalid={submitted && line.pages < 1} required /></label> : null}
                     {product && product.operationKind !== "scan" ? <label className={`form-field form-field--required${line.copies < 1 ? " is-awaiting-input" : ""}`}><span>Copies</span><input type="number" min={1} value={line.copies} onChange={(event) => updateLine(line.key, { copies: Number(event.target.value) })} aria-invalid={submitted && line.copies < 1} required /></label> : null}
                     {product && product.operationKind !== "scan" && product.variants.length ? <label className="form-field"><span>Variant</span><select value={line.variantId} onChange={(event) => { const variant = product.variants.find((candidate) => candidate.variantId === event.target.value); const backToBack = Boolean(variant?.requiresManualDuplex); updateLine(line.key, { variantId: event.target.value, backToBack, files: product.printType === "photo_print" && !backToBack ? line.files.slice(0, 1) : line.files, analysis: null }); }}><option value="">No variant</option>{product.variants.map((variant) => <option key={variant.variantId} value={variant.variantId}>{variant.label}</option>)}</select></label> : null}

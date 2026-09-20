@@ -559,7 +559,7 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 
 ### Require Owner Confirmation and Source Re-upload for External Print Intake
 
-- Decision: Surface each unreviewed external Windows spooler record through a non-blocking app prompt. Allow dismissal or job creation, but require the original source file to be uploaded and analyzed before linking the observation to a newly approved job order.
+- Decision: Surface each unreviewed external Windows spooler record through a non-blocking app prompt. Allow dismissal or job creation, and pre-attach one exact source-name match from the owner-configured trusted folder when available; otherwise require manual selection. Always require analysis before linking the observation to a newly approved job order.
 - Rationale: `Win32_PrintJob` provides transient metadata, not a trustworthy reusable source file. Creating a complete commercial transaction directly from spooler metadata would fabricate preview, pricing, and material evidence.
 - Impact: The owner gets timely intake awareness without being interrupted. Dismissed observations remain visible in Print Center, approved jobs gain a durable one-to-one link, and cancelled creation leaves the observation unlinked.
 
@@ -863,3 +863,15 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Rationale: An owner reported selecting 7 materials for a custom "Lamination" (Ad Hoc) category but only 4 — the ones already tagged with a paper size — ever got a priceable rate row; the other 3 (pouches/film with no inherent "paper size") had no way to be priced at all. Ad Hoc's "priced material" was already modeled as "whichever assignment the owner picks per job," which never actually required real paper geometry — the paper-size gate was inherited from Printing/Photocopy without being reconsidered for Ad Hoc.
 - Alternatives considered: Telling owners to tag non-paper Ad Hoc materials with a "Custom" paper size as a workaround (rejected — conflates a physical-paper concept with billable-but-not-paper items and would surface confusingly elsewhere, e.g. the Price Book's per-paper-size columns).
 - Impact: `job_orders.py`'s per-line material-assignment gate and `products.py`'s creation-time validation (`_validate_photocopy_materials`, `_validate_pricing_category`) now only require a paper-tagged material for Photocopy, not Ad Hoc. `product_pricing.py`'s rate-lookup functions no longer filter by paper size at all — rule existence (which `ensure_defaults` already scopes correctly per operation kind) is the real gate. The Price Book (`PricingCenterPage.tsx`) excludes paper-less rules from its per-paper-size columns; Ad Hoc's price still shows via each product's price range. `ProductWorkspace`/`ProductCreateModal` and the live transaction modal (`TransactionCreateModal.tsx`) relabel "Paper" as "Priced material" for Ad Hoc products.
+
+## 2026-09-20 — Page growing operational ledgers, not bounded form references
+
+- Decision: High-growth registers use server-side filtering and 25-row initial pages with cached next-page prefetch. Small configuration/reference collections required by selectors continue loading atomically.
+- Rationale: Operational history grows without bound and should not be transferred on every visit, while paging form references could hide valid choices or create incomplete submissions.
+- Impact: Job Orders, Inventory, Customers, Stock Purchases, material movements, and Expenses share consistent 25/50/100-row controls. Totals are computed over the filtered result, and legacy list endpoints remain available for existing internal consumers.
+
+## 2026-09-20 — Treat tracked-print source matching as an explicit trust boundary
+
+- Decision: Search only one owner-selected folder and its subfolders, read supported files only, and auto-attach only when the spooler title produces exactly one filename match no larger than 25 MB. Keep Analyze explicit and fall back to manual selection for every uncertain result.
+- Rationale: Windows exposes a print-job display name but not the original file path. Copying driver spool data is unreliable, while searching arbitrary workstation storage would be invasive and error-prone.
+- Impact: The folder path is stored as a machine-local Electron setting and is not included in OMS data backups. No file is modified or retained by OMS until the owner creates the analyzed transaction through the existing flow.

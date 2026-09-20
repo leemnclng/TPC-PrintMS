@@ -6,10 +6,11 @@ import { EmptyState } from "../../components/EmptyState/EmptyState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { LoadingState } from "../../components/LoadingState/LoadingState";
 import { PageHeader } from "../../components/PageHeader/PageHeader";
-import { useResource } from "../../hooks/useResource";
+import { Pagination } from "../../components/Pagination/Pagination";
+import { usePaginatedResource } from "../../hooks/usePaginatedResource";
 import { api } from "../../lib/apiClient";
 import { formatCurrency } from "../../lib/format";
-import type { ExpenseLedger, ExpenseLedgerEntry, ExpenseSource, ReportPeriod } from "../../types/domain";
+import type { ExpenseLedgerEntry, ExpenseLedgerPage, ExpenseSource, ReportPeriod } from "../../types/domain";
 import { ExpenseDeleteModal, ExpenseEditorModal } from "./ExpenseModals";
 import "./ExpensesPage.css";
 
@@ -62,7 +63,9 @@ export function ExpensesPage() {
     if (filters.category) params.set("category", filters.category);
     return params.toString();
   }, [interval, filters]);
-  const { data, state, error, reload } = useResource(() => api.get<ExpenseLedger>(`/expenses?${queryString}`), [queryString]);
+  const { data, state, error, reload, setPage, pageSize, setPageSize, pageLoading } = usePaginatedResource<ExpenseLedgerEntry, ExpenseLedgerPage>(
+    (page, size) => api.get<ExpenseLedgerPage>(`/expenses/page?${queryString}&page=${page}&page_size=${size}`), queryString,
+  );
 
   function applyQuickPeriod(period: QuickPeriod) {
     const next = currentInterval(period);
@@ -119,7 +122,7 @@ export function ExpensesPage() {
 
         <div className="expense-layout">
           <section className="expense-ledger" aria-labelledby="expense-ledger-title"><header><div><span className="numeric">UNIFIED LEDGER</span><h2 id="expense-ledger-title">Money out</h2></div>{(filters.query || filters.source || filters.category) && <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}</header>
-            {data.entries.length ? <div className="expense-table" role="region" aria-label="Expense ledger" tabIndex={0}><table><thead><tr><th>Date</th><th>Expense</th><th>Category</th><th>Paid to / reference</th><th>Amount</th><th><span className="visually-hidden">Actions</span></th></tr></thead><tbody>{data.entries.map((entry) => <tr key={`${entry.source}-${entry.id}`}><td className="numeric">{displayDate(entry.spentOn)}</td><th scope="row"><strong>{entry.description}</strong><small>{entry.source === "stock_purchase" ? "Inventory stock purchase" : "Operating expense"}{entry.notes ? ` · ${entry.notes}` : ""}</small></th><td><span className={`expense-source expense-source--${entry.source}`}>{entry.category}</span></td><td><strong>{entry.paidTo ?? "—"}</strong><small>{entry.reference ?? "No reference"}</small></td><td className="numeric expense-table__amount">{formatCurrency(entry.amount)}</td><td>{entry.source === "manual" ? <div className="expense-table__actions"><Button size="sm" variant="ghost" onClick={() => openEditExpense(entry)}>Edit</Button><Button size="sm" variant="ghost" onClick={() => setDeletingExpense(entry)}>Remove</Button></div> : <Link to="/inventory/stocks" className="expense-table__link">View purchase</Link>}</td></tr>)}</tbody></table></div> : <EmptyState title="No expenses found" description="No operating expense or stock purchase matches this period and filters." action={(filters.query || filters.source || filters.category) ? <Button type="button" size="sm" onClick={clearFilters}>Clear filters</Button> : <Button type="button" size="sm" onClick={openNewExpense}>Record first expense</Button>} />}
+            {data.items.length ? <><div className="expense-table" role="region" aria-label="Expense ledger" tabIndex={0}><table><thead><tr><th>Date</th><th>Expense</th><th>Category</th><th>Paid to / reference</th><th>Amount</th><th><span className="visually-hidden">Actions</span></th></tr></thead><tbody>{data.items.map((entry) => <tr key={`${entry.source}-${entry.id}`}><td className="numeric">{displayDate(entry.spentOn)}</td><th scope="row"><strong>{entry.description}</strong><small>{entry.source === "stock_purchase" ? "Inventory stock purchase" : "Operating expense"}{entry.notes ? ` · ${entry.notes}` : ""}</small></th><td><span className={`expense-source expense-source--${entry.source}`}>{entry.category}</span></td><td><strong>{entry.paidTo ?? "—"}</strong><small>{entry.reference ?? "No reference"}</small></td><td className="numeric expense-table__amount">{formatCurrency(entry.amount)}</td><td>{entry.source === "manual" ? <div className="expense-table__actions"><Button size="sm" variant="ghost" onClick={() => openEditExpense(entry)}>Edit</Button><Button size="sm" variant="ghost" onClick={() => setDeletingExpense(entry)}>Remove</Button></div> : <Link to="/inventory/stocks" className="expense-table__link">View purchase</Link>}</td></tr>)}</tbody></table></div><Pagination page={data.page} pageSize={pageSize} total={data.total} totalPages={data.totalPages} loading={pageLoading} onPageChange={setPage} onPageSizeChange={setPageSize} itemLabel="expenses" /></> : <EmptyState title="No expenses found" description="No operating expense or stock purchase matches this period and filters." action={(filters.query || filters.source || filters.category) ? <Button type="button" size="sm" onClick={clearFilters}>Clear filters</Button> : <Button type="button" size="sm" onClick={openNewExpense}>Record first expense</Button>} />}
           </section>
 
           <aside className="expense-categories" aria-labelledby="expense-categories-title"><header><span className="numeric">BREAKDOWN</span><h2 id="expense-categories-title">By category</h2></header>{data.categoryTotals.length ? <ol>{data.categoryTotals.map((item) => <li key={item.category}><div><strong>{item.category}</strong><span>{item.entryCount} {item.entryCount === 1 ? "entry" : "entries"}</span></div><b>{formatCurrency(item.amount)}</b><i style={{ "--expense-share": `${maxCategoryAmount ? (item.amount / maxCategoryAmount) * 100 : 0}%` } as CSSProperties} /></li>)}</ol> : <p>No category spending in this interval.</p>}<footer>Stock purchases are included automatically and remain controlled by the <Link to="/inventory/stocks">Inventory purchase ledger</Link>.</footer></aside>

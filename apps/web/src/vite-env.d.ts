@@ -36,6 +36,19 @@ export interface PaperClubBridge {
   getStorageLocation: () => Promise<{ currentPath: string; defaultPath: string; isCustom: boolean }>;
   chooseStorageLocation: () => Promise<string | null>;
   moveStorageLocation: (destination: string) => Promise<PaperClubApiConfig>;
+  getPrintSourceFolder: () => Promise<{ folderPath: string | null; available: boolean }>;
+  choosePrintSourceFolder: () => Promise<{ folderPath: string; available: boolean } | null>;
+  clearPrintSourceFolder: () => Promise<{ folderPath: null; available: false }>;
+  matchPrintSource: (documentName: string) => Promise<{
+    status: "matched" | "not_configured" | "unavailable" | "not_found" | "ambiguous" | "unsupported" | "too_large" | "error";
+    message: string;
+    filename?: string;
+    relativePath?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    modifiedAt?: string;
+    base64?: string;
+  }>;
   openPrinterSettings: () => Promise<void>;
   openPrinterPreferences: (printerName: string) => Promise<void>;
   inspectScanners: () => Promise<{

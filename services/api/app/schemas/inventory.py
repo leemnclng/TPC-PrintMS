@@ -54,6 +54,19 @@ class InventoryItemRead(InventoryItemBase):
     updated_at: datetime
 
 
+class InventoryItemPageRead(CamelModel):
+    items: list[InventoryItemRead]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+    has_next: bool
+    has_previous: bool
+    active_count: int
+    reorder_count: int
+    product_link_count: int
+
+
 class InventoryAdjustmentCreate(CamelModel):
     quantity_delta: float
     kind: InventoryMovementKind
@@ -91,6 +104,18 @@ class InventoryStockPurchaseRead(CamelModel):
     created_at: datetime
 
 
+class InventoryStockPurchasePageRead(CamelModel):
+    items: list[InventoryStockPurchaseRead]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+    has_next: bool
+    has_previous: bool
+    total_spend: float
+    month_spend: float
+
+
 class InventoryMovementRead(CamelModel):
     job_order_name: str | None = None
     job_order_number: str | None = None
@@ -108,6 +133,19 @@ class InventoryMovementRead(CamelModel):
     stock_purchase_id: str | None = None
     note: str | None
     occurred_at: datetime
+
+
+class InventoryMovementPageRead(CamelModel):
+    items: list[InventoryMovementRead]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+    has_next: bool
+    has_previous: bool
+    ledger_balance: float
+    net_job_consumption: float
+    linked_transaction_count: int
 
 
 class PaperSizeDefinitionRead(CamelModel):

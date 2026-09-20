@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
-from app.db.models import Product
+from app.db.models import InventoryItem, Product
 from app.db.session import get_db
 from app.modules.document_analyzer.api import router as document_analyzer_router
 from app.routers import inventory, products, services
@@ -99,6 +99,47 @@ def test_canon_paper_catalog_and_custom_measurements(tmp_path) -> None:
         },
     )
     assert invalid_custom.status_code == 422
+
+
+def test_inventory_page_limits_filters_and_reports_global_totals(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'paged-inventory.db'}", connect_args={"check_same_thread": False})
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    with test_session() as db:
+        db.add_all([
+            InventoryItem(
+                name=f"Material {index:02d}",
+                category="Paper" if index % 2 else "Ink",
+                unit="sheet" if index % 2 else "bottle",
+                quantity_on_hand=0 if index <= 3 else 20,
+                reorder_level=5,
+                is_active=index != 23,
+            )
+            for index in range(1, 24)
+        ])
+        db.commit()
+
+    def override_db():
+        with test_session() as db:
+            yield db
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(inventory.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    first = client.get("/inventory-items/page?page=1&page_size=10", headers=headers)
+    assert first.status_code == 200, first.text
+    assert first.json()["total"] == 23
+    assert len(first.json()["items"]) == 10
+    assert first.json()["activeCount"] == 22
+    assert first.json()["reorderCount"] == 3
+
+    filtered = client.get("/inventory-items/page?stock_filter=reorder&search=material", headers=headers)
+    assert filtered.status_code == 200, filtered.text
+    assert filtered.json()["total"] == 3
+    assert all(item["quantityOnHand"] == 0 for item in filtered.json()["items"])
 
 
 def test_inventory_stock_ledger_and_product_assignments(tmp_path) -> None:
@@ -210,6 +251,20 @@ def test_inventory_stock_ledger_and_product_assignments(tmp_path) -> None:
     ).status_code == 409
     applied_item = client.get(f"/inventory-items/{inventory_item['id']}", headers=headers).json()
     assert applied_item["availableStockPurchaseCount"] == 0
+    purchase_page = client.get(
+        f"/inventory-stock-purchases/page?page_size=10&search=short&inventory_item_id={inventory_item['id']}",
+        headers=headers,
+    )
+    assert purchase_page.status_code == 200, purchase_page.text
+    assert purchase_page.json()["total"] == 1
+    assert purchase_page.json()["totalSpend"] == 500
+    movement_page = client.get(
+        f"/inventory-movements/page?page_size=10&inventory_item_id={inventory_item['id']}",
+        headers=headers,
+    )
+    assert movement_page.status_code == 200, movement_page.text
+    assert movement_page.json()["total"] == 2
+    assert movement_page.json()["ledgerBalance"] == 700
 
     invalid_cost_response = client.post(
         "/inventory-items",

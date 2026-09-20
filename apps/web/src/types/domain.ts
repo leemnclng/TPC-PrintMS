@@ -18,6 +18,16 @@ export type JobOrderStatus =
 
 export type SourceChannel = "messenger" | "gmail" | "form" | "walk_in" | "phone" | "other";
 export type ServiceCategory = "printing" | "photocopy" | "custom";
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
+}
 export type ProductOperationKind = "printing" | "photocopy" | "scan" | "adhoc";
 
 export type PrinterState = "idle" | "printing" | "offline" | "error" | "unknown";
@@ -183,10 +193,20 @@ export interface InventoryItem {
   updatedAt: string;
 }
 
+export interface InventoryItemPage extends PaginatedResponse<InventoryItem> {
+  activeCount: number;
+  reorderCount: number;
+  productLinkCount: number;
+}
+
 export type InventoryMovementKind = "opening_balance" | "stock_in" | "stock_out" | "adjustment" | "job_usage";
 
 export interface InventoryMovement {
   id: string;
+  jobOrderName: string | null;
+  jobOrderNumber: string | null;
+  jobOrderStatus: string | null;
+  productName: string | null;
   inventoryItemId: string;
   inventoryItemName: string;
   inventoryItemUnit: string;
@@ -216,6 +236,17 @@ export interface InventoryStockPurchase {
   purchasedOn: string;
   appliedAt?: string | null;
   createdAt: string;
+}
+
+export interface InventoryStockPurchasePage extends PaginatedResponse<InventoryStockPurchase> {
+  totalSpend: number;
+  monthSpend: number;
+}
+
+export interface InventoryMovementPage extends PaginatedResponse<InventoryMovement> {
+  ledgerBalance: number;
+  netJobConsumption: number;
+  linkedTransactionCount: number;
 }
 
 export interface Payment {
@@ -495,6 +526,15 @@ export interface ExpenseCategoryTotal {
 
 export interface ExpenseLedger {
   entries: ExpenseLedgerEntry[];
+  totalAmount: number;
+  manualExpenseTotal: number;
+  stockPurchaseTotal: number;
+  entryCount: number;
+  categoryTotals: ExpenseCategoryTotal[];
+  availableCategories: string[];
+}
+
+export interface ExpenseLedgerPage extends PaginatedResponse<ExpenseLedgerEntry> {
   totalAmount: number;
   manualExpenseTotal: number;
   stockPurchaseTotal: number;

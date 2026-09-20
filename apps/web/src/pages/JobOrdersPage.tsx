@@ -8,11 +8,14 @@ import { StatusPill } from "../components/StatusPill/StatusPill";
 import { EmptyState } from "../components/EmptyState/EmptyState";
 import { LoadingState } from "../components/LoadingState/LoadingState";
 import { ErrorState } from "../components/ErrorState/ErrorState";
+import { Pagination } from "../components/Pagination/Pagination";
 import { useResource } from "../hooks/useResource";
+import { usePaginatedResource } from "../hooks/usePaginatedResource";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { api } from "../lib/apiClient";
 import { formatCurrency, formatDate } from "../lib/format";
 import { jobOrderStatusMeta } from "../types/statusMeta";
-import type { Customer, DocumentPricingRule, InventoryItem, JobOrder, Product, ScanPricingTier, Service, SpoolerMonitorInfo } from "../types/domain";
+import type { Customer, DocumentPricingRule, InventoryItem, JobOrder, PaginatedResponse, Product, ScanPricingTier, Service, SpoolerMonitorInfo } from "../types/domain";
 import { JobServiceChooserModal } from "./jobOrders/JobServiceChooserModal";
 import { TransactionCreateModal } from "./jobOrders/TransactionCreateModal";
 import "./JobOrdersPage.css";
@@ -20,11 +23,6 @@ import "./JobOrdersPage.css";
 // Backend timestamps without an offset are stored in UTC.
 function createdDate(value: string) {
   return new Date(/[zZ]|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`);
-}
-
-function localDay(value: string) {
-  const date = createdDate(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 export function JobOrdersPage() {
@@ -41,9 +39,8 @@ export function JobOrdersPage() {
   const sourceSpoolerJobId = searchParams.get("spoolerJobId");
   const attachSpoolerJobId = searchParams.get("attachSpoolerJobId");
   const attaching = Boolean(attachSpoolerJobId);
-  const { data, state, error, reload } = useResource(async () => {
-    const [orders, customers, products, inventoryItems, services, pricingRules, scanPricingTiers, spoolerMonitor] = await Promise.all([
-      api.get<JobOrder[]>("/job-orders"),
+  const { data: supportData, state: supportState, error: supportError, reload: reloadSupport } = useResource(async () => {
+    const [customers, products, inventoryItems, services, pricingRules, scanPricingTiers, spoolerMonitor] = await Promise.all([
       api.get<Customer[]>("/customers"),
       api.get<Product[]>("/products"),
       api.get<InventoryItem[]>("/inventory-items"),
@@ -52,21 +49,52 @@ export function JobOrdersPage() {
       api.get<ScanPricingTier[]>("/document-analyzer/scan-pricing-tiers"),
       api.get<SpoolerMonitorInfo>("/printers/spooler-jobs").catch(() => null),
     ]);
-    return { orders, customers, products, inventoryItems, services, pricingRules, scanPricingTiers, spoolerMonitor };
+    return { customers, products, inventoryItems, services, pricingRules, scanPricingTiers, spoolerMonitor };
   }, [sourceSpoolerJobId]);
+  const debouncedQuery = useDebouncedValue(query);
+  const invalidInterval = Boolean(fromDate && toDate && fromDate > toDate);
+  const orderQueryKey = JSON.stringify({ debouncedQuery, status, reprocess, fromDate, toDate, sort, attaching });
+  const {
+    data: orderPage,
+    state: orderState,
+    error: orderError,
+    reload: reloadOrders,
+    setPage,
+    setPageSize,
+    pageLoading,
+  } = usePaginatedResource<JobOrder>(async (targetPage, targetPageSize) => {
+    const params = new URLSearchParams({
+      page: String(targetPage),
+      page_size: String(targetPageSize),
+      search: debouncedQuery,
+      status,
+      reprocess,
+      sort,
+      attachable_only: String(attaching),
+    });
+    if (fromDate) params.set("created_from", new Date(`${fromDate}T00:00:00`).toISOString());
+    if (toDate) {
+      const exclusive = new Date(`${toDate}T00:00:00`);
+      exclusive.setDate(exclusive.getDate() + 1);
+      params.set("created_to", exclusive.toISOString());
+    }
+    return api.get<PaginatedResponse<JobOrder>>(`/job-orders/page?${params}`);
+  }, orderQueryKey);
+  const orders = orderPage?.items ?? [];
+  const ready = supportState === "ready" && orderState === "ready";
 
   useEffect(() => {
     if (searchParams.get("create") === "1") setChooserOpen(true);
   }, [searchParams]);
 
   useEffect(() => {
-    if (!sourceSpoolerJobId || !data || selectedService) return;
-    const printingService = data.services.find((service) => service.isActive && service.category === "printing" && service.productCount > 0);
+    if (!sourceSpoolerJobId || !supportData || selectedService) return;
+    const printingService = supportData.services.find((service) => service.isActive && service.category === "printing" && service.productCount > 0);
     if (printingService) {
       setChooserOpen(false);
       setSelectedService(printingService);
     }
-  }, [data, selectedService, sourceSpoolerJobId]);
+  }, [supportData, selectedService, sourceSpoolerJobId]);
 
   function closeCreate() {
     setChooserOpen(false);
@@ -89,28 +117,6 @@ export function JobOrdersPage() {
     if (!attachSpoolerJobId) return;
     navigate(`/job-orders?create=1&spoolerJobId=${encodeURIComponent(attachSpoolerJobId)}`, { replace: true });
   }
-
-  const invalidInterval = Boolean(fromDate && toDate && fromDate > toDate);
-  const eligibleOrders = (data?.orders ?? []).filter((order) => !attaching || ["queued", "printing", "ready"].includes(order.status));
-  const filteredOrders = eligibleOrders.filter((order) => {
-    const search = query.trim().toLowerCase();
-    const day = localDay(order.createdAt);
-    const retried = order.items.some((item) => item.reprocessCount > 0);
-    return !invalidInterval && (!status || order.status === status)
-      && (!reprocess || (reprocess === "yes" ? retried : !retried))
-      && (!fromDate || day >= fromDate) && (!toDate || day <= toDate)
-      && (!search || [order.name, order.number, order.customerName || "Walk-in", ...order.items.map((item) => item.productName)].some((value) => value.toLowerCase().includes(search)));
-  }).sort((a, b) => {
-    const dateDifference = createdDate(b.createdAt).getTime() - createdDate(a.createdAt).getTime();
-    if (sort === "oldest") return -dateDifference || a.number.localeCompare(b.number);
-    if (sort === "name") return a.name.localeCompare(b.name) || dateDifference;
-    if (sort === "name-desc") return b.name.localeCompare(a.name) || dateDifference;
-    if (sort === "due-desc") return !a.dueDate ? (b.dueDate ? 1 : dateDifference) : !b.dueDate ? -1 : b.dueDate.localeCompare(a.dueDate) || dateDifference;
-    if (sort === "total-high") return b.total - a.total || dateDifference;
-    if (sort === "total-low") return a.total - b.total || dateDifference;
-    if (sort === "due") return (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || dateDifference;
-    return dateDifference || b.number.localeCompare(a.number);
-  });
 
   function clearFilters() {
     setQuery(""); setStatus(""); setReprocess(""); setFromDate(""); setToDate(""); setSort("newest");
@@ -165,13 +171,13 @@ export function JobOrdersPage() {
         actions={<Button variant="primary" onClick={() => setChooserOpen(true)}>New job order</Button>}
       />
 
-      {state === "loading" && <LoadingState label="Loading job orders…" />}
-      {state === "error" && <ErrorState description={error ?? undefined} onRetry={reload} />}
+      {(supportState === "loading" || orderState === "loading") && <LoadingState label="Loading job orders…" />}
+      {(supportState === "error" || orderState === "error") && <ErrorState description={supportError ?? orderError ?? undefined} onRetry={() => { reloadSupport(); reloadOrders(); }} />}
 
-      {state === "ready" && data && <div className="job-orders-filters__summary"><span role="status">{filteredOrders.length} of {eligibleOrders.length} orders</span><Button variant="ghost" onClick={clearFilters}>Clear filters</Button></div>}
+      {ready && orderPage && <div className="job-orders-filters__summary"><span role="status">{orderPage.total} matching {orderPage.total === 1 ? "order" : "orders"}</span><Button variant="ghost" onClick={clearFilters}>Clear filters</Button></div>}
 
-      {state === "ready" && data && attaching && (() => {
-        const attachJob = data.spoolerMonitor?.jobs.find((job) => job.id === attachSpoolerJobId && job.reviewStatus === "unreviewed") ?? null;
+      {ready && supportData && attaching && (() => {
+        const attachJob = supportData.spoolerMonitor?.jobs.find((job) => job.id === attachSpoolerJobId && job.reviewStatus === "unreviewed") ?? null;
         if (!attachJob) {
           return (
             <EmptyState
@@ -195,7 +201,7 @@ export function JobOrdersPage() {
                 <Button type="button" variant="secondary" size="sm" onClick={createInsteadOfAttach}>Create new order instead</Button>
               </div>
             </div>
-            {eligibleOrders.length === 0 ? (
+            {orders.length === 0 ? (
               <EmptyState
                 title="No open orders to add this print to"
                 description="Every existing order is already paid, completed, or cancelled."
@@ -204,7 +210,7 @@ export function JobOrdersPage() {
             ) : (
               <DataTable
                 columns={columns}
-                rows={filteredOrders}
+                rows={orders}
                 onRowClick={(row) => navigate(`/job-orders/${row.id}?attachSpoolerJobId=${encodeURIComponent(attachSpoolerJobId!)}`)}
               />
             )}
@@ -212,7 +218,7 @@ export function JobOrdersPage() {
         );
       })()}
 
-      {state === "ready" && data && !attaching && data.orders.length === 0 && (
+      {ready && !attaching && orderPage?.total === 0 && !query && !status && !reprocess && !fromDate && !toDate && (
         <EmptyState
           title="No job orders yet"
           description="Create the first order, choose its products, and plan the materials the work will use."
@@ -220,15 +226,26 @@ export function JobOrdersPage() {
         />
       )}
 
-      {state === "ready" && data && !attaching && data.orders.length > 0 && (
-        <DataTable columns={columns} rows={filteredOrders} onRowClick={(row) => navigate(`/job-orders/${row.id}`)} />
+      {ready && !attaching && orderPage?.total === 0 && (query || status || reprocess || fromDate || toDate) && (
+        <EmptyState title="No job orders match" description="Change or clear the table filters to see other orders." action={<Button variant="secondary" onClick={clearFilters}>Clear filters</Button>} />
       )}
 
-      {data && (
+      {ready && orderPage && orderPage.total > 0 && !attaching && (
+        <>
+          <DataTable columns={columns} rows={orders} onRowClick={(row) => navigate(`/job-orders/${row.id}`)} />
+          <Pagination page={orderPage.page} pageSize={orderPage.pageSize} total={orderPage.total} totalPages={orderPage.totalPages} loading={pageLoading} onPageChange={setPage} onPageSizeChange={setPageSize} itemLabel="orders" />
+        </>
+      )}
+
+      {ready && orderPage && orderPage.total > 0 && attaching && (
+        <Pagination page={orderPage.page} pageSize={orderPage.pageSize} total={orderPage.total} totalPages={orderPage.totalPages} loading={pageLoading} onPageChange={setPage} onPageSizeChange={setPageSize} itemLabel="eligible orders" />
+      )}
+
+      {supportData && (
         <>
           <JobServiceChooserModal
             open={chooserOpen}
-            services={data.services}
+            services={supportData.services}
             onClose={closeCreate}
             onSelect={(service) => { setChooserOpen(false); setSelectedService(service); }}
           />
@@ -236,20 +253,21 @@ export function JobOrdersPage() {
             <TransactionCreateModal
               open
               initialService={selectedService}
-              services={data.services}
-              customers={data.customers}
-              products={data.products}
-              inventoryItems={data.inventoryItems}
-              pricingRules={data.pricingRules}
-              scanPricingTiers={data.scanPricingTiers}
+              services={supportData.services}
+              customers={supportData.customers}
+              products={supportData.products}
+              inventoryItems={supportData.inventoryItems}
+              pricingRules={supportData.pricingRules}
+              scanPricingTiers={supportData.scanPricingTiers}
               sourceSpoolerJobId={sourceSpoolerJobId}
-              otherObservedPrintJobs={(data.spoolerMonitor?.jobs ?? []).filter(
+              sourceObservedPrintJob={(supportData.spoolerMonitor?.jobs ?? []).find((job) => job.id === sourceSpoolerJobId) ?? null}
+              otherObservedPrintJobs={(supportData.spoolerMonitor?.jobs ?? []).filter(
                 (job) => job.reviewStatus === "unreviewed" && job.id !== sourceSpoolerJobId,
               )}
               onClose={closeCreate}
               onCreated={(order) => {
                 closeCreate();
-                reload();
+                reloadOrders();
                 navigate(`/job-orders/${encodeURIComponent(order.id)}`);
               }}
             />

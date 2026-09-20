@@ -7,6 +7,7 @@ from pydantic import Field
 
 from ..db.models import InventoryPaperSize, JobOrderStatus, PaymentMethod, PrintResult, PrintSides
 from .common import CamelModel
+from .common import PageRead
 
 
 class JobOrderMaterialPlanCreate(CamelModel):
@@ -338,3 +339,7 @@ class JobOrderRead(CamelModel):
     status_events: list[StatusEventRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class JobOrderPageRead(PageRead[JobOrderRead]):
+    pass

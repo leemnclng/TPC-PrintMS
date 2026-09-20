@@ -1,11 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { execFile } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { cp, mkdir, readdir, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { BackendConfig, BackendManager, KNOWN_STAGES } from "./backendManager";
 import { acquireScannerPage, inspectScannerDevices } from "./scannerAcquisition";
+import { matchPrintSource } from "./printSourceFolder";
 
 app.setName("OMS");
 
@@ -26,9 +27,14 @@ let lastRendererRecoveryAt = 0;
 let rendererFailureDialogOpen = false;
 let approvedStorageDestination: string | null = null;
 const STORAGE_LOCATION_FILE = "storage-location.json";
+const PRINT_SOURCE_FOLDER_FILE = "print-source-folder.json";
 
 interface StorageLocationConfig {
   dataRoot: string;
+}
+
+interface PrintSourceFolderConfig {
+  folderPath: string;
 }
 
 function defaultDataRoot(): string {
@@ -65,6 +71,24 @@ async function writeStoredDataRoot(dataRoot: string): Promise<void> {
       throw error;
     });
   }
+}
+
+function printSourceFolderConfigPath(): string {
+  return path.join(app.getPath("userData"), PRINT_SOURCE_FOLDER_FILE);
+}
+
+function readPrintSourceFolder(): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(printSourceFolderConfigPath(), "utf8")) as Partial<PrintSourceFolderConfig>;
+    return typeof parsed.folderPath === "string" && path.isAbsolute(parsed.folderPath) ? path.normalize(parsed.folderPath) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writePrintSourceFolder(folderPath: string): Promise<void> {
+  await mkdir(path.dirname(printSourceFolderConfigPath()), { recursive: true });
+  await writeFile(printSourceFolderConfigPath(), `${JSON.stringify({ folderPath }, null, 2)}\n`, "utf8");
 }
 
 function currentDataRoot(): string {
@@ -414,6 +438,46 @@ ipcMain.handle("paper-club:move-storage-location", async (_event, destinationVal
     }
     throw error;
   }
+});
+
+ipcMain.handle("paper-club:get-print-source-folder", async () => {
+  const folderPath = readPrintSourceFolder();
+  if (!folderPath) return { folderPath: null, available: false };
+  const available = await stat(folderPath).then((entry) => entry.isDirectory()).catch(() => false);
+  return { folderPath, available };
+});
+
+ipcMain.handle("paper-club:choose-print-source-folder", async () => {
+  const current = readPrintSourceFolder();
+  const options: Electron.OpenDialogOptions = {
+    title: "Choose trusted print-source folder",
+    defaultPath: current ?? app.getPath("documents"),
+    buttonLabel: "Use this folder",
+    properties: ["openDirectory", "createDirectory"],
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  if (result.canceled || !result.filePaths[0]) return null;
+  const folderPath = path.normalize(result.filePaths[0]);
+  await writePrintSourceFolder(folderPath);
+  return { folderPath, available: true };
+});
+
+ipcMain.handle("paper-club:clear-print-source-folder", async () => {
+  await unlink(printSourceFolderConfigPath()).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  return { folderPath: null, available: false };
+});
+
+ipcMain.handle("paper-club:match-print-source", async (_event, documentNameValue: unknown) => {
+  if (typeof documentNameValue !== "string" || !documentNameValue.trim()) {
+    return { status: "not_found", message: "Windows did not provide a usable document name." };
+  }
+  const root = readPrintSourceFolder();
+  if (!root) return { status: "not_configured", message: "Choose a trusted print-source folder in Settings first." };
+  const available = await stat(root).then((entry) => entry.isDirectory()).catch(() => false);
+  if (!available) return { status: "unavailable", message: "The configured print-source folder is unavailable." };
+  return matchPrintSource(root, documentNameValue);
 });
 
 ipcMain.handle("paper-club:inspect-scanners", async () => inspectScannerDevices());

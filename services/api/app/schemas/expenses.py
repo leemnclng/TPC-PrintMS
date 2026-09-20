@@ -71,3 +71,19 @@ class ExpenseLedgerRead(CamelModel):
     entry_count: int
     category_totals: list[ExpenseCategoryTotalRead]
     available_categories: list[str]
+
+
+class ExpenseLedgerPageRead(CamelModel):
+    items: list[ExpenseLedgerEntryRead]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+    has_next: bool
+    has_previous: bool
+    total_amount: float
+    manual_expense_total: float
+    stock_purchase_total: float
+    entry_count: int
+    category_totals: list[ExpenseCategoryTotalRead]
+    available_categories: list[str]

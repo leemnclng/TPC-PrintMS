@@ -306,7 +306,7 @@ Track notable app changes by date.
 - Added: A new unlinked Windows print raises a non-blocking owner prompt with Create job and Not now actions; Print Center retains later Create/View job actions.
 - Changed: New Job Order now progresses through Customer file, Print setup, and Preview & price, with smoother in-place transitions and no intermediate navigation.
 - Added: The transaction review embeds the same continuous, zoomable, rotatable PDF preview used by Document Analyzer alongside analysis and pricing.
-- Changed: A spooler observation is linked to its job order only after the owner re-uploads the source file and approves the analyzed transaction.
+- Changed: A spooler observation is linked only after its source is attached—automatically from one trusted-folder match or manually—and the owner approves the analyzed transaction.
 - Added: Variants may enable Supervised back-to-back printing; the existing Back-to-Back variant is migrated automatically.
 - Added: Back-to-Back job printing now runs as durable front and back attempts with an in-modal reload checkpoint and explicit Canon rear-tray instructions.
 - Changed: Back-to-Back paper planning uses `ceil(pages ÷ 2) × copies`, while pricing remains page-based.
@@ -462,3 +462,12 @@ Track notable app changes by date.
 - Changed: Business Card no longer rotates or mirrors the back page. Both exported pages use the same orientation, card dimensions, grid, margins, gaps, bleed, and crop-mark geometry for separate printing.
 - Added: Zoom controls for the live business-card sheet canvas, from 50% to 250%, with scrolling at larger sizes.
 - Changed: Preview print-ready PDF now opens both generated pages in an in-app PDF viewer before a separate Download PDF action saves the file.
+
+## 2026-09-20
+
+- Improved: Job Orders, Inventory, Customers, Stock Purchases, material history, and Expenses now open with 25 rows and accessible page-size/previous/next controls.
+- Improved: Search and filters run on the server, while the next page is prefetched after each successful load for faster navigation.
+- Preserved: Summary amounts and counts describe the complete filtered dataset, not only the visible page; complete reference lists remain available in creation forms.
+- Added: Settings can select a trusted tracked-print source folder stored locally on the workstation.
+- Improved: Creating a job or adding a Printing product from a tracked Canon/Windows print automatically attaches one exact matching source file, leaving only paper selection and Analyze when successful.
+- Preserved: Missing, ambiguous, unavailable, unsupported, or oversized matches fall back to manual file selection; OMS never guesses between multiple files.

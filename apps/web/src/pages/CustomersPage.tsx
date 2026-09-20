@@ -5,9 +5,10 @@ import { LinkButton } from "../components/Button/LinkButton";
 import { EmptyState } from "../components/EmptyState/EmptyState";
 import { LoadingState } from "../components/LoadingState/LoadingState";
 import { ErrorState } from "../components/ErrorState/ErrorState";
-import { useResource } from "../hooks/useResource";
+import { Pagination } from "../components/Pagination/Pagination";
+import { usePaginatedResource } from "../hooks/usePaginatedResource";
 import { api } from "../lib/apiClient";
-import type { Customer } from "../types/domain";
+import type { Customer, PaginatedResponse } from "../types/domain";
 
 const CHANNEL_LABEL: Record<Customer["sourceChannel"], string> = {
   messenger: "Messenger",
@@ -20,7 +21,10 @@ const CHANNEL_LABEL: Record<Customer["sourceChannel"], string> = {
 
 export function CustomersPage() {
   const navigate = useNavigate();
-  const { data, state, error, reload } = useResource(() => api.get<Customer[]>("/customers"));
+  const { data, state, error, reload, setPage, setPageSize, pageLoading } = usePaginatedResource<Customer>(
+    (page, pageSize) => api.get<PaginatedResponse<Customer>>(`/customers/page?page=${page}&page_size=${pageSize}`),
+    "customers",
+  );
 
   const columns: DataTableColumn<Customer>[] = [
     { key: "name", header: "Customer", render: (r) => r.displayName },
@@ -45,7 +49,7 @@ export function CustomersPage() {
       {state === "loading" && <LoadingState label="Loading customers…" />}
       {state === "error" && <ErrorState description={error ?? undefined} onRetry={reload} />}
 
-      {state === "ready" && data && data.length === 0 && (
+      {state === "ready" && data && data.total === 0 && (
         <EmptyState
           title="No customers yet"
           description="Messenger, Gmail, and form intake are recorded manually for now — add the customer here once you hear from them."
@@ -57,8 +61,11 @@ export function CustomersPage() {
         />
       )}
 
-      {state === "ready" && data && data.length > 0 && (
-        <DataTable columns={columns} rows={data} onRowClick={(row) => navigate(`/customers/${row.id}`)} />
+      {state === "ready" && data && data.total > 0 && (
+        <>
+          <DataTable columns={columns} rows={data.items} onRowClick={(row) => navigate(`/customers/${row.id}`)} />
+          <Pagination page={data.page} pageSize={data.pageSize} total={data.total} totalPages={data.totalPages} loading={pageLoading} onPageChange={setPage} onPageSizeChange={setPageSize} itemLabel="customers" />
+        </>
       )}
     </>
   );

@@ -68,7 +68,7 @@ export function ExternalPrintPrompt() {
         <h2 id="external-print-prompt-title">Record this print in a job order?</h2>
         <strong>{job.documentName}</strong>
         <small>{job.printerName} · job {job.osJobId} · {formatDateTime(job.firstSeenAt)}</small>
-        <p>Windows provides the event metadata, but the source file must be uploaded again for preview, analysis, pricing, and inventory planning.</p>
+        <p>OMS will try the trusted print-source folder first. If one exact file matches, it will already be attached when you choose the product; otherwise you can select it manually.</p>
         {error && <p className="external-print-prompt__error" role="alert">{error}</p>}
         <div className="external-print-prompt__actions">
           <Button type="button" variant="ghost" size="sm" onClick={deferNotification} loading={deferring}>Not now</Button>

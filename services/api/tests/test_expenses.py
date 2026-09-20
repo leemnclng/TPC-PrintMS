@@ -64,6 +64,14 @@ def test_expense_ledger_combines_manual_and_stock_costs(tmp_path) -> None:
     assert body["stockPurchaseTotal"] == 420
     assert {entry["source"] for entry in body["entries"]} == {"manual", "stock_purchase"}
     assert body["availableCategories"] == ["Stock purchase", "Utilities"]
+    page = client.get(
+        f"/expenses/page?start_date={today.isoformat()}&end_date={today.isoformat()}&page_size=10",
+        headers=headers,
+    )
+    assert page.status_code == 200, page.text
+    assert page.json()["total"] == 2
+    assert len(page.json()["items"]) == 2
+    assert page.json()["totalAmount"] == 1670.5
 
 
 def test_expense_filters_and_manual_lifecycle(tmp_path) -> None:

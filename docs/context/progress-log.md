@@ -829,3 +829,15 @@ Chronological notes about app progress.
 - Added: Refresh from printer imports the selected Windows queue's public orientation, color, quality, and collation defaults and displays its paper/duplex snapshot without changing approved job paper or copies.
 - Preserved: Canon-private ICC profiles, color correction, detailed media, and tray choices remain under the installed driver and are explicitly identified as such.
 - Verified: All 70 API tests pass; renderer production build and lint pass; Python compilation and diff validation pass. Physical Canon color/output comparison remains required on the Windows workstation.
+
+## 2026-09-20 (paged operational data loading)
+
+- Summary: Replaced unbounded operational list downloads with reusable server-backed paging and adjacent-page prefetch.
+- Completed: Job Orders, Inventory, Customers, Stock Purchases, material movement history, and Expenses now load 25 rows initially, support 25/50/100-row pages, retain server-side filtering/totals, and prefetch the next page. Bounded reference/configuration collections remain complete for valid form choices.
+- Verified: All 73 API tests pass; renderer and desktop typechecks, renderer lint, and the production web build pass.
+
+## 2026-09-20 (tracked-print source matching)
+
+- Summary: Removed routine source re-selection from tracked Canon/Windows print intake when the spooler title identifies one trusted local file.
+- Completed: Settings now owns a desktop-local, read-only print-source folder. Printing lines created from tracked jobs recursively match supported filenames, attach exactly one match up to 25 MB, and retain manual selection for missing, unavailable, oversized, or ambiguous results. Analysis remains an explicit owner action.
+- Verified: Renderer/desktop typechecks and lint pass; the desktop build and a compiled matcher smoke test pass.
