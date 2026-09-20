@@ -841,3 +841,4 @@ Chronological notes about app progress.
 - Summary: Removed routine source re-selection from tracked Canon/Windows print intake when the spooler title identifies one trusted local file.
 - Completed: Settings now owns a desktop-local, read-only print-source folder. Printing lines created from tracked jobs recursively match supported filenames, attach exactly one match up to 25 MB, and retain manual selection for missing, unavailable, oversized, or ambiguous results. Analysis remains an explicit owner action.
 - Verified: Renderer/desktop typechecks and lint pass; the desktop build and a compiled matcher smoke test pass.
+- Improved: Moved tracked-print selection from a transaction-wide checklist into each product line. A tracked event can be assigned to only one product, triggers trusted-folder attachment in that product, and preserves a file the owner already selected manually.

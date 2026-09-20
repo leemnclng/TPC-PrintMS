@@ -471,3 +471,4 @@ Track notable app changes by date.
 - Added: Settings can select a trusted tracked-print source folder stored locally on the workstation.
 - Improved: Creating a job or adding a Printing product from a tracked Canon/Windows print automatically attaches one exact matching source file, leaving only paper selection and Analyze when successful.
 - Preserved: Missing, ambiguous, unavailable, unsupported, or oversized matches fall back to manual file selection; OMS never guesses between multiple files.
+- Changed: Other tracked Windows prints are selected inside the relevant product line instead of from a transaction-wide list. Already selected product files are retained, and a tracked print cannot be assigned to two products.
