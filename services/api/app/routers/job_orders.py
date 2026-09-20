@@ -272,6 +272,10 @@ def _to_read(job_order: JobOrder) -> JobOrderRead:
                 "orientation": attempt.orientation,
                 "scaling": attempt.scaling,
                 "quality": attempt.quality,
+                "brightness": attempt.brightness,
+                "contrast": attempt.contrast,
+                "saturation": attempt.saturation,
+                "warmth": attempt.warmth,
                 "borderless": attempt.borderless,
                 "collate": attempt.collate,
                 "duplex_pass": attempt.duplex_pass,
@@ -1868,6 +1872,8 @@ async def submit_print_attempt(
     ):
         raise HTTPException(status_code=404, detail="Print-ready job file not found.")
     copies, color_mode, media_size = _automatic_print_settings(item, job_file)
+    if payload.force_grayscale:
+        color_mode = "grayscale"
     paper_plan = next(
         (plan for plan in item.material_plans if plan.inventory_item.paper_size is not None),
         None,
@@ -1932,6 +1938,11 @@ async def submit_print_attempt(
         payload.media_type = successful_front.media_type
         payload.scaling = successful_front.scaling
         payload.quality = successful_front.quality
+        color_mode = successful_front.color_mode
+        payload.brightness = successful_front.brightness
+        payload.contrast = successful_front.contrast
+        payload.saturation = successful_front.saturation
+        payload.warmth = successful_front.warmth
         payload.borderless = successful_front.borderless
         payload.collate = successful_front.collate
         media_size = successful_front.media_size
@@ -1959,6 +1970,10 @@ async def submit_print_attempt(
         orientation=payload.orientation,
         scaling=payload.scaling,
         quality=payload.quality,
+        brightness=payload.brightness,
+        contrast=payload.contrast,
+        saturation=payload.saturation,
+        warmth=payload.warmth,
         borderless=payload.borderless,
         collate=payload.collate,
         duplex_pass=duplex_pass,
@@ -1984,6 +1999,10 @@ async def submit_print_attempt(
             orientation=payload.orientation,
             scaling=payload.scaling,
             quality=payload.quality,
+            brightness=payload.brightness,
+            contrast=payload.contrast,
+            saturation=payload.saturation,
+            warmth=payload.warmth,
             borderless=payload.borderless,
             collate=payload.collate,
             tracking_id=attempt.id,

@@ -33,6 +33,9 @@ export interface PaperClubBridge {
    *  returning its new base URL + token. Restarting the process is the only
    *  supported way to switch — see apps/desktop/src/backendManager.ts. */
   switchEnvironment: (stage: "development" | "test" | "production") => Promise<PaperClubApiConfig>;
+  getStorageLocation: () => Promise<{ currentPath: string; defaultPath: string; isCustom: boolean }>;
+  chooseStorageLocation: () => Promise<string | null>;
+  moveStorageLocation: (destination: string) => Promise<PaperClubApiConfig>;
   openPrinterSettings: () => Promise<void>;
   openPrinterPreferences: (printerName: string) => Promise<void>;
   inspectScanners: () => Promise<{

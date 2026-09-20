@@ -24,6 +24,7 @@ function Attempt({ attempt }: { attempt: PrintJob }) {
       <div><dt>Orientation</dt><dd>{label(attempt.orientation)}</dd></div>
       <div><dt>Scaling</dt><dd>{label(attempt.scaling)}</dd></div>
       <div><dt>Quality</dt><dd>{label(attempt.quality)}</dd></div>
+      <div><dt>Color adjustment</dt><dd>{attempt.brightness || attempt.contrast || attempt.saturation || attempt.warmth ? `B ${attempt.brightness > 0 ? "+" : ""}${attempt.brightness} · C ${attempt.contrast > 0 ? "+" : ""}${attempt.contrast} · S ${attempt.saturation > 0 ? "+" : ""}${attempt.saturation} · W ${attempt.warmth > 0 ? "+" : ""}${attempt.warmth}` : "Original"}</dd></div>
       <div><dt>Edges</dt><dd>{attempt.borderless ? "Borderless requested" : "Standard printable margins"}</dd></div>
       <div><dt>Collation</dt><dd>{attempt.collate ? "Collated" : "Not collated"}</dd></div>
       <div><dt>Duplex pass</dt><dd>{label(attempt.duplexPass)}</dd></div>

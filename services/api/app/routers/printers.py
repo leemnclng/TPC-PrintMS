@@ -9,8 +9,8 @@ from ..core.security import require_token
 from ..core.config import settings
 from ..db.models import JobOrder, JobOrderStatus, ObservedPrintJob, Printer, PrintResult
 from ..db.session import get_db
-from ..schemas.printers import PrintActivityJobRead, PrintActivityRead, PrinterPlatformRead, PrinterRead, SpoolerMonitorRead
-from ..services.printing.adapter import get_printer_adapter
+from ..schemas.printers import PrinterDefaultsRead, PrintActivityJobRead, PrintActivityRead, PrinterPlatformRead, PrinterRead, SpoolerMonitorRead
+from ..services.printing.adapter import PrintSubmissionError, get_printer_adapter
 from ..services.printing.spooler_monitor import spooler_monitor
 
 router = APIRouter(prefix="/printers", tags=["printers"], dependencies=[Depends(require_token)])
@@ -169,6 +169,18 @@ def defer_spooler_job_notification(observed_job_id: str, db: Session = Depends(g
 @router.get("", response_model=list[PrinterRead])
 def list_printers(db: Session = Depends(get_db)) -> list[Printer]:
     return db.query(Printer).order_by(Printer.display_name).all()
+
+
+@router.get("/{printer_id}/defaults", response_model=PrinterDefaultsRead)
+def get_printer_defaults(printer_id: str, db: Session = Depends(get_db)) -> PrinterDefaultsRead:
+    printer = db.get(Printer, printer_id)
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found.")
+    adapter = get_printer_adapter(settings.resolved_printer_platform)
+    try:
+        return PrinterDefaultsRead.model_validate(adapter.get_defaults(printer.system_name), from_attributes=True)
+    except PrintSubmissionError as error:
+        raise HTTPException(status_code=502, detail=f"Printer settings could not be refreshed: {error}") from error
 
 
 @router.post("/discover", response_model=list[PrinterRead])

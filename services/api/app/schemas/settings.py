@@ -88,6 +88,14 @@ class StorageCleanupRemovedRead(CamelModel):
     size_bytes: int
 
 
+class StorageCleanupFailedRead(CamelModel):
+    key: str
+    label: str
+    remaining_item_count: int
+    remaining_size_bytes: int
+
+
 class StorageCleanupResultRead(CamelModel):
     removed: list[StorageCleanupRemovedRead]
+    failed: list[StorageCleanupFailedRead]
     freed_bytes: int

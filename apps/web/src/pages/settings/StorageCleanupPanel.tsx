@@ -29,7 +29,7 @@ export function StorageCleanupPanel() {
     try {
       const result = await api.post<StorageCleanupResult>("/settings/storage-cleanup");
       setConfirmOpen(false);
-      setMessage({ tone: "success", text: describeResult(result) });
+      setMessage({ tone: result.failed.length > 0 ? "error" : "success", text: describeResult(result) });
       reload();
     } catch (err) {
       setMessage({ tone: "error", text: err instanceof ApiError ? err.message : "The cleanup could not be completed." });
@@ -94,6 +94,11 @@ export function StorageCleanupPanel() {
 }
 
 function describeResult(result: StorageCleanupResult): string {
+  if (result.failed.length > 0) {
+    const remaining = result.failed.reduce((sum, item) => sum + item.remainingItemCount, 0);
+    const freed = result.freedBytes > 0 ? ` Freed ${formatFileSize(result.freedBytes)} first.` : "";
+    return `${remaining} ${remaining === 1 ? "item is" : "items are"} still in use and could not be removed.${freed} Close open files and retry.`;
+  }
   if (result.removed.length === 0) return "Nothing needed cleaning up.";
   return `Freed ${formatFileSize(result.freedBytes)} — ${result.removed.map((item) => item.label).join(", ")}.`;
 }

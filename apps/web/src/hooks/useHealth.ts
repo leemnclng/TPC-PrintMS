@@ -1,41 +1,71 @@
-import { useEffect, useRef, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { api } from "../lib/apiClient";
 import type { HealthStatus } from "../types/domain";
 
 export type ConnectionState = "checking" | "online" | "offline";
 
-/** Polls the local FastAPI backend so the shell can show an honest
- *  connected/offline indicator instead of assuming the backend is up. */
-export function useHealth(pollMs = 4000) {
-  const [state, setState] = useState<ConnectionState>("checking");
-  const [health, setHealth] = useState<HealthStatus | null>(null);
-  const mounted = useRef(true);
+interface HealthSnapshot {
+  state: ConnectionState;
+  health: HealthStatus | null;
+}
 
-  useEffect(() => {
-    mounted.current = true;
-    let timer: ReturnType<typeof setTimeout>;
+const listeners = new Set<() => void>();
+let snapshot: HealthSnapshot = { state: "checking", health: null };
+let timer: number | undefined;
+let polling = false;
+let failureCount = 0;
 
-    async function check() {
-      try {
-        const result = await api.get<HealthStatus>("/health");
-        if (!mounted.current) return;
-        setHealth(result);
-        setState("online");
-      } catch {
-        if (!mounted.current) return;
-        setHealth(null);
-        setState("offline");
-      } finally {
-        if (mounted.current) timer = setTimeout(check, pollMs);
-      }
+function publish(next: HealthSnapshot) {
+  snapshot = next;
+  listeners.forEach((listener) => listener());
+}
+
+function schedule(delayMs: number) {
+  if (listeners.size === 0 || document.hidden) return;
+  timer = window.setTimeout(check, delayMs);
+}
+
+async function check() {
+  if (polling || listeners.size === 0 || document.hidden) return;
+  polling = true;
+  try {
+    const health = await api.get<HealthStatus>("/health");
+    failureCount = 0;
+    publish({ state: "online", health });
+    schedule(15_000);
+  } catch {
+    failureCount += 1;
+    publish({ state: "offline", health: null });
+    schedule(Math.min(4_000 * (2 ** (failureCount - 1)), 30_000));
+  } finally {
+    polling = false;
+  }
+}
+
+function handleVisibility() {
+  if (timer !== undefined) window.clearTimeout(timer);
+  timer = undefined;
+  if (!document.hidden) void check();
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  if (listeners.size === 1) {
+    document.addEventListener("visibilitychange", handleVisibility);
+    void check();
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = undefined;
+      document.removeEventListener("visibilitychange", handleVisibility);
     }
+  };
+}
 
-    check();
-    return () => {
-      mounted.current = false;
-      clearTimeout(timer);
-    };
-  }, [pollMs]);
-
-  return { state, health };
+/** One shared health poll serves every mounted consumer. It pauses completely
+ * while the app is hidden and backs off when the backend is unavailable. */
+export function useHealth() {
+  return useSyncExternalStore(subscribe, () => snapshot, () => snapshot);
 }

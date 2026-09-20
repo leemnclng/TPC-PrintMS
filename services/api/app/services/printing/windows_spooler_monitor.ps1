@@ -1,5 +1,6 @@
 param(
-    [ValidateRange(250, 5000)][int]$PollMilliseconds = 750
+    [ValidateRange(250, 5000)][int]$ActivePollMilliseconds = 750,
+    [ValidateRange(1000, 60000)][int]$IdlePollMilliseconds = 5000
 )
 
 $ErrorActionPreference = "Stop"
@@ -69,5 +70,9 @@ while ($true) {
             $seen.Remove($key)
         }
     }
-    Start-Sleep -Milliseconds $PollMilliseconds
+    # Progress needs close tracking only while a print job exists. Repeated
+    # Win32_PrintJob CIM queries are comparatively expensive on modest
+    # laptops, so an empty spooler backs off until work appears.
+    $nextPollMilliseconds = if ($current.Count -gt 0) { $ActivePollMilliseconds } else { $IdlePollMilliseconds }
+    Start-Sleep -Milliseconds $nextPollMilliseconds
 }

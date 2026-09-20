@@ -1296,6 +1296,10 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
             "orientation": "landscape",
             "scaling": "fill",
             "quality": "high",
+            "brightness": 12,
+            "contrast": -8,
+            "saturation": 20,
+            "warmth": 15,
             "mediaType": "photo_plus_glossy_ii",
             "mediaSize": "Custom",
             "mediaWidthMm": 102,
@@ -1318,12 +1322,20 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert printed.json()["printAttempts"][0]["orientation"] == "landscape"
     assert printed.json()["printAttempts"][0]["scaling"] == "fill"
     assert printed.json()["printAttempts"][0]["quality"] == "high"
+    assert printed.json()["printAttempts"][0]["brightness"] == 12
+    assert printed.json()["printAttempts"][0]["contrast"] == -8
+    assert printed.json()["printAttempts"][0]["saturation"] == 20
+    assert printed.json()["printAttempts"][0]["warmth"] == 15
     assert printed.json()["printAttempts"][0]["borderless"] is False
     assert printed.json()["printAttempts"][0]["collate"] is False
     assert stub_adapter.calls[-1][1]["media_type"] == "photo_plus_glossy_ii"
     assert stub_adapter.calls[-1][1]["orientation"] == "landscape"
     assert stub_adapter.calls[-1][1]["scaling"] == "fill"
     assert stub_adapter.calls[-1][1]["quality"] == "high"
+    assert stub_adapter.calls[-1][1]["brightness"] == 12
+    assert stub_adapter.calls[-1][1]["contrast"] == -8
+    assert stub_adapter.calls[-1][1]["saturation"] == 20
+    assert stub_adapter.calls[-1][1]["warmth"] == 15
     assert stub_adapter.calls[-1][1]["borderless"] is False
     assert stub_adapter.calls[-1][1]["collate"] is False
     assert stub_adapter.calls[-1][1]["media_width_mm"] == 102
@@ -1404,11 +1416,14 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
             "printerId": printer_id,
             "jobFileId": manual_order["files"][0]["id"],
             "duplexPass": "front",
+            "brightness": 10,
+            "warmth": -5,
         },
     )
     assert front_pass.status_code == 201
     assert front_pass.json()["status"] == "queued"
     assert front_pass.json()["printAttempts"][0]["duplexPass"] == "front"
+    assert front_pass.json()["printAttempts"][0]["brightness"] == 10
     assert stub_adapter.calls[-1][1]["duplex_pass"] == "front"
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == stock_before_front - 2
     wrong_printer_pass = client.post(
@@ -1433,6 +1448,8 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert back_pass.status_code == 201
     assert back_pass.json()["status"] == "printing"
     assert back_pass.json()["printAttempts"][0]["duplexPass"] == "back"
+    assert back_pass.json()["printAttempts"][0]["brightness"] == 10
+    assert back_pass.json()["printAttempts"][0]["warmth"] == -5
     assert stub_adapter.calls[-1][1]["duplex_pass"] == "back"
     assert back_pass.json()["items"][0]["materials"][0]["consumedQuantity"] == 2
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == stock_before_front - 2

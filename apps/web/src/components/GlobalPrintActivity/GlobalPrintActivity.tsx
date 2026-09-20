@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/apiClient";
 import { formatDateTime } from "../../lib/format";
 import type { PrintActivityInfo, PrintActivityJob, PrintActivityState } from "../../types/domain";
 import { Modal } from "../Modal/Modal";
+import { useAdaptivePolling } from "../../hooks/useAdaptivePolling";
 import "./GlobalPrintActivity.css";
 
 const stateCopy: Record<PrintActivityState, string> = {
@@ -28,29 +29,15 @@ export function GlobalPrintActivity() {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<PrintActivityJob[]>([]);
   const [open, setOpen] = useState(false);
-  const fetching = useRef(false);
-
-  useEffect(() => {
-    let disposed = false;
-    async function refresh() {
-      if (fetching.current) return;
-      fetching.current = true;
-      try {
-        const result = await api.get<PrintActivityInfo>("/printers/print-activity");
-        if (!disposed) setJobs(result.jobs);
-      } catch {
-        // The shell health indicator already reports backend connectivity.
-      } finally {
-        fetching.current = false;
-      }
+  useAdaptivePolling(async () => {
+    try {
+      const result = await api.get<PrintActivityInfo>("/printers/print-activity");
+      setJobs(result.jobs);
+      return result.jobs.length > 0 ? 2_500 : 15_000;
+    } catch {
+      return 30_000;
     }
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 2500);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, []);
+  }, 15_000, "print-activity:changed");
 
   const attentionCount = useMemo(() => jobs.filter((job) => job.attentionRequired).length, [jobs]);
   const featured = jobs.find((job) => job.attentionRequired) ?? jobs[0];

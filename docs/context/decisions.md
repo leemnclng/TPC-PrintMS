@@ -1,5 +1,28 @@
 # Decisions
 
+## 2026-09-20 — Poll according to visible work
+
+- Pause renderer polling while the document is hidden and refresh immediately when it becomes visible again.
+- Share backend health state across every consumer. Use fast printer/activity intervals only while work exists, slower idle intervals otherwise, and bounded exponential retry after connection failures.
+- Keep Windows spooler progress responsive during active jobs, but avoid continuous sub-second CIM queries when the queue is empty.
+
+## 2026-09-20 — Keep the storage-root setting outside managed data
+
+- Persist the selected root in Electron's installation-level user-data area so the app can locate a moved data tree before FastAPI starts.
+- Stop the backend before copying, require an empty non-nested destination, copy every environment together, and restart against the new root. Preserve the former root as a user-recoverable safety copy rather than deleting it automatically.
+- Keep cleanup limited to app-proven legacy and abandoned temporary paths; never infer that business records, retained files, or backups are disposable.
+
+## 2026-09-17 — Separate app color adjustments from Canon-private correction
+
+- Apply grayscale, brightness, contrast, saturation, and warmth non-destructively to Windows PDF/image page renders, store the values per print attempt, and reuse the front profile for the back of a supervised duplex job.
+- Import only public Windows driver defaults after an explicit refresh. Keep approved job paper and copies authoritative, and label Canon-private ICC, media, tray, and color-correction behavior as driver-controlled.
+- Treat the live proof as a screen approximation; do not claim monitor-to-paper color matching without calibrated display, media, ink, and ICC profiles.
+
+## 2026-09-17 — Keep business-card views presentation-only
+
+- Offer Sheet, 1:1 Card, and Front/Back views over one shared artwork and geometry state.
+- Treat view and canvas zoom as editing aids only; neither changes PDF imposition or export dimensions.
+
 ## 2026-09-16 — Keep imposition in reusable Templates
 
 - Put complex layout generation in a dedicated Templates workspace rather than expanding final printer setup.

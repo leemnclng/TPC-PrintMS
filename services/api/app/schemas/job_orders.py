@@ -252,6 +252,11 @@ class PrintSubmissionCreate(CamelModel):
     orientation: Literal["auto", "portrait", "landscape"] = "auto"
     scaling: Literal["auto", "fit", "fill", "actual_size"] = "auto"
     quality: Literal["auto", "draft", "standard", "high"] = "auto"
+    force_grayscale: bool = False
+    brightness: int = Field(default=0, ge=-100, le=100)
+    contrast: int = Field(default=0, ge=-100, le=100)
+    saturation: int = Field(default=0, ge=-100, le=100)
+    warmth: int = Field(default=0, ge=-100, le=100)
     borderless: bool = False
     collate: bool = True
     duplex_pass: Literal["auto", "simplex", "front", "back"] = "auto"
@@ -273,6 +278,10 @@ class PrintAttemptRead(CamelModel):
     orientation: str
     scaling: str
     quality: str
+    brightness: int
+    contrast: int
+    saturation: int
+    warmth: int
     borderless: bool
     collate: bool
     duplex_pass: Literal["simplex", "front", "back"]

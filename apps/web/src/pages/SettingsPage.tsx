@@ -13,6 +13,7 @@ import type { BusinessProfile } from "../types/domain";
 import { BackupRestorePanel } from "./settings/BackupRestorePanel";
 import { EnvironmentSwitcherPanel } from "./settings/EnvironmentSwitcherPanel";
 import { StorageCleanupPanel } from "./settings/StorageCleanupPanel";
+import { StorageLocationPanel } from "./settings/StorageLocationPanel";
 import "./SettingsPage.css";
 
 export function SettingsPage() {
@@ -137,6 +138,8 @@ export function SettingsPage() {
       </Card>
 
       <BackupRestorePanel onRestored={reload} />
+
+      <StorageLocationPanel />
 
       <EnvironmentSwitcherPanel />
 

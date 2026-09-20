@@ -327,6 +327,20 @@ export interface Printer {
   lastSeenAt: string;
 }
 
+export interface PrinterDefaults {
+  supported: boolean;
+  message: string;
+  orientation: "auto" | "portrait" | "landscape";
+  colorMode: "color" | "grayscale";
+  quality: "auto" | "draft" | "standard" | "high";
+  copies: number;
+  collate: boolean;
+  duplex: string;
+  paperName?: string | null;
+  paperWidthMm?: number | null;
+  paperHeightMm?: number | null;
+}
+
 export interface PrinterPlatformInfo {
   platform: "windows" | "macos" | "linux";
   configuredPlatform: "auto" | "windows" | "macos" | "linux";
@@ -380,6 +394,10 @@ export interface PrintJob {
   orientation: "auto" | "portrait" | "landscape";
   scaling: "auto" | "fit" | "fill" | "actual_size";
   quality: "auto" | "draft" | "standard" | "high";
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  warmth: number;
   borderless: boolean;
   collate: boolean;
   duplexPass: "simplex" | "front" | "back";
@@ -536,6 +554,12 @@ export interface StorageCleanupRemoved {
 
 export interface StorageCleanupResult {
   removed: StorageCleanupRemoved[];
+  failed: Array<{
+    key: string;
+    label: string;
+    remainingItemCount: number;
+    remainingSizeBytes: number;
+  }>;
   freedBytes: number;
 }
 

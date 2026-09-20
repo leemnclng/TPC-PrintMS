@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 import pymupdf
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageEnhance, ImageOps, UnidentifiedImageError
 
 from ..paper_sizes import cups_media_size, paper_size_definition
 
@@ -42,6 +42,21 @@ class DetectedPrinter:
 @dataclass
 class PrintSubmission:
     external_job_id: str | None = None
+
+
+@dataclass
+class PrinterDefaults:
+    supported: bool
+    message: str
+    orientation: str = "auto"
+    color_mode: str = "color"
+    quality: str = "auto"
+    copies: int = 1
+    collate: bool = True
+    duplex: str = "default"
+    paper_name: str | None = None
+    paper_width_mm: float | None = None
+    paper_height_mm: float | None = None
 
 
 class PrintSubmissionError(RuntimeError):
@@ -71,6 +86,12 @@ class PrinterAdapter:
     def list_printers(self) -> list[DetectedPrinter]:
         raise NotImplementedError
 
+    def get_defaults(self, printer_name: str) -> PrinterDefaults:
+        return PrinterDefaults(
+            supported=False,
+            message="Live driver defaults are currently available on Windows.",
+        )
+
     def submit_file(
         self,
         printer_name: str,
@@ -88,6 +109,10 @@ class PrinterAdapter:
         collate: bool = True,
         tracking_id: str | None = None,
         duplex_pass: str = "simplex",
+        brightness: int = 0,
+        contrast: int = 0,
+        saturation: int = 0,
+        warmth: int = 0,
     ) -> PrintSubmission:
         raise NotImplementedError
 
@@ -157,6 +182,10 @@ class CupsPrinterAdapter(PrinterAdapter):
         collate: bool = True,
         tracking_id: str | None = None,
         duplex_pass: str = "simplex",
+        brightness: int = 0,
+        contrast: int = 0,
+        saturation: int = 0,
+        warmth: int = 0,
     ) -> PrintSubmission:
         definition = paper_size_definition(media_size)
         width_mm = media_width_mm or definition.width_mm
@@ -267,6 +296,50 @@ class WindowsPrinterAdapter(PrinterAdapter):
             )
         return printers
 
+    def get_defaults(self, printer_name: str) -> PrinterDefaults:
+        script_path = Path(__file__).with_name("windows_printer_defaults.ps1")
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script_path),
+            "-PrinterName",
+            printer_name,
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as error:
+            raise PrintSubmissionError("Windows printer defaults could not be read.") from error
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or "The printer driver did not return its defaults."
+            raise PrintSubmissionError(detail)
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            raise PrintSubmissionError("The printer driver returned invalid settings data.") from error
+        return PrinterDefaults(
+            supported=True,
+            message="Public Windows driver defaults refreshed. Canon-private color correction remains driver-controlled.",
+            orientation=str(payload.get("orientation", "auto")),
+            color_mode=str(payload.get("colorMode", "color")),
+            quality=str(payload.get("quality", "auto")),
+            copies=max(1, int(payload.get("copies", 1))),
+            collate=bool(payload.get("collate", True)),
+            duplex=str(payload.get("duplex", "default")),
+            paper_name=payload.get("paperName"),
+            paper_width_mm=float(payload["paperWidthMm"]) if payload.get("paperWidthMm") is not None else None,
+            paper_height_mm=float(payload["paperHeightMm"]) if payload.get("paperHeightMm") is not None else None,
+        )
+
     def submit_file(
         self,
         printer_name: str,
@@ -284,6 +357,10 @@ class WindowsPrinterAdapter(PrinterAdapter):
         collate: bool = True,
         tracking_id: str | None = None,
         duplex_pass: str = "simplex",
+        brightness: int = 0,
+        contrast: int = 0,
+        saturation: int = 0,
+        warmth: int = 0,
     ) -> PrintSubmission:
         definition = paper_size_definition(media_size)
         width_mm = media_width_mm or definition.width_mm
@@ -296,6 +373,10 @@ class WindowsPrinterAdapter(PrinterAdapter):
                 file_path,
                 Path(temporary_directory),
                 grayscale=color_mode == "grayscale",
+                brightness=brightness,
+                contrast=contrast,
+                saturation=saturation,
+                warmth=warmth,
             )
             print_directory, selected_page_count = _prepare_windows_print_pass(
                 Path(temporary_directory), page_count, duplex_pass
@@ -410,7 +491,15 @@ def _windows_print_error(stderr: str, stdout: str) -> str:
     return first_line[:500]
 
 
-def _render_windows_print_pages(file_path: Path, output_directory: Path, grayscale: bool) -> int:
+def _render_windows_print_pages(
+    file_path: Path,
+    output_directory: Path,
+    grayscale: bool,
+    brightness: int = 0,
+    contrast: int = 0,
+    saturation: int = 0,
+    warmth: int = 0,
+) -> int:
     """Create the page images consumed by the Windows GDI print helper.
 
     Rendering inside OMS means submission does not depend on whichever
@@ -419,9 +508,9 @@ def _render_windows_print_pages(file_path: Path, output_directory: Path, graysca
 
     suffix = file_path.suffix.lower()
     if suffix == ".pdf":
-        return _render_pdf_pages(file_path, output_directory, grayscale)
+        return _render_pdf_pages(file_path, output_directory, grayscale, brightness, contrast, saturation, warmth)
     if suffix in _WINDOWS_IMAGE_SUFFIXES:
-        return _render_image_pages(file_path, output_directory, grayscale)
+        return _render_image_pages(file_path, output_directory, grayscale, brightness, contrast, saturation, warmth)
     raise PrintSubmissionError(
         "Direct Windows printing supports PDF and image files. Export this document to PDF, attach it to the job, and try again."
     )
@@ -446,7 +535,15 @@ def _save_rendered_page_with_retry(save: Callable[[], None], *, attempts: int = 
             time.sleep(delay_seconds * (attempt + 1))
 
 
-def _render_pdf_pages(file_path: Path, output_directory: Path, grayscale: bool) -> int:
+def _render_pdf_pages(
+    file_path: Path,
+    output_directory: Path,
+    grayscale: bool,
+    brightness: int,
+    contrast: int,
+    saturation: int,
+    warmth: int,
+) -> int:
     try:
         document = pymupdf.open(file_path)
     except Exception as error:
@@ -458,11 +555,20 @@ def _render_pdf_pages(file_path: Path, output_directory: Path, grayscale: bool) 
             raise PrintSubmissionError("Password-protected PDFs cannot be printed directly.")
         if document.page_count < 1:
             raise PrintSubmissionError("The PDF has no printable pages.")
-        colorspace = pymupdf.csGRAY if grayscale else pymupdf.csRGB
+        needs_adjustment = bool(brightness or contrast or (not grayscale and (saturation or warmth)))
+        colorspace = pymupdf.csRGB if needs_adjustment or not grayscale else pymupdf.csGRAY
         for page_number, page in enumerate(document, start=1):
             pixmap = page.get_pixmap(dpi=300, colorspace=colorspace, alpha=False, annots=True)
             page_path = output_directory / f"page-{page_number:05d}.png"
-            _save_rendered_page_with_retry(lambda: pixmap.save(page_path))
+            if not needs_adjustment:
+                _save_rendered_page_with_retry(lambda: pixmap.save(page_path))
+            else:
+                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                prepared = _apply_color_adjustments(image, grayscale, brightness, contrast, saturation, warmth)
+                try:
+                    _save_rendered_page_with_retry(lambda: prepared.save(page_path, dpi=(300, 300)))
+                finally:
+                    prepared.close()
         return document.page_count
     except PrintSubmissionError:
         raise
@@ -473,7 +579,15 @@ def _render_pdf_pages(file_path: Path, output_directory: Path, grayscale: bool) 
         document.close()
 
 
-def _render_image_pages(file_path: Path, output_directory: Path, grayscale: bool) -> int:
+def _render_image_pages(
+    file_path: Path,
+    output_directory: Path,
+    grayscale: bool,
+    brightness: int,
+    contrast: int,
+    saturation: int,
+    warmth: int,
+) -> int:
     try:
         source = Image.open(file_path)
         frame_count = getattr(source, "n_frames", 1)
@@ -481,7 +595,7 @@ def _render_image_pages(file_path: Path, output_directory: Path, grayscale: bool
             raise PrintSubmissionError("The image has no printable pages.")
         for page_index in range(frame_count):
             source.seek(page_index)
-            prepared = _prepare_print_image(source.copy(), grayscale)
+            prepared = _prepare_print_image(source.copy(), grayscale, brightness, contrast, saturation, warmth)
             page_path = output_directory / f"page-{page_index + 1:05d}.png"
             try:
                 _save_rendered_page_with_retry(lambda: prepared.save(page_path, dpi=(300, 300)))
@@ -498,23 +612,67 @@ def _render_image_pages(file_path: Path, output_directory: Path, grayscale: bool
             source.close()
 
 
-def _prepare_print_image(image: Image.Image, grayscale: bool) -> Image.Image:
+def _prepare_print_image(
+    image: Image.Image,
+    grayscale: bool,
+    brightness: int = 0,
+    contrast: int = 0,
+    saturation: int = 0,
+    warmth: int = 0,
+) -> Image.Image:
     oriented = ImageOps.exif_transpose(image)
     if oriented is not image:
         image.close()
-    if grayscale:
-        result = ImageOps.grayscale(oriented)
-        oriented.close()
-        return result
     if oriented.mode in {"RGBA", "LA"} or "transparency" in oriented.info:
         rgba = oriented.convert("RGBA")
         result = Image.new("RGB", rgba.size, "white")
         result.paste(rgba, mask=rgba.getchannel("A"))
         rgba.close()
         oriented.close()
-        return result
+        return _apply_color_adjustments(result, grayscale, brightness, contrast, saturation, warmth)
     result = oriented.convert("RGB")
     oriented.close()
+    return _apply_color_adjustments(result, grayscale, brightness, contrast, saturation, warmth)
+
+
+def _apply_color_adjustments(
+    image: Image.Image,
+    grayscale: bool,
+    brightness: int,
+    contrast: int,
+    saturation: int,
+    warmth: int,
+) -> Image.Image:
+    result = image
+    if brightness:
+        adjusted = ImageEnhance.Brightness(result).enhance(max(0, 1 + brightness / 100))
+        result.close()
+        result = adjusted
+    if contrast:
+        adjusted = ImageEnhance.Contrast(result).enhance(max(0, 1 + contrast / 100))
+        result.close()
+        result = adjusted
+    if saturation and not grayscale:
+        adjusted = ImageEnhance.Color(result).enhance(max(0, 1 + saturation / 100))
+        result.close()
+        result = adjusted
+    if warmth and not grayscale:
+        red_source, green, blue_source = result.split()
+        shift = warmth / 100
+        red = red_source.point(lambda value: max(0, min(255, round(value * (1 + .18 * shift)))))
+        blue = blue_source.point(lambda value: max(0, min(255, round(value * (1 - .18 * shift)))))
+        adjusted = Image.merge("RGB", (red, green, blue))
+        red_source.close()
+        green.close()
+        blue_source.close()
+        red.close()
+        blue.close()
+        result.close()
+        result = adjusted
+    if grayscale:
+        adjusted = ImageOps.grayscale(result)
+        result.close()
+        result = adjusted
     return result
 
 

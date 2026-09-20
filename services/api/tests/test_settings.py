@@ -295,6 +295,7 @@ def test_storage_cleanup_reports_and_removes_only_migrated_legacy_leftovers(tmp_
 
     result = storage_cleanup.run_storage_cleanup()
     assert result["freedBytes"] == 5 * len(content)
+    assert result["failed"] == []
     assert {item["key"] for item in result["removed"]} == {"legacy_storage", "abandoned_temp"}
 
     assert not (legacy_root / "files").exists()
@@ -305,6 +306,34 @@ def test_storage_cleanup_reports_and_removes_only_migrated_legacy_leftovers(tmp_
     assert current_file.read_bytes() == content
     assert active.is_dir()
     assert storage_cleanup.storage_cleanup_report() == []
+
+
+def test_storage_cleanup_reports_files_that_the_os_keeps_locked(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_cleanup, "PACKAGE_ROOT", tmp_path)
+    monkeypatch.setattr(settings, "stage", "development")
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    (tmp_path / "development").mkdir()
+    (tmp_path / "development" / storage_cleanup._LEGACY_MARKER_NAME).write_text("done")
+    legacy_files = tmp_path / "files"
+    legacy_files.mkdir()
+    (legacy_files / "locked.pdf").write_bytes(b"locked")
+
+    def deny_removal(_path, ignore_errors=False):
+        assert ignore_errors is False
+        raise PermissionError("still open")
+
+    monkeypatch.setattr(storage_cleanup.shutil, "rmtree", deny_removal)
+    result = storage_cleanup.run_storage_cleanup()
+
+    assert result["freedBytes"] == 0
+    assert result["removed"] == []
+    assert result["failed"] == [{
+        "key": "legacy_storage",
+        "label": "Legacy pre-redesign folders",
+        "remainingItemCount": 1,
+        "remainingSizeBytes": len(b"locked"),
+    }]
+    assert legacy_files.is_dir()
 
 
 def test_storage_cleanup_skips_legacy_leftovers_until_every_real_stage_has_migrated(tmp_path, monkeypatch) -> None:

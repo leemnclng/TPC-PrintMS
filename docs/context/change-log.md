@@ -1,5 +1,17 @@
 # Change Log
 
+## 2026-09-20
+
+- Optimized: Background health, print-activity, and spooler checks now pause when OMS is hidden and use slower idle intervals. Windows printer querying returns to fast updates only during an active job.
+- Added: Settings can choose the managed app-data folder and safely copy all stage databases, retained files, backups, configuration, and logs before restarting against it.
+- Fixed: Storage cleanup now identifies leftovers that remain locked and asks the owner to close open files and retry instead of reporting a misleading success.
+
+## 2026-09-17
+
+- Added: Selectable Sheet, 1:1 Card, and Front/Back comparison views to make business-card composition easier without changing the print-ready PDF layout.
+- Added: Live grayscale, brightness, contrast, saturation, and warmth controls for Windows PDF/image printing; adjustments are applied to the final rasterized output and recorded in print history.
+- Added: Refresh from printer reads public Windows driver defaults after Canon settings change while clearly leaving private Canon color correction driver-controlled.
+
 - 2026-09-14: Added Expenses under Operations. Operating costs can be recorded, edited, and removed; stock purchases are included automatically without duplication; daily, weekly, monthly, custom-date, search, source, and category filtering drive the ledger totals and breakdown.
 
 - 2026-09-14: Added Maintenance under Operations with Canon PIXMA MegaTank G4070-series guidance for the G4770, symptom-based action filters, safe recovery order, regular care, warnings, and official references.

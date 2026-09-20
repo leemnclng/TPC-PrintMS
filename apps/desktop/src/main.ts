@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { execFile } from "node:child_process";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { cp, mkdir, readdir, rename, rm, unlink, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { BackendConfig, BackendManager, KNOWN_STAGES } from "./backendManager";
 import { acquireScannerPage, inspectScannerDevices } from "./scannerAcquisition";
@@ -22,6 +24,87 @@ const RENDERER_RECOVERY_WINDOW_MS = 60_000;
 let desktopLogPath: string | null = null;
 let lastRendererRecoveryAt = 0;
 let rendererFailureDialogOpen = false;
+let approvedStorageDestination: string | null = null;
+const STORAGE_LOCATION_FILE = "storage-location.json";
+
+interface StorageLocationConfig {
+  dataRoot: string;
+}
+
+function defaultDataRoot(): string {
+  if (process.env.PRINT_MS_DATA_DIR) return path.resolve(process.env.PRINT_MS_DATA_DIR);
+  if (process.platform === "darwin") return path.join(os.homedir(), "Library", "Application Support", "PrintingMS");
+  if (process.platform === "win32") return path.join(process.env.APPDATA ?? os.homedir(), "PrintingMS");
+  return path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "PrintingMS");
+}
+
+function storageLocationConfigPath(): string {
+  return path.join(app.getPath("userData"), STORAGE_LOCATION_FILE);
+}
+
+function readStoredDataRoot(): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(storageLocationConfigPath(), "utf8")) as Partial<StorageLocationConfig>;
+    return typeof parsed.dataRoot === "string" && path.isAbsolute(parsed.dataRoot) ? path.normalize(parsed.dataRoot) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStoredDataRoot(dataRoot: string): Promise<void> {
+  const configPath = storageLocationConfigPath();
+  const temporaryPath = `${configPath}.tmp`;
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(temporaryPath, `${JSON.stringify({ dataRoot }, null, 2)}\n`, "utf8");
+  try {
+    await rename(temporaryPath, configPath);
+  } catch (error) {
+    await unlink(configPath).catch(() => undefined);
+    await rename(temporaryPath, configPath).catch(async () => {
+      await unlink(temporaryPath).catch(() => undefined);
+      throw error;
+    });
+  }
+}
+
+function currentDataRoot(): string {
+  return path.resolve(backend.getDataRoot() ?? defaultDataRoot());
+}
+
+function isNestedPath(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function copyStorageRoot(source: string, destination: string): Promise<void> {
+  if (isNestedPath(source, destination) || isNestedPath(destination, source)) {
+    throw new Error("Choose a folder outside the current data folder.");
+  }
+  await mkdir(destination, { recursive: true });
+  const destinationEntries = (await readdir(destination)).filter((entry) => ![".DS_Store", "desktop.ini", "Thumbs.db"].includes(entry));
+  if (destinationEntries.length > 0) {
+    throw new Error("Choose an empty folder so existing app data cannot be overwritten.");
+  }
+  const sourceEntries = await readdir(source).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  const copiedEntries: string[] = [];
+  try {
+    for (const entry of sourceEntries) {
+      copiedEntries.push(entry);
+      await cp(path.join(source, entry), path.join(destination, entry), {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+        preserveTimestamps: true,
+      });
+    }
+  } catch (error) {
+    await Promise.all(copiedEntries.map((entry) => rm(path.join(destination, entry), { recursive: true, force: true })));
+    throw error;
+  }
+}
 
 function logDesktopEvent(level: "INFO" | "WARN" | "ERROR", event: string, details?: unknown): void {
   const serializedDetails = details === undefined ? "" : ` ${JSON.stringify(details)}`;
@@ -281,11 +364,64 @@ ipcMain.handle("paper-club:switch-environment", async (_event, stage: unknown) =
   return config;
 });
 
+ipcMain.handle("paper-club:get-storage-location", () => {
+  const defaultPath = defaultDataRoot();
+  const currentPath = currentDataRoot();
+  return { currentPath, defaultPath, isCustom: path.normalize(currentPath) !== path.normalize(defaultPath) };
+});
+
+ipcMain.handle("paper-club:choose-storage-location", async () => {
+  const options: Electron.OpenDialogOptions = {
+    title: "Choose OMS data folder",
+    defaultPath: path.dirname(currentDataRoot()),
+    buttonLabel: "Choose folder",
+    properties: ["openDirectory", "createDirectory"],
+  };
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options);
+  approvedStorageDestination = result.canceled ? null : result.filePaths[0] ?? null;
+  return approvedStorageDestination;
+});
+
+ipcMain.handle("paper-club:move-storage-location", async (_event, destinationValue: unknown) => {
+  if (
+    typeof destinationValue !== "string"
+    || !path.isAbsolute(destinationValue)
+    || path.normalize(destinationValue) !== path.normalize(approvedStorageDestination ?? "")
+  ) {
+    throw new Error("Choose the destination with the folder picker first.");
+  }
+  approvedStorageDestination = null;
+  const source = currentDataRoot();
+  const destination = path.resolve(destinationValue);
+  if (path.normalize(source) === path.normalize(destination)) return backend.getConfig();
+
+  const stage = backend.getStage() ?? "development";
+  await backend.stop();
+  try {
+    await copyStorageRoot(source, destination);
+    await writeStoredDataRoot(destination);
+    backend.setDataRoot(destination);
+    return await trackBackendStart(backend.switchStage(stage));
+  } catch (error) {
+    backend.setDataRoot(source);
+    try {
+      await writeStoredDataRoot(source);
+      await trackBackendStart(backend.switchStage(stage));
+    } catch (recoveryError) {
+      logDesktopEvent("ERROR", "storage.move.recovery.failed", { recoveryError: String(recoveryError) });
+    }
+    throw error;
+  }
+});
+
 ipcMain.handle("paper-club:inspect-scanners", async () => inspectScannerDevices());
 ipcMain.handle("paper-club:acquire-scanner-page", async (_event, deviceId: unknown, settings: unknown) => acquireScannerPage(deviceId, settings));
 
 app.whenReady().then(async () => {
   initializeDesktopLogging();
+  backend.setDataRoot(readStoredDataRoot());
   if (process.platform === "darwin" && !app.isPackaged) {
     app.dock.setIcon(appIconPath);
   }

@@ -1,5 +1,15 @@
 # Progress Log
 
+## 2026-09-20 — Idle background-work optimization
+
+- Replaced overlapping fixed renderer intervals with one shared health poll and adaptive print/spooler polling that stops while the window is hidden, slows when idle, and backs off after failures.
+- Reduced the Windows `Win32_PrintJob` query loop from 750 ms continuously to 5 seconds while idle, retaining 750 ms progress updates only while jobs exist. TypeScript, ESLint, and production builds pass.
+
+## 2026-09-20 — Configurable app storage and reliable cleanup
+
+- Added a Settings data-folder picker that copies every environment to a validated empty location, persists the choice outside the data tree, restarts the backend, and retains the former folder as a safety copy.
+- Cleanup now reports locked leftovers as failures instead of silently claiming success. Added regression coverage and verified API settings tests plus renderer/desktop TypeScript checks.
+
 ## 2026-09-14 — Unified business expense ledger
 
 - Added Expenses under Operations with complete operating-expense create/edit/remove flows and a combined read-only projection of Inventory stock-purchase spending.
@@ -807,3 +817,15 @@ Chronological notes about app progress.
 - Changed: Removed automatic 180-degree back-page rotation and mirroring. Front and back now export with identical sheet orientation and grid coordinates for independent printing; shared sheet/card/spacing settings still control both pages.
 - Improved: Added 50–250% zoom and scrollable inspection to the editable sheet canvas. PDF generation now opens a two-page continuous preview with independent zoom/fit/rotate controls; the owner downloads only after review.
 - Verified: Renderer production build and lint pass; all three focused template PDF tests remain green.
+
+## 2026-09-17 (business-card design views)
+
+- Improved: Added Sheet, 1:1 Card, and Front/Back comparison views to the Business Card workspace. All views share the same movable artwork state and zoom controls, while export geometry remains unchanged.
+- Verified: Renderer production build and lint pass.
+
+## 2026-09-17 (print color proof and driver refresh)
+
+- Added: Windows print setup now offers force-grayscale, brightness, contrast, saturation, and warmth controls with a live PDF/image proof and reset action. The same values are applied to the 300-DPI print render and retained on the print attempt.
+- Added: Refresh from printer imports the selected Windows queue's public orientation, color, quality, and collation defaults and displays its paper/duplex snapshot without changing approved job paper or copies.
+- Preserved: Canon-private ICC profiles, color correction, detailed media, and tray choices remain under the installed driver and are explicitly identified as such.
+- Verified: All 70 API tests pass; renderer production build and lint pass; Python compilation and diff validation pass. Physical Canon color/output comparison remains required on the Windows workstation.

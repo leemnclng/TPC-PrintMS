@@ -41,7 +41,13 @@
 .business-card-proof > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--color-hairline); }
 .business-card-proof > header .numeric { color: var(--color-accent); font-size: var(--text-xs); }
 .business-card-proof > header h2 { margin: var(--space-1) 0 0; font-size: var(--text-base); }
-.business-card-proof-tools { display: flex; align-items: center; gap: var(--space-3); }
+.business-card-proof-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.business-card-view-tabs { display: flex; border: 1px solid var(--color-hairline-strong); }
+.business-card-view-tabs button { min-height: 2.5rem; border: 0; border-right: 1px solid var(--color-hairline); padding: 0 var(--space-3); background: var(--color-paper); color: var(--color-ink-soft); font: 600 var(--text-xs) var(--font-mono); cursor: pointer; }
+.business-card-view-tabs button:last-child { border-right: 0; }
+.business-card-view-tabs button:hover { background: var(--color-accent-softer); color: var(--color-accent); }
+.business-card-view-tabs button.is-active { background: var(--color-ink); color: var(--color-paper); }
+.business-card-view-tabs button:focus-visible { position: relative; outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .business-card-zoom { display: flex; align-items: center; border: 1px solid var(--color-hairline-strong); }
 .business-card-zoom button { min-width: 2.5rem; min-height: 2.5rem; border: 0; border-right: 1px solid var(--color-hairline); padding: 0 var(--space-2); background: var(--color-paper); color: var(--color-ink-soft); font: 600 var(--text-xs) var(--font-mono); cursor: pointer; }
 .business-card-zoom button:last-child { border-right: 0; }
@@ -72,7 +78,16 @@
 .business-card-placeholder { display: flex; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; color: var(--color-accent); text-align: center; }
 .business-card-placeholder span, .business-card-placeholder small { overflow: hidden; max-width: 92%; font-family: var(--font-mono); font-size: clamp(.28rem, .7vw, .6rem); text-overflow: ellipsis; white-space: nowrap; }
 .business-card-placeholder strong { font-family: var(--font-display); font-size: clamp(.6rem, 1.4vw, 1.2rem); }
-.business-card-sheet.has-marks .business-card-cell { box-shadow: -.35rem 0 0 -.33rem var(--color-ink), .35rem 0 0 -.33rem var(--color-ink), 0 -.35rem 0 -.33rem var(--color-ink), 0 .35rem 0 -.33rem var(--color-ink); }
+.has-marks .business-card-cell { box-shadow: -.35rem 0 0 -.33rem var(--color-ink), .35rem 0 0 -.33rem var(--color-ink), 0 -.35rem 0 -.33rem var(--color-ink), 0 .35rem 0 -.33rem var(--color-ink); }
+.business-card-focus-view { display: flex; min-width: max-content; flex-direction: column; align-items: center; gap: var(--space-3); margin: auto; }
+.business-card-focus-card, .business-card-compare-card { position: relative; aspect-ratio: var(--card-ratio); background: white; box-shadow: 0 12px 30px oklch(20% 0.015 30 / .16); transition: width var(--dur-base) var(--ease-out); }
+.business-card-focus-card { width: var(--focus-card-width); }
+.business-card-focus-card > .business-card-cell, .business-card-compare-card > .business-card-cell { position: absolute; inset: 0; }
+.business-card-view-label { display: flex; width: 100%; align-items: baseline; justify-content: space-between; gap: var(--space-4); color: var(--color-ink-faint); font-size: var(--text-xs); }
+.business-card-view-label span { color: var(--color-accent); font: 600 var(--text-xs) var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.business-card-compare-view { display: flex; min-width: max-content; align-items: center; justify-content: center; gap: var(--space-7); margin: auto; }
+.business-card-compare-view > section { display: flex; flex-direction: column; gap: var(--space-3); }
+.business-card-compare-card { width: var(--compare-card-width); }
 .business-card-proof > footer { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--color-hairline); }
 .business-card-proof > footer span { display: flex; min-width: 0; flex-direction: column; padding: var(--space-3); border-right: 1px solid var(--color-hairline); color: var(--color-ink-faint); font-size: var(--text-xs); }
 .business-card-proof > footer span:last-child { border-right: 0; }
@@ -82,6 +97,8 @@
 .business-card-pdf-modal .modal__surface { height: 100%; }
 .business-card-pdf-preview { display: grid; width: 100%; min-height: 0; grid-template-rows: minmax(0, 1fr) auto; }
 .business-card-pdf-preview > footer { display: flex; justify-content: flex-end; gap: var(--space-2); border-top: 1px solid var(--color-hairline); padding: var(--space-3) var(--space-5); background: var(--color-paper); }
+@media (max-width: 1180px) { .business-card-proof > header { align-items: flex-start; flex-direction: column; } .business-card-proof-tools { justify-content: flex-start; } }
 @media (max-width: 1000px) { .business-card-studio__workspace { grid-template-columns: 18rem minmax(0, 1fr); } .business-card-proof > footer { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 760px) { .business-card-studio__header { align-items: stretch; flex-direction: column; } .business-card-studio__workspace { grid-template-columns: 1fr; } .business-card-controls { border-right: 0; border-bottom: 1px solid var(--color-hairline-strong); } .business-card-proof__stage { min-height: 28rem; padding: var(--space-4); } .business-card-proof-tools { align-items: stretch; flex-direction: column; } .business-card-pdf-modal { width: calc(100% - var(--space-3)); height: calc(100dvh - var(--space-3)); } }
+@media (max-width: 520px) { .business-card-view-tabs button { flex: 1; padding: 0 var(--space-2); } }
 @media (max-width: 420px) { .business-card-fields--three { grid-template-columns: 1fr; } .business-card-proof > header { align-items: stretch; flex-direction: column; } .business-card-side-tabs button { flex: 1; } .business-card-proof > footer { grid-template-columns: 1fr; } .business-card-proof > footer span { border-right: 0; border-bottom: 1px solid var(--color-hairline); } }

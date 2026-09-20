@@ -24,6 +24,7 @@ from app.services.printing.adapter import (
     DetectedPrinter,
     PrintSubmissionError,
     WindowsPrinterAdapter,
+    _prepare_print_image,
     _prepare_windows_print_pass,
     _save_rendered_page_with_retry,
 )
@@ -50,6 +51,39 @@ def test_windows_adapter_reads_vendor_neutral_spooler_queues(monkeypatch) -> Non
         ("Epson Backup", "offline"),
     ]
     assert detected[0].is_default is True
+
+
+def test_windows_adapter_reads_public_driver_defaults(monkeypatch) -> None:
+    payload = {
+        "orientation": "landscape",
+        "colorMode": "grayscale",
+        "quality": "high",
+        "copies": 2,
+        "collate": False,
+        "duplex": "vertical",
+        "paperName": "A4",
+        "paperWidthMm": 210,
+        "paperHeightMm": 297,
+    }
+
+    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, stdout=json.dumps(payload), stderr=""))
+
+    defaults = WindowsPrinterAdapter().get_defaults("Canon G4770 series")
+
+    assert defaults.supported is True
+    assert defaults.orientation == "landscape"
+    assert defaults.color_mode == "grayscale"
+    assert defaults.paper_name == "A4"
+
+
+def test_print_image_color_adjustments_change_pixels() -> None:
+    source = Image.new("RGB", (1, 1), (100, 100, 100))
+
+    adjusted = _prepare_print_image(source, False, brightness=20, contrast=0, saturation=0, warmth=50)
+
+    red, _green, blue = adjusted.getpixel((0, 0))
+    assert red > blue
+    adjusted.close()
 
 
 def test_cups_adapter_sends_photo_media_profile(tmp_path, monkeypatch) -> None:

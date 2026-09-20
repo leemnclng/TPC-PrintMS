@@ -11,7 +11,7 @@ import { formatDate } from "../../lib/format";
 import { PRINT_MEDIA_OPTIONS, type PrintMediaType } from "../../lib/printProfiles";
 import { paperSizeDefinition, paperSizeDisplay } from "../../lib/paperSizes";
 import { printerStateMeta } from "../../types/statusMeta";
-import type { JobOrder, JobOrderItem, Printer } from "../../types/domain";
+import type { JobOrder, JobOrderItem, Printer, PrinterDefaults } from "../../types/domain";
 import "../workspaceForm.css";
 import "./JobOrderModals.css";
 
@@ -22,6 +22,9 @@ interface Props {
   onClose: () => void;
   onPrinted: (order: JobOrder) => void;
 }
+
+type ColorAdjustments = { brightness: number; contrast: number; saturation: number; warmth: number; forceGrayscale: boolean };
+const ORIGINAL_COLOR: ColorAdjustments = { brightness: 0, contrast: 0, saturation: 0, warmth: 0, forceGrayscale: false };
 
 export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Props) {
   const { data: printers, state, error: printerError, reload } = useResource(
@@ -36,6 +39,9 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
   const [mediaType, setMediaType] = useState<PrintMediaType>("auto");
   const [borderless, setBorderless] = useState(false);
   const [collate, setCollate] = useState(true);
+  const [colorAdjustments, setColorAdjustments] = useState<ColorAdjustments>(ORIGINAL_COLOR);
+  const [driverDefaults, setDriverDefaults] = useState<PrinterDefaults | null>(null);
+  const [refreshingDefaults, setRefreshingDefaults] = useState(false);
   const [customSizeEnabled, setCustomSizeEnabled] = useState(false);
   const [customWidthMm, setCustomWidthMm] = useState("");
   const [customHeightMm, setCustomHeightMm] = useState("");
@@ -106,6 +112,8 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
     setMediaType(item.printType === "photo_print" ? "photo_plus_glossy_ii" : "auto");
     setBorderless(item.printType === "photo_print" && initialPaperSize !== "Legal");
     setCollate(true);
+    setColorAdjustments(ORIGINAL_COLOR);
+    setDriverDefaults(null);
     setCustomSizeEnabled(initialPaperSize === "Custom");
     setCustomWidthMm(String(paperPlan?.paperWidthMm ?? mediaWidthMm));
     setCustomHeightMm(String(paperPlan?.paperHeightMm ?? mediaHeightMm));
@@ -123,6 +131,13 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
       setQuality(priorFront.quality);
       setBorderless(priorFront.borderless);
       setCollate(priorFront.collate);
+      setColorAdjustments({
+        brightness: priorFront.brightness ?? 0,
+        contrast: priorFront.contrast ?? 0,
+        saturation: priorFront.saturation ?? 0,
+        warmth: priorFront.warmth ?? 0,
+        forceGrayscale: priorFront.colorMode === "grayscale",
+      });
       setCustomSizeEnabled(priorFront.mediaSize === "Custom");
       setCustomWidthMm(String(priorFront.mediaWidthMm ?? mediaWidthMm));
       setCustomHeightMm(String(priorFront.mediaHeightMm ?? mediaHeightMm));
@@ -155,10 +170,31 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
     setActionError(null);
     try {
       await window.paperClub.openPrinterPreferences(selectedPrinter.systemName);
+      await refreshPrinterDefaults(selectedPrinter.id);
     } catch {
       setActionError(`Windows printing preferences for ${selectedPrinter.displayName} could not be opened.`);
     } finally {
       setOpeningPreferences(false);
+    }
+  }
+
+  async function refreshPrinterDefaults(printerId = selectedPrinterId) {
+    if (!printerId || refreshingDefaults) return;
+    setRefreshingDefaults(true);
+    setActionError(null);
+    try {
+      const defaults = await api.get<PrinterDefaults>(`/printers/${printerId}/defaults`);
+      setDriverDefaults(defaults);
+      if (defaults.supported) {
+        setOrientation(defaults.orientation);
+        setQuality(defaults.quality);
+        setCollate(defaults.collate);
+        setColorAdjustments((current) => ({ ...current, forceGrayscale: defaults.colorMode === "grayscale" }));
+      }
+    } catch (caught) {
+      setActionError(caught instanceof ApiError ? caught.message : "The selected printer's public settings could not be refreshed.");
+    } finally {
+      setRefreshingDefaults(false);
     }
   }
 
@@ -176,6 +212,11 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
         mediaType,
         scaling,
         quality,
+        forceGrayscale: colorAdjustments.forceGrayscale,
+        brightness: colorAdjustments.brightness,
+        contrast: colorAdjustments.contrast,
+        saturation: colorAdjustments.saturation,
+        warmth: colorAdjustments.warmth,
         borderless,
         collate,
         duplexPass,
@@ -203,7 +244,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
     const selected = selectedPrinterId === printer.id;
     return (
       <label className={`job-printer-choice${featured ? " is-default" : ""}${selected ? " is-selected" : ""}${unavailable ? " is-disabled" : ""}`} key={printer.id}>
-        <input autoFocus={printer.id === firstAvailablePrinterId} type="radio" name="job-printer" checked={selected} disabled={unavailable} onChange={() => setSelectedPrinterId(printer.id)} />
+        <input autoFocus={printer.id === firstAvailablePrinterId} type="radio" name="job-printer" checked={selected} disabled={unavailable} onChange={() => { setSelectedPrinterId(printer.id); setDriverDefaults(null); }} />
         <span className="job-printer-choice__dot" aria-hidden="true" />
         <span><strong>{printer.displayName}</strong><small>{featured ? "Windows default · " : ""}{printer.systemName}</small><small>Last seen {formatDate(printer.lastSeenAt)}</small></span>
         <StatusPill label={printerStateMeta[printer.lastSeenState].label} tone={printerStateMeta[printer.lastSeenState].tone} />
@@ -249,7 +290,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
             </section>
 
             <section className="job-print-section">
-              <header><div><span className="numeric">02 / OUTPUT</span><h3>Confirm file and settings</h3></div>{window.paperClub?.platform === "win32" && selectedPrinter && <Button type="button" size="sm" variant="secondary" onClick={handleOpenPreferences} loading={openingPreferences}>{/canon/i.test(selectedPrinter.displayName) ? "Canon print settings" : "Printer settings"}</Button>}</header>
+              <header><div><span className="numeric">02 / OUTPUT</span><h3>Confirm file and settings</h3></div>{window.paperClub?.platform === "win32" && selectedPrinter && <div className="job-print-driver-actions"><Button type="button" size="sm" variant="secondary" onClick={() => refreshPrinterDefaults()} loading={refreshingDefaults}>Refresh from printer</Button><Button type="button" size="sm" variant="secondary" onClick={handleOpenPreferences} loading={openingPreferences}>{/canon/i.test(selectedPrinter.displayName) ? "Canon print settings" : "Printer settings"}</Button></div>}</header>
               {isPhotoPrint ? (
                 <div className="photo-print-studio">
                   <PrinterOutputPreview
@@ -261,6 +302,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
                     orientation={orientation}
                     scaling={scaling}
                     borderless={borderless}
+                    {...colorAdjustments}
                   />
                   <aside className="photo-print-controls" aria-label="Photo Print output controls">
                     <div className="photo-print-controls__device">
@@ -298,10 +340,12 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
                     <label className="form-field"><span>Media type</span><select value={mediaType} onChange={(event) => setMediaType(event.target.value as PrintMediaType)}>{PRINT_MEDIA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><small>Match this to the stock loaded in the printer.</small></label>
                     <label className="form-field"><span>Layout on paper</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="fill">Fill paper · crop edges</option><option value="fit">Fit · preserve entire image</option><option value="auto">Automatic · preserve source</option><option value="actual_size">Actual size · allow clipping</option></select><small>The output proof updates immediately.</small></label>
                     <label className="form-field"><span>Quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="high">High</option><option value="auto">Automatic · driver default</option><option value="standard">Standard</option><option value="draft">Draft</option></select></label>
+                    {window.paperClub?.platform === "win32" && <ColorAdjustmentControls value={colorAdjustments} onChange={setColorAdjustments} />}
                     <div className="photo-print-toggles">
                       <label className="job-print-check"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Borderless</strong><small>Fill the sheet edge to edge</small></span></label>
                       <label className="job-print-check"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate</strong><small>{copies} {copies === 1 ? "copy" : "copies"}</small></span></label>
                     </div>
+                    {window.paperClub?.platform === "win32" && selectedPrinter && <DriverDefaultsStatus defaults={driverDefaults} printer={selectedPrinter} jobCopies={copies} />}
                     <p className="job-print-photo-note" role="status"><span className="numeric">PHOTO OUTPUT</span><strong>{quality === "high" ? "High quality" : quality} · {scaling === "fill" ? "fill and crop" : scaling} · {borderless ? "borderless" : "driver margins"}</strong><small>The proof predicts geometry. The installed driver retains final authority over physical margins, tray support, and color correction.</small></p>
                   </aside>
                 </div>
@@ -316,6 +360,7 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
                     orientation={orientation}
                     scaling={scaling}
                     borderless={borderless}
+                    {...colorAdjustments}
                   />
                   <div className="job-print-proof">
                     <label className="form-field"><span>Print-ready file</span><select value={selectedFileId} onChange={(event) => setSelectedFileId(event.target.value)}>{printReadyFiles.map((file) => <option key={file.id} value={file.id}>{file.originalFilename}</option>)}</select></label>
@@ -326,11 +371,12 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
                     <label className="form-field"><span>Orientation</span><select value={orientation} onChange={(event) => setOrientation(event.target.value as typeof orientation)}><option value="auto">Auto per page</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
                     <label className="form-field"><span>Scaling</span><select value={scaling} onChange={(event) => setScaling(event.target.value as typeof scaling)}><option value="auto">Automatic · preserve size</option><option value="fit">Fit printable area</option><option value="actual_size">Actual size · allow clipping</option><option value="fill">Fill paper · crop edges</option></select></label>
                     <label className="form-field"><span>Quality</span><select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}><option value="auto">Automatic · driver default</option><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+                    {window.paperClub?.platform === "win32" && <ColorAdjustmentControls value={colorAdjustments} onChange={setColorAdjustments} />}
                     <label className="job-print-check"><input type="checkbox" checked={borderless} onChange={(event) => setBorderless(event.target.checked)} /><span><strong>Force borderless</strong><small>Off uses printer margins automatically</small></span></label>
                     <label className="job-print-check"><input type="checkbox" checked={collate} onChange={(event) => setCollate(event.target.checked)} disabled={copies < 2} /><span><strong>Collate copies</strong><small>Complete sets in order</small></span></label>
                   </div>
                   <p className="job-print-auto-note" role="status"><strong>Automatic document profile:</strong> product print type remains pricing-only. Source analysis controls color and orientation; original dimensions and document margins are preserved, shrinking only when the printer's physical area requires it.</p>
-                  {window.paperClub?.platform === "win32" && selectedPrinter && <p className="job-print-driver-note"><strong>{/canon/i.test(selectedPrinter.displayName) ? "Canon driver controls" : "Installed driver controls"}:</strong> the driver keeps its media, paper-source, color-correction, and quality defaults unless you explicitly override them here.</p>}
+                  {window.paperClub?.platform === "win32" && selectedPrinter && <DriverDefaultsStatus defaults={driverDefaults} printer={selectedPrinter} jobCopies={copies} />}
                 </>
               )}
             </section>
@@ -347,6 +393,37 @@ export function JobPrintSetupModal({ open, order, item, onClose, onPrinted }: Pr
       )}
     </Modal>
   );
+}
+
+function ColorAdjustmentControls({ value, onChange }: { value: ColorAdjustments; onChange: (value: ColorAdjustments) => void }) {
+  const modified = value.forceGrayscale || [value.brightness, value.contrast, value.saturation, value.warmth].some(Boolean);
+  const [open, setOpen] = useState(modified);
+  useEffect(() => { if (modified) setOpen(true); }, [modified]);
+  const sliders: { key: keyof Pick<ColorAdjustments, "brightness" | "contrast" | "saturation" | "warmth">; label: string }[] = [
+    { key: "brightness", label: "Brightness" },
+    { key: "contrast", label: "Contrast" },
+    { key: "saturation", label: "Saturation" },
+    { key: "warmth", label: "Warmth" },
+  ];
+  return (
+    <details className="job-print-color" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary><span><strong>Color adjustment</strong><small>Applied to the preview and printed pixels</small></span><b>{modified ? "Modified" : "Original"}</b></summary>
+      <div className="job-print-color__body">
+        <label className="job-print-check"><input type="checkbox" checked={value.forceGrayscale} onChange={(event) => onChange({ ...value, forceGrayscale: event.target.checked })} /><span><strong>Force grayscale</strong><small>Overrides detected source color for this attempt</small></span></label>
+        <div className="job-print-color__sliders">
+          {sliders.map(({ key, label }) => <label key={key}><span>{label}<output>{value[key] > 0 ? "+" : ""}{value[key]}</output></span><input type="range" min="-100" max="100" step="1" value={value[key]} onChange={(event) => onChange({ ...value, [key]: Number(event.target.value) })} /></label>)}
+        </div>
+        <div className="job-print-color__footer"><small>Screen color is an approximation; Canon ICC and private color correction remain driver-controlled.</small><Button type="button" size="sm" variant="ghost" disabled={!modified} onClick={() => onChange(ORIGINAL_COLOR)}>Reset</Button></div>
+      </div>
+    </details>
+  );
+}
+
+function DriverDefaultsStatus({ defaults, printer, jobCopies }: { defaults: PrinterDefaults | null; printer: Printer; jobCopies: number }) {
+  if (!defaults) return <p className="job-print-driver-note"><strong>{/canon/i.test(printer.displayName) ? "Canon driver controls" : "Installed driver controls"}:</strong> open the native settings, save changes, then refresh to import the public orientation, color, quality, and collation defaults.</p>;
+  const paper = defaults.paperName ?? "Unknown paper";
+  const dimensions = defaults.paperWidthMm && defaults.paperHeightMm ? ` · ${defaults.paperWidthMm} × ${defaults.paperHeightMm} mm` : "";
+  return <div className="job-print-driver-profile" role="status"><span className="numeric">WINDOWS DRIVER SNAPSHOT</span><strong>{defaults.colorMode === "grayscale" ? "Grayscale" : "Color"} · {defaults.orientation} · {defaults.quality} quality</strong><small>{paper}{dimensions} · {defaults.duplex} duplex · {defaults.collate ? "collated" : "uncollated"}</small><small>{defaults.message} Job paper and {jobCopies} {jobCopies === 1 ? "copy remains" : "copies remain"} controlled by the approved transaction.</small></div>;
 }
 
 function ManualDuplexReload({

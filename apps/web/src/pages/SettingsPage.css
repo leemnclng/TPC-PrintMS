@@ -192,6 +192,19 @@
 .storage-cleanup-list__item > span { flex: none; color: var(--color-ink-faint); font-size: var(--text-xs); }
 .storage-cleanup-actions { margin-top: var(--space-4); }
 
+.storage-location-field { max-width: 60rem; margin-top: var(--space-5); }
+.storage-location-field__control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); }
+.storage-location-field__control input { min-width: 0; color: var(--color-ink-soft); }
+.storage-location-modal { display: flex; width: 100%; flex-direction: column; }
+.storage-location-modal dl { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-5) var(--space-6); }
+.storage-location-modal dl div { min-width: 0; }
+.storage-location-modal dt { color: var(--color-ink-faint); font-size: var(--text-xs); letter-spacing: .04em; text-transform: uppercase; }
+.storage-location-modal dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
+
+@media (max-width: 640px) {
+  .storage-location-field__control { grid-template-columns: minmax(0, 1fr); }
+}
+
 .environment-note {
   margin: var(--space-4) 0 0;
   border-left: 2px solid var(--color-warning);

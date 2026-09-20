@@ -20,6 +20,11 @@ interface Props {
   orientation: PrintOrientation;
   scaling: PrintScaling;
   borderless: boolean;
+  forceGrayscale?: boolean;
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  warmth?: number;
 }
 
 export function PrinterOutputPreview({
@@ -31,6 +36,11 @@ export function PrinterOutputPreview({
   orientation,
   scaling,
   borderless,
+  forceGrayscale = false,
+  brightness = 0,
+  contrast = 0,
+  saturation = 0,
+  warmth = 0,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
@@ -47,6 +57,10 @@ export function PrinterOutputPreview({
     "--print-paper-aspect": `${widthMm} / ${heightMm}`,
     "--print-paper-max-width": `${Math.min(80, 56 * (widthMm / heightMm))}vh`,
   } as CSSProperties;
+  const colorStyle = {
+    filter: colorPreviewFilter(forceGrayscale, brightness, contrast, saturation, warmth),
+  } as CSSProperties;
+  const colorAdjusted = forceGrayscale || [brightness, contrast, saturation, warmth].some(Boolean);
 
   useEffect(() => {
     if (!file) {
@@ -148,10 +162,10 @@ export function PrinterOutputPreview({
       <div className="printer-output-preview__stage" style={previewStyle}>
         <div className={`printer-output-preview__paper is-${scaling}${borderless ? " is-borderless" : ""}`}>
           {sourceKind === "image" && sourceUrl ? (
-            <img src={sourceUrl} alt={`Output preview of ${file?.originalFilename ?? "the selected file"}`} />
+            <img src={sourceUrl} style={colorStyle} alt={`Output preview of ${file?.originalFilename ?? "the selected file"}`} />
           ) : null}
           {sourceKind === "pdf" && pdfData ? (
-            <canvas ref={canvasRef} aria-label={`First-page output preview of ${file?.originalFilename ?? "the selected PDF"}`} />
+            <canvas ref={canvasRef} style={colorStyle} aria-label={`First-page output preview of ${file?.originalFilename ?? "the selected PDF"}`} />
           ) : null}
           {sourceKind === "unsupported" ? (
             <div className="printer-output-preview__message">
@@ -183,10 +197,23 @@ export function PrinterOutputPreview({
       <footer>
         <span><b>{widthMm.toLocaleString(undefined, { maximumFractionDigits: 1 })} × {heightMm.toLocaleString(undefined, { maximumFractionDigits: 1 })} mm</b>{resolvedOrientation}</span>
         <span><b>{scalingLabel}</b>{borderless ? "Borderless requested" : "Driver margin guide shown"}</span>
+        <span><b>{colorAdjusted ? "Adjusted color proof" : "Source color"}</b>{forceGrayscale ? "Grayscale output" : "Screen approximation"}</span>
         {file && (file.detectedPageCount ?? 1) > 1 ? <span><b>Page 1 of {file.detectedPageCount}</b>First page shown in proof</span> : null}
       </footer>
     </section>
   );
+}
+
+function colorPreviewFilter(forceGrayscale: boolean, brightness: number, contrast: number, saturation: number, warmth: number) {
+  const warmthAmount = Math.abs(warmth) * .22;
+  return [
+    `brightness(${100 + brightness}%)`,
+    `contrast(${100 + contrast}%)`,
+    `saturate(${Math.max(0, 100 + saturation)}%)`,
+    warmthAmount ? `sepia(${warmthAmount}%)` : "",
+    warmthAmount ? `hue-rotate(${warmth < 0 ? 150 : -8}deg)` : "",
+    forceGrayscale ? "grayscale(100%)" : "",
+  ].filter(Boolean).join(" ");
 }
 
 function resolveOrientation(orientation: PrintOrientation, detected?: DocumentOrientation | null): "portrait" | "landscape" {

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "../../lib/apiClient";
 import { formatDateTime } from "../../lib/format";
 import type { ObservedPrintJob, SpoolerMonitorInfo } from "../../types/domain";
 import { Button } from "../Button/Button";
+import { useAdaptivePolling } from "../../hooks/useAdaptivePolling";
 import "./ExternalPrintPrompt.css";
 
 export function ExternalPrintPrompt() {
@@ -13,37 +14,20 @@ export function ExternalPrintPrompt() {
   const [deferring, setDeferring] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const suppressed = useRef(new Set<string>());
-  const fetching = useRef(false);
-
-  useEffect(() => {
-    let disposed = false;
-
-    async function refresh() {
-      if (fetching.current) return;
-      fetching.current = true;
-      try {
-        const result = await api.get<SpoolerMonitorInfo>("/printers/spooler-jobs");
-        if (disposed || !result.supported) return;
-        const candidates = result.jobs.filter(
-          (item) => item.reviewStatus === "unreviewed" && !item.notificationDismissedAt && !suppressed.current.has(item.id),
-        );
-        setUnreviewedCount(candidates.length);
-        setJob((current) => current && candidates.some((item) => item.id === current.id) ? current : candidates[0] ?? null);
-      } catch {
-        // Printer monitoring has its own retry/status UI in Print Center. A
-        // global prompt should stay silent rather than interrupt unrelated work.
-      } finally {
-        fetching.current = false;
-      }
+  useAdaptivePolling(async () => {
+    try {
+      const result = await api.get<SpoolerMonitorInfo>("/printers/spooler-jobs");
+      if (!result.supported) return 60_000;
+      const candidates = result.jobs.filter(
+        (item) => item.reviewStatus === "unreviewed" && !item.notificationDismissedAt && !suppressed.current.has(item.id),
+      );
+      setUnreviewedCount(candidates.length);
+      setJob((current) => current && candidates.some((item) => item.id === current.id) ? current : candidates[0] ?? null);
+      return candidates.length > 0 ? 3_000 : 15_000;
+    } catch {
+      return 30_000;
     }
-
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 3000);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, []);
+  }, 15_000);
 
   if (!job) return null;
 

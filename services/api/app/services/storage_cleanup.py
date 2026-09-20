@@ -16,6 +16,7 @@ points to, or backup archives — those are real, wanted data, not clutter.
 
 from __future__ import annotations
 
+import logging
 import shutil
 import time
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ from pathlib import Path
 from typing import Any
 
 from ..core.config import PACKAGE_ROOT, settings
+
+logger = logging.getLogger(__name__)
 
 # A crashed backup/restore leaves its temp folder behind; a real one never
 # takes anywhere near this long, so anything older is safely abandoned.
@@ -150,16 +153,20 @@ def run_storage_cleanup(keys: set[str] | None = None) -> dict[str, Any]:
     nothing selected earlier but removed elsewhere in the meantime gets
     double-handled."""
     removed: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
     freed_bytes = 0
     for candidate in storage_cleanup_candidates():
         if keys is not None and candidate.key not in keys:
             continue
         surviving_paths: list[Path] = []
         for path in candidate.paths:
-            if path.is_dir():
-                shutil.rmtree(path, ignore_errors=True)
-            else:
-                path.unlink(missing_ok=True)
+            try:
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=False)
+                else:
+                    path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove storage-cleanup candidate %s.", path, exc_info=True)
             if path.exists():
                 surviving_paths.append(path)
         if surviving_paths:
@@ -177,6 +184,14 @@ def run_storage_cleanup(keys: set[str] | None = None) -> dict[str, Any]:
         else:
             item_count = candidate.item_count
             size_bytes = candidate.size_bytes
-        removed.append({"key": candidate.key, "label": candidate.label, "itemCount": item_count, "sizeBytes": size_bytes})
+        if item_count > 0 or size_bytes > 0 or not surviving_paths:
+            removed.append({"key": candidate.key, "label": candidate.label, "itemCount": item_count, "sizeBytes": size_bytes})
+        if surviving_paths:
+            failed.append({
+                "key": candidate.key,
+                "label": candidate.label,
+                "remainingItemCount": max(surviving_items, len(surviving_paths)),
+                "remainingSizeBytes": surviving_bytes,
+            })
         freed_bytes += size_bytes
-    return {"removed": removed, "freedBytes": freed_bytes}
+    return {"removed": removed, "failed": failed, "freedBytes": freed_bytes}

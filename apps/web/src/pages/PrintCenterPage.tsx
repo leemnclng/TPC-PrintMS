@@ -9,6 +9,7 @@ import { EmptyState } from "../components/EmptyState/EmptyState";
 import { LoadingState } from "../components/LoadingState/LoadingState";
 import { ErrorState } from "../components/ErrorState/ErrorState";
 import { useResource } from "../hooks/useResource";
+import { useAdaptivePolling } from "../hooks/useAdaptivePolling";
 import { api, ApiError } from "../lib/apiClient";
 import { formatCurrency, formatDate, formatDateTime, formatFileSize } from "../lib/format";
 import { PRINT_MEDIA_OPTIONS, printMediaLabel, type PrintMediaType } from "../lib/printProfiles";
@@ -123,11 +124,11 @@ export function PrintCenterPage() {
     setSelectedPrinterId(available?.id ?? "");
   }, [data, selectedPrinterId]);
 
-  useEffect(() => {
-    if (resolvedPlatform !== "windows") return;
-    const timer = window.setInterval(reloadSpooler, 3000);
-    return () => window.clearInterval(timer);
-  }, [reloadSpooler, resolvedPlatform]);
+  useAdaptivePolling(async () => {
+    if (resolvedPlatform && resolvedPlatform !== "windows") return 60_000;
+    reloadSpooler();
+    return 10_000;
+  }, 10_000);
 
   async function handlePrintSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

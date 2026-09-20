@@ -58,6 +58,7 @@ export class BackendManager {
   private config: BackendConfig | null = null;
   private shuttingDown = false;
   private stage: EnvironmentStage | null = null;
+  private dataRoot: string | null = null;
 
   constructor(private readonly diagnosticLogger?: BackendDiagnosticLogger) {}
 
@@ -100,6 +101,14 @@ export class BackendManager {
     return this.stage;
   }
 
+  setDataRoot(dataRoot: string | null): void {
+    this.dataRoot = dataRoot;
+  }
+
+  getDataRoot(): string | null {
+    return this.dataRoot;
+  }
+
   private async startFromSource(
     stage?: EnvironmentStage,
     startupTimeoutMs = STARTUP_TIMEOUT_MS,
@@ -107,6 +116,7 @@ export class BackendManager {
     const backendDir = path.resolve(__dirname, "..", "..", "..", "services", "api");
     const env = { ...process.env };
     if (stage) env.PRINT_MS_STAGE = stage;
+    if (this.dataRoot) env.PRINT_MS_DATA_DIR = this.dataRoot;
     env.PYTHONUNBUFFERED = "1";
     this.stage = stage ?? (env.PRINT_MS_STAGE as EnvironmentStage | undefined) ?? "development";
     const virtualEnvironmentPython = path.join(

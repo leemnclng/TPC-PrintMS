@@ -7,6 +7,7 @@ import { ApiError, api } from "../../lib/apiClient";
 import "./BusinessCardTemplatePage.css";
 
 type Side = "front" | "back";
+type ViewMode = "sheet" | "card" | "compare";
 type Layout = { columns: number; rows: number; count: number; error: string | null };
 type Placement = { x: number; y: number; scale: number };
 
@@ -41,6 +42,7 @@ export function BusinessCardTemplatePage() {
   const [frontPlacement, setFrontPlacement] = useState<Placement>({ x: 0.5, y: 0.5, scale: 70 });
   const [backPlacement, setBackPlacement] = useState<Placement>({ x: 0.5, y: 0.5, scale: 70 });
   const [activeSide, setActiveSide] = useState<Side>("front");
+  const [viewMode, setViewMode] = useState<ViewMode>("sheet");
   const [submitted, setSubmitted] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,8 +58,6 @@ export function BusinessCardTemplatePage() {
     : null;
   const workspaceError = layout.error ?? safeMarginError;
   const placement = activeSide === "front" ? frontPlacement : backPlacement;
-  const aspect = activeSide === "front" ? frontAspect : backAspect;
-  const placementMetrics = artworkMetrics(placement, aspect, cardWidth, cardHeight, safeMargin);
 
   useEffect(() => {
     if (!front || front.type === "application/pdf") { setFrontUrl(null); return; }
@@ -114,8 +114,6 @@ export function BusinessCardTemplatePage() {
     }
   }
 
-  const previewImage = activeSide === "front" ? frontUrl : backUrl;
-  const previewFile = activeSide === "front" ? front : back;
   const previewStyle = {
     "--sheet-ratio": `${sheetWidth} / ${sheetHeight}`,
     "--grid-columns": layout.columns,
@@ -130,12 +128,23 @@ export function BusinessCardTemplatePage() {
     "--trim-inset-y": `${(bleed / (cardHeight + bleed * 2)) * 100}%`,
     "--safe-inset-x": `${((bleed + safeMargin) / (cardWidth + bleed * 2)) * 100}%`,
     "--safe-inset-y": `${((bleed + safeMargin) / (cardHeight + bleed * 2)) * 100}%`,
-    "--artwork-left": `${placementMetrics.left}%`,
-    "--artwork-top": `${placementMetrics.top}%`,
-    "--artwork-width": `${placementMetrics.width}%`,
-    "--artwork-height": `${placementMetrics.height}%`,
+    "--card-ratio": `${cardWidth + bleed * 2} / ${cardHeight + bleed * 2}`,
     "--canvas-height": `${35 * canvasZoom}rem`,
+    "--focus-card-width": `${32 * canvasZoom}rem`,
+    "--compare-card-width": `${22 * canvasZoom}rem`,
   } as CSSProperties;
+
+  function artworkStyle(side: Side) {
+    const sidePlacement = side === "front" ? frontPlacement : backPlacement;
+    const sideAspect = side === "front" ? frontAspect : backAspect;
+    const metrics = artworkMetrics(sidePlacement, sideAspect, cardWidth, cardHeight, safeMargin);
+    return {
+      "--artwork-left": `${metrics.left}%`,
+      "--artwork-top": `${metrics.top}%`,
+      "--artwork-width": `${metrics.width}%`,
+      "--artwork-height": `${metrics.height}%`,
+    } as CSSProperties;
+  }
 
   function downloadPreview() {
     if (!pdfPreview) return;
@@ -189,6 +198,19 @@ export function BusinessCardTemplatePage() {
     if (key === "ArrowDown") updatePlacement(side, { y: clamp(current.y + step, 0, 1) });
   }
 
+  function renderCard(side: Side, index = 0, editable = true) {
+    const image = side === "front" ? frontUrl : backUrl;
+    const file = side === "front" ? front : back;
+    const setAspect = side === "front" ? setFrontAspect : setBackAspect;
+    return <div className="business-card-cell" style={artworkStyle(side)} key={`${side}-${index}`}><span className="business-card-trim" /><div className="business-card-safe">{image ? editable ? <button className="business-card-artwork is-editable" type="button" aria-label={`Move ${side} image. Use drag or arrow keys.`} onPointerDown={(event) => startDrag(event, side)} onPointerMove={moveArtwork} onPointerUp={() => { dragRef.current = null; }} onPointerCancel={() => { dragRef.current = null; }} onKeyDown={(event) => { if (event.key.startsWith("Arrow")) { event.preventDefault(); nudgeArtwork(side, event.key); } }}><img src={image} alt="" onLoad={(event) => setAspect(event.currentTarget.naturalWidth / event.currentTarget.naturalHeight)} draggable={false} /></button> : <span className="business-card-artwork" aria-hidden="true"><img src={image} alt="" draggable={false} /></span> : <div className="business-card-placeholder"><span>{side.toUpperCase()}</span><strong>{index + 1}</strong><small>{file?.name ?? "Image required"}</small></div>}</div></div>;
+  }
+
+  const proofHeading = viewMode === "sheet"
+    ? { eyebrow: "LIVE SHEET PROOF", title: workspaceError ?? `${layout.columns} × ${layout.rows} grid · ${layout.count} cards per sheet` }
+    : viewMode === "card"
+      ? { eyebrow: "1:1 CARD VIEW", title: `${activeSide === "front" ? "Front" : "Back"} master · ${cardWidth} × ${cardHeight} mm` }
+      : { eyebrow: "FRONT / BACK REVIEW", title: "Shared geometry · independent artwork" };
+
   return (
     <form className="business-card-studio" onSubmit={generate} noValidate>
       <header className="business-card-studio__header">
@@ -206,11 +228,11 @@ export function BusinessCardTemplatePage() {
         </aside>
 
         <main className="business-card-proof">
-          <header><div><span className="numeric">LIVE SHEET PROOF</span><h2>{workspaceError ?? `${layout.columns} × ${layout.rows} grid · ${layout.count} cards per sheet`}</h2></div><div className="business-card-proof-tools"><div className="business-card-zoom" role="group" aria-label="Canvas zoom"><button type="button" onClick={() => setCanvasZoom((value) => clamp(value - .25, .5, 2.5))} disabled={canvasZoom <= .5} aria-label="Zoom canvas out">−</button><output>{Math.round(canvasZoom * 100)}%</output><button type="button" onClick={() => setCanvasZoom((value) => clamp(value + .25, .5, 2.5))} disabled={canvasZoom >= 2.5} aria-label="Zoom canvas in">+</button><button type="button" onClick={() => setCanvasZoom(1)}>Fit</button></div><div className="business-card-side-tabs" role="group" aria-label="Preview side"><button type="button" className={activeSide === "front" ? "is-active" : ""} onClick={() => setActiveSide("front")}>Front</button><button type="button" className={activeSide === "back" ? "is-active" : ""} onClick={() => setActiveSide("back")}>Back</button></div></div></header>
+          <header><div><span className="numeric">{proofHeading.eyebrow}</span><h2>{proofHeading.title}</h2></div><div className="business-card-proof-tools"><div className="business-card-view-tabs" role="group" aria-label="Canvas view"><button type="button" className={viewMode === "sheet" ? "is-active" : ""} aria-pressed={viewMode === "sheet"} onClick={() => setViewMode("sheet")}>Sheet</button><button type="button" className={viewMode === "card" ? "is-active" : ""} aria-pressed={viewMode === "card"} title="Single-card design view" onClick={() => setViewMode("card")}>1:1 Card</button><button type="button" className={viewMode === "compare" ? "is-active" : ""} aria-pressed={viewMode === "compare"} onClick={() => setViewMode("compare")}>Front / Back</button></div><div className="business-card-zoom" role="group" aria-label="Canvas zoom"><button type="button" onClick={() => setCanvasZoom((value) => clamp(value - .25, .5, 2.5))} disabled={canvasZoom <= .5} aria-label="Zoom canvas out">−</button><output>{Math.round(canvasZoom * 100)}%</output><button type="button" onClick={() => setCanvasZoom((value) => clamp(value + .25, .5, 2.5))} disabled={canvasZoom >= 2.5} aria-label="Zoom canvas in">+</button><button type="button" onClick={() => setCanvasZoom(1)}>Fit</button></div>{viewMode !== "compare" && <div className="business-card-side-tabs" role="group" aria-label="Preview side"><button type="button" className={activeSide === "front" ? "is-active" : ""} onClick={() => setActiveSide("front")}>Front</button><button type="button" className={activeSide === "back" ? "is-active" : ""} onClick={() => setActiveSide("back")}>Back</button></div>}</div></header>
           <div className="business-card-proof__stage" style={previewStyle}>
-            <div className={`business-card-sheet is-${activeSide}${cropMarks ? " has-marks" : ""}`}>
-              {layout.count > 0 && <div className="business-card-grid">{Array.from({ length: layout.count }, (_, index) => <div className="business-card-cell" key={index}><span className="business-card-trim" /><div className="business-card-safe">{previewImage ? index === 0 ? <button className="business-card-artwork is-editable" type="button" aria-label={`Move ${activeSide} image. Use drag or arrow keys.`} onPointerDown={(event) => startDrag(event, activeSide)} onPointerMove={moveArtwork} onPointerUp={() => { dragRef.current = null; }} onPointerCancel={() => { dragRef.current = null; }} onKeyDown={(event) => { if (event.key.startsWith("Arrow")) { event.preventDefault(); nudgeArtwork(activeSide, event.key); } }}><img src={previewImage} alt="" onLoad={(event) => (activeSide === "front" ? setFrontAspect : setBackAspect)(event.currentTarget.naturalWidth / event.currentTarget.naturalHeight)} draggable={false} /></button> : <span className="business-card-artwork" aria-hidden="true"><img src={previewImage} alt="" draggable={false} /></span> : <div className="business-card-placeholder"><span>{activeSide.toUpperCase()}</span><strong>{index + 1}</strong><small>{previewFile?.name ?? "Image required"}</small></div>}</div></div>)}</div>}
-            </div>
+            {viewMode === "sheet" && <div className={`business-card-sheet is-${activeSide}${cropMarks ? " has-marks" : ""}`}>{layout.count > 0 && <div className="business-card-grid">{Array.from({ length: layout.count }, (_, index) => renderCard(activeSide, index, index === 0))}</div>}</div>}
+            {viewMode === "card" && <section className="business-card-focus-view" aria-label={`${activeSide} single-card design view`}><div className="business-card-view-label"><span>{activeSide}</span><small>Drag artwork inside the dashed safe area</small></div><div className={`business-card-focus-card${cropMarks ? " has-marks" : ""}`}>{renderCard(activeSide)}</div></section>}
+            {viewMode === "compare" && <div className="business-card-compare-view">{(["front", "back"] as Side[]).map((side) => <section key={side}><div className="business-card-view-label"><span>{side}</span><small>Select and drag to edit this side</small></div><div className={`business-card-compare-card${cropMarks ? " has-marks" : ""}`}>{renderCard(side)}</div></section>)}</div>}
           </div>
           <footer><span><b>{sheetWidth} × {sheetHeight} mm</b>Sheet</span><span><b>{cardWidth} × {cardHeight} mm</b>Finished card</span><span><b>{safeMargin} mm</b>Safe margin</span><span><b>{offsetX >= 0 ? "+" : ""}{offsetX} / {offsetY >= 0 ? "+" : ""}{offsetY} mm</b>Back X / Y</span></footer>
           {(submitted && (!front || !back)) && <p className="business-card-error" role="alert">Choose both front and back artwork before generating the PDF.</p>}

@@ -22,6 +22,20 @@ class PrinterPlatformRead(CamelModel):
     adapter: Literal["windows_spooler", "cups"]
 
 
+class PrinterDefaultsRead(CamelModel):
+    supported: bool
+    message: str
+    orientation: Literal["auto", "portrait", "landscape"] = "auto"
+    color_mode: Literal["color", "grayscale"] = "color"
+    quality: Literal["auto", "draft", "standard", "high"] = "auto"
+    copies: int = 1
+    collate: bool = True
+    duplex: str = "default"
+    paper_name: str | None = None
+    paper_width_mm: float | None = None
+    paper_height_mm: float | None = None
+
+
 class ObservedPrintJobRead(CamelModel):
     id: str
     os_job_id: str
