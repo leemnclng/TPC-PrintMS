@@ -7,11 +7,12 @@ from math import ceil
 from pathlib import Path
 import re
 import shutil
+from typing import Literal
 from uuid import uuid4
 
 import pymupdf
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import ValidationError
 from sqlalchemy import case, func, or_, update
 from sqlalchemy.orm import Session, selectinload
@@ -91,6 +92,7 @@ from ..services.product_pricing import (
     reference_price_per_page,
     resolve_scan_price_per_page,
 )
+from ..services.sales_documents import SalesDocument, SalesDocumentLine, build_sales_document_pdf, pdf_to_png
 
 router = APIRouter(prefix="/job-orders", tags=["job-orders"], dependencies=[Depends(require_token)])
 analysis_service = AnalysisService()
@@ -461,6 +463,54 @@ def get_job_order(job_order_id: str, db: Session = Depends(get_db)) -> JobOrderR
     if not job_order:
         raise HTTPException(status_code=404, detail="Job order not found.")
     return _to_read(job_order)
+
+
+@router.get("/{job_order_id}/receipt")
+def download_job_order_receipt(
+    job_order_id: str,
+    format: Literal["pdf", "png"] = Query(default="pdf"),
+    db: Session = Depends(get_db),
+) -> Response:
+    job_order = db.get(JobOrder, job_order_id)
+    if job_order is None:
+        raise HTTPException(status_code=404, detail="Job order not found.")
+    amount_paid = round(sum(payment.amount for payment in job_order.payments if payment.verified and payment.voided_at is None), 2)
+    payment_note = None
+    verified_payments = [payment for payment in job_order.payments if payment.verified and payment.voided_at is None]
+    if verified_payments:
+        payment_note = "Payments: " + ", ".join(
+            f"{payment.method.value.replace('_', ' ').title()} {payment.amount:,.2f}"
+            for payment in verified_payments
+        )
+    notes = " | ".join(value for value in (job_order.notes, payment_note) if value) or None
+    document = SalesDocument(
+        kind="Receipt",
+        number=job_order.number,
+        customer_name=job_order.customer.display_name if job_order.customer else "Walk-in customer",
+        issued_at=job_order.created_at,
+        status="paid" if amount_paid >= job_order.total else job_order.status.value,
+        notes=notes,
+        subtotal=_job_subtotal(job_order),
+        discount_name=job_order.discount_name,
+        discount_amount=job_order.discount_amount,
+        total=job_order.total,
+        amount_paid=amount_paid,
+        lines=[SalesDocumentLine(
+            label=f"{item.product.name}{' (Cancelled)' if item.status == 'cancelled' else ''}",
+            detail=" | ".join(value for value in (
+                item.product.service.name,
+                item.variant_label,
+                f"{item.pages_per_copy} page(s) x {item.copies} cop{'y' if item.copies == 1 else 'ies'}",
+            ) if value),
+            quantity=item.copies,
+            unit_price=round(item.line_total / max(item.copies, 1), 2),
+            total=item.line_total,
+        ) for item in job_order.items],
+    )
+    pdf = build_sales_document_pdf(document, db.query(BusinessProfile).first())
+    content = pdf if format == "pdf" else pdf_to_png(pdf)
+    media_type = "application/pdf" if format == "pdf" else "image/png"
+    return Response(content=content, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{job_order.number.lower()}-receipt.{format}"'})
 
 
 @router.post("/from-photocopy", response_model=JobOrderRead, status_code=201)

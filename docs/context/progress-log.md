@@ -1,5 +1,17 @@
 # Progress Log
 
+## 2026-09-23 (interactive images-to-PDF tool)
+
+- Summary: Added a temporary multi-image page composer and corrected the quotation workspace's wide-screen header proportions.
+- Completed: Multi-file intake, automatic one/multi-page layouts, page navigation, manual drag/resize, image fitting, bounded backend PDF rendering, preview, and download.
+- Verified: Tools API tests cover multipage geometry and placement; renderer/desktop typechecks and renderer lint pass.
+
+## 2026-09-22 (sales document exports)
+
+- Summary: Added customer-facing receipts and restored quotation authoring as a focused Tools utility.
+- Completed: Branded multipage PDF rendering, combined-page PNG rendering, job receipt actions, generate-only quotation export with free-text prospects and searchable products, and responsive container libraries for Tools and Templates.
+- Verified: Receipt and quotation PDFs were rendered and visually inspected; totals, discounts, payment balances, page geometry, and image export have regression coverage. All 78 API tests pass; renderer lint/build and desktop build pass.
+
 ## 2026-09-22 (Tools and file enhancement)
 
 - Summary: Added an extensible Tools section and a complete standalone PDF/image restoration workflow.

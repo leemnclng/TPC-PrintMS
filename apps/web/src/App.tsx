@@ -21,6 +21,8 @@ import { TemplatesPage } from "./pages/TemplatesPage";
 import { ToolsPage } from "./pages/ToolsPage";
 import { BusinessCardTemplatePage } from "./pages/templates/BusinessCardTemplatePage";
 import { FileEnhancerPage } from "./pages/tools/FileEnhancerPage";
+import { QuotationToolPage } from "./pages/tools/QuotationToolPage";
+import { ImageLayoutToolPage } from "./pages/tools/ImageLayoutToolPage";
 
 import { JobOrderWorkspace } from "./pages/workspaces/JobOrderWorkspace";
 import { ProductWorkspace } from "./pages/workspaces/ProductWorkspace";
@@ -44,6 +46,8 @@ export default function App() {
         <Route path="templates/business-card" element={<BusinessCardTemplatePage />} />
         <Route path="tools" element={<ToolsPage />} />
         <Route path="tools/enhancer" element={<FileEnhancerPage />} />
+        <Route path="tools/quotation" element={<QuotationToolPage />} />
+        <Route path="tools/images-to-pdf" element={<ImageLayoutToolPage />} />
         <Route path="document-analyzer" element={<DocumentAnalyzerPage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="inventory/stocks" element={<StockPurchasesPage />} />

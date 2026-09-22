@@ -5,6 +5,11 @@
 - `/tools` is the extensible production-utility library, separate from reusable sheet Templates and job-bound Print Setup.
 - `/tools/enhancer` accepts local PDF and common image sources up to 25 MB. It provides restoration presets plus auto correction, near-white background cleanup, median denoise, unsharp-mask sharpening, tone/color controls, grayscale, 150/300-DPI rendering, and optional 2x upscaling.
 - The workspace shows original and processed files side by side and downloads a new PDF or PNG. PDF physical page sizes and page count are retained, while content is intentionally flattened because enhancement operates on pixels.
+- `/tools/quotation` generates temporary PDF/PNG quotations from free-text prospect details and searchable catalog products. It does not create customer or quotation records; accepted quotes enter the normal customer/job-order workflow later.
+- `/tools/images-to-pdf` composes multiple local images onto A4 or Letter pages. Automatic single-page, one-per-page, 2-up, and 4-up flows remain manually adjustable through page assignment, dragging, resizing, and contain/cover fit before PDF preview and download.
+- The Tools and Templates landing pages are responsive container libraries: featured cards open isolated workspaces, while placeholder containers communicate where future utilities and calibrated formats will be added.
+
+Job-order workspaces expose PDF and PNG receipt downloads. Documents use the persisted line totals, whole-order discount snapshot, verified non-voided payments, customer, and business profile so later catalog changes cannot rewrite the historical transaction.
 
 Track app features and expected behavior.
 

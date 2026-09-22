@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
 from io import BytesIO
 from math import ceil
 from pathlib import Path
+from typing import Literal
 
 import pymupdf
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps, UnidentifiedImageError
+from pydantic import BaseModel, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from ..core.security import require_token
@@ -20,6 +23,28 @@ MAX_PDF_PAGES = 30
 MAX_PAGE_PIXELS = 40_000_000
 MAX_TOTAL_PIXELS = 160_000_000
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
+MAX_LAYOUT_IMAGES = 40
+MAX_LAYOUT_PAGES = 40
+MAX_LAYOUT_TOTAL_BYTES = 100 * 1024 * 1024
+
+
+class ImageLayoutPlacement(BaseModel):
+    image_index: int = Field(ge=0)
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+    fit: Literal["contain", "cover"] = "contain"
+
+
+class ImageLayoutPage(BaseModel):
+    items: list[ImageLayoutPlacement] = Field(default_factory=list, max_length=40)
+
+
+class ImageLayoutRequest(BaseModel):
+    page_width_mm: float = Field(ge=50, le=500)
+    page_height_mm: float = Field(ge=50, le=500)
+    pages: list[ImageLayoutPage] = Field(min_length=1, max_length=MAX_LAYOUT_PAGES)
 
 
 def _flatten_to_rgb(image: Image.Image) -> Image.Image:
@@ -110,6 +135,97 @@ def _png_bytes(image: Image.Image, dpi: int) -> bytes:
     stream = BytesIO()
     image.save(stream, format="PNG", optimize=True, dpi=(dpi, dpi))
     return stream.getvalue()
+
+
+def _crop_to_ratio(image: Image.Image, ratio: float) -> Image.Image:
+    source_ratio = image.width / image.height
+    if source_ratio > ratio:
+        width = max(1, round(image.height * ratio))
+        left = (image.width - width) // 2
+        return image.crop((left, 0, left + width, image.height))
+    height = max(1, round(image.width / ratio))
+    top = (image.height - height) // 2
+    return image.crop((0, top, image.width, top + height))
+
+
+def _build_image_layout_pdf(filenames: list[str], sources: list[bytes], layout: ImageLayoutRequest) -> bytes:
+    images: list[Image.Image] = []
+    encoded: dict[tuple[int, str, int], bytes] = {}
+    total_pixels = 0
+    try:
+        for filename, data in zip(filenames, sources, strict=True):
+            if Path(filename).suffix.lower() not in IMAGE_SUFFIXES:
+                raise ValueError("Choose PNG, JPEG, WebP, BMP, or TIFF images only.")
+            try:
+                source = Image.open(BytesIO(data))
+                source.load()
+                image = _flatten_to_rgb(source)
+                source.close()
+            except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as error:
+                raise ValueError(f"{filename} could not be opened as an image.") from error
+            pixels = image.width * image.height
+            if pixels > MAX_PAGE_PIXELS:
+                image.close()
+                raise ValueError(f"{filename} exceeds the 40-megapixel image safety limit.")
+            total_pixels += pixels
+            if total_pixels > MAX_TOTAL_PIXELS:
+                image.close()
+                raise ValueError("The selected images exceed the 160-megapixel combined safety limit.")
+            images.append(image)
+
+        for page in layout.pages:
+            for item in page.items:
+                if item.image_index >= len(images):
+                    raise ValueError("The page layout refers to a missing image.")
+                if item.x + item.width > 1.000001 or item.y + item.height > 1.000001:
+                    raise ValueError("Keep every image inside the page boundary.")
+
+        width_points = layout.page_width_mm * 72 / 25.4
+        height_points = layout.page_height_mm * 72 / 25.4
+        output = pymupdf.open()
+        try:
+            for layout_page in layout.pages:
+                page = output.new_page(width=width_points, height=height_points)
+                for item in layout_page.items:
+                    image = images[item.image_index]
+                    rect = pymupdf.Rect(
+                        item.x * width_points,
+                        item.y * height_points,
+                        (item.x + item.width) * width_points,
+                        (item.y + item.height) * height_points,
+                    )
+                    if item.fit == "contain":
+                        source_ratio = image.width / image.height
+                        target_ratio = rect.width / rect.height
+                        if source_ratio > target_ratio:
+                            rendered_height = rect.width / source_ratio
+                            inset = (rect.height - rendered_height) / 2
+                            rect.y0 += inset
+                            rect.y1 -= inset
+                        else:
+                            rendered_width = rect.height * source_ratio
+                            inset = (rect.width - rendered_width) / 2
+                            rect.x0 += inset
+                            rect.x1 -= inset
+                        cache_key = (item.image_index, "contain", 0)
+                        if cache_key not in encoded:
+                            encoded[cache_key] = _png_bytes(image, 300)
+                    else:
+                        ratio_key = round(rect.width / rect.height * 10_000)
+                        cache_key = (item.image_index, "cover", ratio_key)
+                        if cache_key not in encoded:
+                            cropped = _crop_to_ratio(image, rect.width / rect.height)
+                            try:
+                                encoded[cache_key] = _png_bytes(cropped, 300)
+                            finally:
+                                cropped.close()
+                    page.insert_image(rect, stream=encoded[cache_key], keep_proportion=False)
+            return output.tobytes(garbage=4, deflate=True)
+        finally:
+            output.close()
+    finally:
+        for image in images:
+            image.close()
 
 
 def _build_enhanced_file(
@@ -224,5 +340,46 @@ async def enhance_file(
         headers={
             "Content-Disposition": f'attachment; filename="{output_name}"',
             "X-Enhanced-Pages": str(page_count),
+        },
+    )
+
+
+@router.post("/image-layout/pdf")
+async def create_image_layout_pdf(
+    files: list[UploadFile] = File(...),
+    layout_json: str = Form(...),
+) -> Response:
+    if not files or len(files) > MAX_LAYOUT_IMAGES:
+        raise HTTPException(status_code=422, detail=f"Choose between 1 and {MAX_LAYOUT_IMAGES} images.")
+    try:
+        layout = ImageLayoutRequest.model_validate(json.loads(layout_json))
+    except (json.JSONDecodeError, ValidationError) as error:
+        raise HTTPException(status_code=422, detail="The image page layout is invalid.") from error
+    filenames: list[str] = []
+    sources: list[bytes] = []
+    total_bytes = 0
+    for file in files:
+        data = await file.read(MAX_SOURCE_BYTES + 1)
+        filename = Path(file.filename or "image").name
+        await file.close()
+        if not data:
+            raise HTTPException(status_code=422, detail=f"{filename} is empty.")
+        if len(data) > MAX_SOURCE_BYTES:
+            raise HTTPException(status_code=413, detail=f"{filename} must be 25 MB or smaller.")
+        total_bytes += len(data)
+        if total_bytes > MAX_LAYOUT_TOTAL_BYTES:
+            raise HTTPException(status_code=413, detail="The selected images must total 100 MB or less.")
+        filenames.append(filename)
+        sources.append(data)
+    try:
+        content = await run_in_threadpool(_build_image_layout_pdf, filenames, sources, layout)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="image-layout.pdf"',
+            "X-Layout-Pages": str(len(layout.pages)),
         },
     )

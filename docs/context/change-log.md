@@ -1,5 +1,19 @@
 # Change Log
 
+## 2026-09-23 (image page composer)
+
+- Added: Tools now includes an Images to PDF composition desk for combining up to 40 pictures across A4 or Letter pages.
+- Added: One-page, one-image-per-page, 2-up, and 4-up automatic flows, plus manual page assignment, drag positioning, frame resizing, and fit-whole/fill-frame controls.
+- Added: Generated PDFs open in the existing continuous PDF preview before download; source images and layouts are not persisted.
+- Fixed: The Quotation Builder hero now uses bounded typography, a wider description measure, and a stable title/total grid so wide windows no longer produce an oversized, unbalanced banner.
+
+## 2026-09-22 (receipts, quotations, and container libraries)
+
+- Added: Every job workspace can download a branded, itemized receipt as PDF or PNG, including customer, products, discount, payments, balance, and business-profile contact details.
+- Added: Tools now includes a generate-only Quotation Builder with free-text customer details, searchable catalog products, editable quantities and unit prices, optional validity/terms, and direct PDF/PNG export.
+- Redesigned: Tools and Templates now use responsive container-card libraries with featured workspaces and reserved future-tool/template slots.
+- Preserved: Generating a quotation does not register a customer or save quotation history; the owner can register the customer later if the quote proceeds to a job.
+
 ## 2026-09-22 (standalone PDF and image enhancer)
 
 - Added: A new Tools navigation area designed to hold independent production utilities.

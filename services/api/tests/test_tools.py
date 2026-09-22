@@ -1,4 +1,5 @@
 from io import BytesIO
+import json
 
 import pymupdf
 from fastapi import FastAPI
@@ -75,3 +76,37 @@ def test_enhancer_rejects_unsupported_file() -> None:
     )
     assert response.status_code == 422
     assert "Choose a PDF" in response.json()["detail"]
+
+
+def test_image_layout_builds_interactive_multipage_pdf() -> None:
+    layout = {
+        "page_width_mm": 210,
+        "page_height_mm": 297,
+        "pages": [
+            {"items": [
+                {"image_index": 0, "x": .05, "y": .05, "width": .9, "height": .42, "fit": "contain"},
+                {"image_index": 1, "x": .05, "y": .52, "width": .9, "height": .43, "fit": "cover"},
+            ]},
+            {"items": [{"image_index": 0, "x": .1, "y": .1, "width": .8, "height": .8, "fit": "cover"}]},
+        ],
+    }
+    response = _client().post(
+        "/tools/image-layout/pdf",
+        headers={"X-Print-MS-Token": settings.token},
+        files=[
+            ("files", ("first.png", _png((160, 90)), "image/png")),
+            ("files", ("second.png", _png((90, 160)), "image/png")),
+        ],
+        data={"layout_json": json.dumps(layout)},
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["x-layout-pages"] == "2"
+    document = pymupdf.open(stream=response.content, filetype="pdf")
+    try:
+        assert document.page_count == 2
+        assert round(document[0].rect.width, 1) == round(210 * 72 / 25.4, 1)
+        assert round(document[0].rect.height, 1) == round(297 * 72 / 25.4, 1)
+        assert len(document[0].get_images()) == 2
+        assert len(document[1].get_images()) == 1
+    finally:
+        document.close()

@@ -1,5 +1,23 @@
 # Decisions
 
+## 2026-09-23 — Keep image composition temporary and page-relative
+
+- Decision: Store each image frame as page-relative coordinates and send the draft plus source files directly to the PDF renderer without saving either.
+- Rationale: Relative geometry makes the live canvas and exported A4/Letter pages agree at every screen size, while a utility draft does not belong in operational records.
+- Impact: Users can reflow or manually arrange up to 40 images across up to 40 pages, preview the PDF, and download it. Closing or refreshing the tool discards the composition.
+
+## 2026-09-22 — Keep quotation generation separate from customer and job records
+
+- Decision: Add a generate-only quotation utility under Tools. Customer details are typed directly, products come from the searchable catalog, and the owner explicitly confirms quantities and selling prices.
+- Rationale: Prospects should not be registered as customers before accepting a quote, and a temporary document does not need a status ledger or durable application record.
+- Impact: PDF/PNG generation performs no database writes. If the quote proceeds, the owner registers the customer and creates the job through the normal workflow.
+
+## 2026-09-22 — Generate receipts from immutable job snapshots
+
+- Decision: Build receipt documents from saved job lines, job-level discount snapshots, verified non-voided payments, and the current business profile; never recalculate catalog pricing during export.
+- Rationale: A receipt must reconcile with the transaction the customer paid, even after catalog or discount templates change.
+- Impact: Receipts are available as PDF and PNG from each job. Unpaid jobs show their current balance and status rather than falsely presenting themselves as paid.
+
 ## 2026-09-22 — Enhancement creates a flattened copy and never modifies the source
 
 - Decision: Run enhancement locally, export images as lossless PNG, and rebuild PDFs as page-sized enhanced raster images while preserving page geometry.

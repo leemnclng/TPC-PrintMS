@@ -180,6 +180,21 @@ export function JobOrderWorkspace() {
     }
   }
 
+  async function downloadReceipt(format: "pdf" | "png") {
+    setDownloadError(null);
+    try {
+      const blob = await api.download(`/job-orders/${order.id}/receipt?format=${format}`);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${order.number.toLowerCase()}-receipt.${format}`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setDownloadError(caught instanceof Error ? caught.message : "The receipt could not be downloaded.");
+    }
+  }
+
   async function transitionItem(item: JobOrderItem, toStatus: "queued" | "ready") {
     setBusyItemId(item.id);
     setItemActionError(null);
@@ -242,7 +257,7 @@ export function JobOrderWorkspace() {
 
       <div className="job-command-grid">
         <Card>
-          <CardHeader title="Transaction" meta={order.customerName || "Walk-in"} action={["queued", "printing", "ready"].includes(order.status) && order.amountPaid === 0 ? <Button size="sm" variant="secondary" onClick={() => setDiscountOpen(true)}>{order.discountAmount ? "Edit discount" : "Apply discount"}</Button> : undefined} />
+          <CardHeader title="Transaction" meta={order.customerName || "Walk-in"} action={<div className="job-receipt-actions"><Button size="sm" variant="ghost" onClick={() => downloadReceipt("pdf")}>Receipt PDF</Button><Button size="sm" variant="ghost" onClick={() => downloadReceipt("png")}>Receipt image</Button>{["queued", "printing", "ready"].includes(order.status) && order.amountPaid === 0 ? <Button size="sm" variant="secondary" onClick={() => setDiscountOpen(true)}>{order.discountAmount ? "Edit discount" : "Apply discount"}</Button> : null}</div>} />
           <dl className="job-essential-facts">
             <div className="is-primary"><dt>Final price</dt><dd>{formatCurrency(order.total)}</dd></div>
             <div><dt>Paid</dt><dd>{formatCurrency(order.amountPaid)}</dd></div>
