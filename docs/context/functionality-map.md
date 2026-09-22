@@ -1,5 +1,11 @@
 # Functionality Map
 
+## Tools
+
+- `/tools` is the extensible production-utility library, separate from reusable sheet Templates and job-bound Print Setup.
+- `/tools/enhancer` accepts local PDF and common image sources up to 25 MB. It provides restoration presets plus auto correction, near-white background cleanup, median denoise, unsharp-mask sharpening, tone/color controls, grayscale, 150/300-DPI rendering, and optional 2x upscaling.
+- The workspace shows original and processed files side by side and downloads a new PDF or PNG. PDF physical page sizes and page count are retained, while content is intentionally flattened because enhancement operates on pixels.
+
 Track app features and expected behavior.
 
 ## Current Functionality

@@ -1,5 +1,11 @@
 # Progress Log
 
+## 2026-09-22 (Tools and file enhancement)
+
+- Summary: Added an extensible Tools section and a complete standalone PDF/image restoration workflow.
+- Completed: Local enhancement API, presets and manual controls, resolution/upscale limits, before/after PDF/image previews, and downloadable PDF/PNG copies.
+- Verified: Enhanced PDFs retain page dimensions and page count; rendered output was visually inspected. All 76 API tests pass; renderer lint and production build pass; desktop build passes.
+
 ## 2026-09-20 — Idle background-work optimization
 
 - Replaced overlapping fixed renderer intervals with one shared health poll and adaptive print/spooler polling that stops while the window is hidden, slows when idle, and backs off after failures.

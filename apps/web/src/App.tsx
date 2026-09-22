@@ -18,7 +18,9 @@ import { ConfigurationPage } from "./pages/ConfigurationPage";
 import { PricingCenterPage } from "./pages/PricingCenterPage";
 import { PricingOverviewWindow } from "./pages/PricingOverviewWindow";
 import { TemplatesPage } from "./pages/TemplatesPage";
+import { ToolsPage } from "./pages/ToolsPage";
 import { BusinessCardTemplatePage } from "./pages/templates/BusinessCardTemplatePage";
+import { FileEnhancerPage } from "./pages/tools/FileEnhancerPage";
 
 import { JobOrderWorkspace } from "./pages/workspaces/JobOrderWorkspace";
 import { ProductWorkspace } from "./pages/workspaces/ProductWorkspace";
@@ -40,6 +42,8 @@ export default function App() {
         <Route path="print-center" element={<PrintCenterPage />} />
         <Route path="templates" element={<TemplatesPage />} />
         <Route path="templates/business-card" element={<BusinessCardTemplatePage />} />
+        <Route path="tools" element={<ToolsPage />} />
+        <Route path="tools/enhancer" element={<FileEnhancerPage />} />
         <Route path="document-analyzer" element={<DocumentAnalyzerPage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="inventory/stocks" element={<StockPurchasesPage />} />

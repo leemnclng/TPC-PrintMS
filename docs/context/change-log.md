@@ -1,5 +1,12 @@
 # Change Log
 
+## 2026-09-22 (standalone PDF and image enhancer)
+
+- Added: A new Tools navigation area designed to hold independent production utilities.
+- Added: The first tool, PDF & Image Enhancer, with clean-scan, photo-clarity, and soft-artwork presets; auto correction; background cleanup; denoise; sharpening; brightness, contrast, saturation, warmth, grayscale, 150/300-DPI output, and 2x upscaling.
+- Added: Side-by-side original/enhanced proofing and downloadable enhanced PDF or lossless PNG output. Source files remain unchanged and processing stays on the local Print-MS backend.
+- Guarded: Files are limited to 25 MB, PDFs to 30 pages, and rendered output to bounded page/total pixel counts to prevent large enhancement jobs from exhausting the workstation.
+
 ## 2026-09-20
 
 - Optimized: Background health, print-activity, and spooler checks now pause when OMS is hidden and use slower idle intervals. Windows printer querying returns to fast updates only during an active job.

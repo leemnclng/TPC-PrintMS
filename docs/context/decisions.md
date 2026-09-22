@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-09-22 — Enhancement creates a flattened copy and never modifies the source
+
+- Decision: Run enhancement locally, export images as lossless PNG, and rebuild PDFs as page-sized enhanced raster images while preserving page geometry.
+- Rationale: Denoising, background cleanup, sharpening, and upscaling are pixel operations. Flattening makes the preview and exported print result deterministic across PDFs and image formats.
+- Impact: Enhanced PDFs no longer contain selectable text, editable forms, vector artwork, links, or layers. The UI states this before processing, retains the original in memory unchanged, and applies size/page/pixel safety limits for lower-powered workstations.
+
 ## 2026-09-20 — Poll according to visible work
 
 - Pause renderer polling while the document is hidden and refresh immediately when it becomes visible again.

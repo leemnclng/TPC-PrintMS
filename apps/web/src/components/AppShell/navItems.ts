@@ -31,6 +31,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: "Print Center", path: "/print-center", matchPrefix: "/print-center", icon: "printCenter" },
       { label: "Templates", path: "/templates", matchPrefix: "/templates", icon: "templates" },
+      { label: "Tools", path: "/tools", matchPrefix: "/tools", icon: "tools" },
       { label: "Document Analyzer", path: "/document-analyzer", matchPrefix: "/document-analyzer", icon: "documentAnalyzer" },
       { label: "Inventory", path: "/inventory", matchPrefix: "/inventory", icon: "inventory" },
       { label: "Maintenance", path: "/maintenance", matchPrefix: "/maintenance", icon: "maintenance" },
