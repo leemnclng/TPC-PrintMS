@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "../../components/Button/Button";
+import { DuplexModeControl } from "../../components/DuplexModeControl/DuplexModeControl";
 import { Modal } from "../../components/Modal/Modal";
 import { PdfViewer } from "../../components/PdfViewer/PdfViewer";
 import { ApiError, api } from "../../lib/apiClient";
@@ -33,6 +34,7 @@ export function BusinessCardTemplatePage() {
   const [offsetX, setOffsetX] = useState(defaults.offsetX);
   const [offsetY, setOffsetY] = useState(defaults.offsetY);
   const [cropMarks, setCropMarks] = useState(true);
+  const [manualDuplex, setManualDuplex] = useState(true);
   const [front, setFront] = useState<File | null>(null);
   const [back, setBack] = useState<File | null>(null);
   const [frontUrl, setFrontUrl] = useState<string | null>(null);
@@ -96,6 +98,7 @@ export function BusinessCardTemplatePage() {
     body.append("back_offset_x_mm", String(offsetX));
     body.append("back_offset_y_mm", String(offsetY));
     body.append("crop_marks", String(cropMarks));
+    body.append("manual_duplex", String(manualDuplex));
     body.append("front_position_x", String(frontPlacement.x));
     body.append("front_position_y", String(frontPlacement.y));
     body.append("front_scale_percent", String(frontPlacement.scale));
@@ -206,7 +209,7 @@ export function BusinessCardTemplatePage() {
   }
 
   const proofHeading = viewMode === "sheet"
-    ? { eyebrow: "LIVE SHEET PROOF", title: workspaceError ?? `${layout.columns} × ${layout.rows} grid · ${layout.count} cards per sheet` }
+    ? { eyebrow: "LIVE SHEET PROOF", title: workspaceError ?? `${layout.columns} × ${layout.rows} grid · ${layout.count} cards · ${manualDuplex ? "manual" : "auto-rotated"} back` }
     : viewMode === "card"
       ? { eyebrow: "1:1 CARD VIEW", title: `${activeSide === "front" ? "Front" : "Back"} master · ${cardWidth} × ${cardHeight} mm` }
       : { eyebrow: "FRONT / BACK REVIEW", title: "Shared geometry · independent artwork" };
@@ -214,7 +217,7 @@ export function BusinessCardTemplatePage() {
   return (
     <form className="business-card-studio" onSubmit={generate} noValidate>
       <header className="business-card-studio__header">
-        <div><Link to="/templates">← Templates</Link><span className="numeric">BUSINESS CARD / IMPOSITION 01</span><h1>Business Card</h1><p>Front and back share one measured grid and page orientation, ready to print as two separate sheets.</p></div>
+        <div><Link to="/templates">← Templates</Link><span className="numeric">BUSINESS CARD / IMPOSITION 01</span><h1>Business Card</h1><p>{manualDuplex ? "Front and back keep one measured orientation for separate printing and a manual sheet turn." : "The back page rotates 180° for automatic duplex printing."}</p></div>
         <Button type="submit" variant="primary" loading={generating} disabled={Boolean(workspaceError)}>Preview print-ready PDF</Button>
       </header>
 
@@ -223,8 +226,8 @@ export function BusinessCardTemplatePage() {
           <section><h2><span>01</span> Artwork</h2><ArtworkField label="Front image" file={front} onChange={(file) => { setFront(file); setFrontPlacement({ x: .5, y: .5, scale: 70 }); }} invalid={submitted && !front} /><ArtworkField label="Back image" file={back} onChange={(file) => { setBack(file); setBackPlacement({ x: .5, y: .5, scale: 70 }); }} invalid={submitted && !back} /></section>
           <section><h2><span>02</span> Finished size</h2><div className="business-card-fields business-card-fields--two"><NumberField label="Width" value={cardWidth} min={40} max={220} onChange={setCardWidth} /><NumberField label="Height" value={cardHeight} min={25} max={220} onChange={setCardHeight} /></div><button className="business-card-preset" type="button" onClick={() => { setCardWidth(90); setCardHeight(54); }}>Use 90 × 54 mm standard</button></section>
           <section><h2><span>03</span> Sheet & spacing</h2><label className="form-field"><span>Sheet</span><select value={sheet} onChange={(event) => setSheet(event.target.value)}><option value="a4-portrait">A4 · portrait</option><option value="a4-landscape">A4 · landscape</option><option value="letter-portrait">Letter · portrait</option><option value="letter-landscape">Letter · landscape</option></select></label><div className="business-card-fields business-card-fields--two"><NumberField label="Sheet margin" value={margin} min={0} max={50} onChange={setMargin} /><NumberField label="Card gap" value={gap} min={0} max={30} onChange={setGap} /><NumberField label="Bleed" value={bleed} min={0} max={10} onChange={setBleed} /><NumberField label="Safe margin" value={safeMargin} min={0} max={20} step={0.5} onChange={setSafeMargin} /></div></section>
-          <section className="business-card-position"><h2><span>04</span> Position image</h2><p className="business-card-controls__hint">Editing the {activeSide}. Drag the outlined image on the first card, use arrow keys for fine movement, or align it precisely. Both exported pages keep this same upright orientation.</p><label className="form-field"><span>Image size <output>{Math.round(placement.scale)}%</output></span><input type="range" min="10" max="100" value={placement.scale} onChange={(event) => updatePlacement(activeSide, { scale: Number(event.target.value) })} /></label><div className="business-card-align" aria-label="Align image"><button type="button" onClick={() => updatePlacement(activeSide, { x: 0 })}>Left</button><button type="button" onClick={() => updatePlacement(activeSide, { x: .5 })}>Center</button><button type="button" onClick={() => updatePlacement(activeSide, { x: 1 })}>Right</button><button type="button" onClick={() => updatePlacement(activeSide, { y: 0 })}>Top</button><button type="button" onClick={() => updatePlacement(activeSide, { y: .5 })}>Middle</button><button type="button" onClick={() => updatePlacement(activeSide, { y: 1 })}>Bottom</button></div></section>
-          <section><h2><span>05</span> Back alignment</h2><p className="business-card-controls__hint">Both pages use the same grid. Apply a small correction only if a separately printed test sheet shows a consistent back-side shift.</p><div className="business-card-fields business-card-fields--two"><NumberField label="Horizontal" value={offsetX} min={-10} max={10} step={0.1} onChange={setOffsetX} /><NumberField label="Vertical" value={offsetY} min={-10} max={10} step={0.1} onChange={setOffsetY} /></div><label className="business-card-check"><input type="checkbox" checked={cropMarks} onChange={(event) => setCropMarks(event.target.checked)} /><span><strong>Crop marks</strong><small>Print trim guides on both pages</small></span></label></section>
+          <section className="business-card-position"><h2><span>04</span> Position image</h2><p className="business-card-controls__hint">Editing the {activeSide}. Drag the outlined image on the first card, use arrow keys for fine movement, or align it precisely. The PDF applies the selected back-to-back mode at export.</p><label className="form-field"><span>Image size <output>{Math.round(placement.scale)}%</output></span><input type="range" min="10" max="100" value={placement.scale} onChange={(event) => updatePlacement(activeSide, { scale: Number(event.target.value) })} /></label><div className="business-card-align" aria-label="Align image"><button type="button" onClick={() => updatePlacement(activeSide, { x: 0 })}>Left</button><button type="button" onClick={() => updatePlacement(activeSide, { x: .5 })}>Center</button><button type="button" onClick={() => updatePlacement(activeSide, { x: 1 })}>Right</button><button type="button" onClick={() => updatePlacement(activeSide, { y: 0 })}>Top</button><button type="button" onClick={() => updatePlacement(activeSide, { y: .5 })}>Middle</button><button type="button" onClick={() => updatePlacement(activeSide, { y: 1 })}>Bottom</button></div></section>
+          <section><h2><span>05</span> Back alignment</h2><DuplexModeControl manual={manualDuplex} onChange={setManualDuplex} /><p className="business-card-controls__hint">Apply a small correction only if a test sheet shows a consistent reverse-side shift.</p><div className="business-card-fields business-card-fields--two"><NumberField label="Horizontal" value={offsetX} min={-10} max={10} step={0.1} onChange={setOffsetX} /><NumberField label="Vertical" value={offsetY} min={-10} max={10} step={0.1} onChange={setOffsetY} /></div><label className="business-card-check"><input type="checkbox" checked={cropMarks} onChange={(event) => setCropMarks(event.target.checked)} /><span><strong>Crop marks</strong><small>Print trim guides on both pages</small></span></label></section>
         </aside>
 
         <main className="business-card-proof">
@@ -234,13 +237,13 @@ export function BusinessCardTemplatePage() {
             {viewMode === "card" && <section className="business-card-focus-view" aria-label={`${activeSide} single-card design view`}><div className="business-card-view-label"><span>{activeSide}</span><small>Drag artwork inside the dashed safe area</small></div><div className={`business-card-focus-card${cropMarks ? " has-marks" : ""}`}>{renderCard(activeSide)}</div></section>}
             {viewMode === "compare" && <div className="business-card-compare-view">{(["front", "back"] as Side[]).map((side) => <section key={side}><div className="business-card-view-label"><span>{side}</span><small>Select and drag to edit this side</small></div><div className={`business-card-compare-card${cropMarks ? " has-marks" : ""}`}>{renderCard(side)}</div></section>)}</div>}
           </div>
-          <footer><span><b>{sheetWidth} × {sheetHeight} mm</b>Sheet</span><span><b>{cardWidth} × {cardHeight} mm</b>Finished card</span><span><b>{safeMargin} mm</b>Safe margin</span><span><b>{offsetX >= 0 ? "+" : ""}{offsetX} / {offsetY >= 0 ? "+" : ""}{offsetY} mm</b>Back X / Y</span></footer>
+          <footer><span><b>{sheetWidth} × {sheetHeight} mm</b>Sheet</span><span><b>{cardWidth} × {cardHeight} mm</b>Finished card</span><span><b>{safeMargin} mm</b>Safe margin</span><span><b>{manualDuplex ? "MANUAL" : "AUTO 180°"}</b>Back mode · {offsetX >= 0 ? "+" : ""}{offsetX} / {offsetY >= 0 ? "+" : ""}{offsetY} mm</span></footer>
           {(submitted && (!front || !back)) && <p className="business-card-error" role="alert">Choose both front and back artwork before generating the PDF.</p>}
           {workspaceError && <p className="business-card-error" role="alert">{workspaceError}</p>}
           {error && <p className="business-card-error" role="alert">{error} Your layout and artwork are still here; correct the issue and retry.</p>}
         </main>
       </div>
-      <Modal open={previewOpen && Boolean(pdfPreview)} title="Print-ready PDF preview" description="Review both same-orientation pages before downloading the final file." onClose={() => setPreviewOpen(false)} className="business-card-pdf-modal">
+      <Modal open={previewOpen && Boolean(pdfPreview)} title="Print-ready PDF preview" description={manualDuplex ? "Review both same-orientation pages before separate printing." : "Review the front and automatically rotated reverse page."} onClose={() => setPreviewOpen(false)} className="business-card-pdf-modal">
         {pdfPreview ? <div className="business-card-pdf-preview"><PdfViewer file={pdfPreview.file} filename={pdfPreview.file.name} downloadUrl={null} /><footer><Button type="button" variant="ghost" onClick={() => setPreviewOpen(false)}>Return to layout</Button><Button type="button" variant="primary" onClick={downloadPreview}>Download PDF</Button></footer></div> : null}
       </Modal>
     </form>

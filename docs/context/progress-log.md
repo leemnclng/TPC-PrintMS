@@ -1,5 +1,11 @@
 # Progress Log
 
+## 2026-09-23 (trifold template and duplex policy)
+
+- Summary: Added the second calibrated product template and made reverse-page orientation an explicit reusable choice.
+- Completed: Trifold outside/inside upload and positioning, fold proof, sheet/safe-margin controls, calibration, PDF preview/export, and shared Manual/Automatic duplex selection in both two-sided templates.
+- Verified: Template tests cover default manual output, optional automatic rotation, page geometry, and existing business-card imposition; renderer/desktop typechecks and renderer lint pass.
+
 ## 2026-09-23 (interactive images-to-PDF tool)
 
 - Summary: Added a temporary multi-image page composer and corrected the quotation workspace's wide-screen header proportions.

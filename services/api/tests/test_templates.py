@@ -16,6 +16,15 @@ def _png(color: str) -> bytes:
     return output.getvalue()
 
 
+def _split_png() -> bytes:
+    output = BytesIO()
+    image = Image.new("RGB", (900, 540), "red")
+    image.paste(Image.new("RGB", (900, 270), "blue"), (0, 270))
+    image.save(output, format="PNG")
+    image.close()
+    return output.getvalue()
+
+
 def test_business_card_template_generates_paired_imposed_pages() -> None:
     app = FastAPI()
     app.include_router(templates.router)
@@ -45,6 +54,7 @@ def test_business_card_template_generates_paired_imposed_pages() -> None:
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert response.headers["x-template-layout"] == "2x4"
+    assert response.headers["x-duplex-mode"] == "manual"
     document = pymupdf.open(stream=response.content, filetype="pdf")
     try:
         assert document.page_count == 2
@@ -95,3 +105,51 @@ def test_business_card_template_rejects_artwork_outside_safe_area() -> None:
 
     assert response.status_code == 422
     assert "safe area" in response.json()["detail"]
+
+
+def test_business_card_can_auto_rotate_the_back_page() -> None:
+    app = FastAPI()
+    app.include_router(templates.router)
+    response = TestClient(app).post(
+        "/templates/business-card/pdf",
+        headers={"X-Print-MS-Token": settings.token},
+        files={"front": ("front.png", _png("red"), "image/png"), "back": ("back.png", _split_png(), "image/png")},
+        data={"manual_duplex": "false", "crop_marks": "false"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["x-duplex-mode"] == "automatic"
+
+
+def test_trifold_brochure_defaults_to_manual_and_can_auto_rotate_inside() -> None:
+    app = FastAPI()
+    app.include_router(templates.router)
+    client = TestClient(app)
+    files = {"outside": ("outside.png", _png("white"), "image/png"), "inside": ("inside.png", _split_png(), "image/png")}
+    manual = client.post(
+        "/templates/trifold-brochure/pdf",
+        headers={"X-Print-MS-Token": settings.token},
+        files=files,
+        data={"fold_marks": "false"},
+    )
+    automatic = client.post(
+        "/templates/trifold-brochure/pdf",
+        headers={"X-Print-MS-Token": settings.token},
+        files=files,
+        data={"fold_marks": "false", "manual_duplex": "false"},
+    )
+    assert manual.status_code == automatic.status_code == 200
+    assert manual.headers["x-duplex-mode"] == "manual"
+    assert automatic.headers["x-duplex-mode"] == "automatic"
+    manual_pdf = pymupdf.open(stream=manual.content, filetype="pdf")
+    automatic_pdf = pymupdf.open(stream=automatic.content, filetype="pdf")
+    try:
+        assert manual_pdf.page_count == automatic_pdf.page_count == 2
+        assert round(manual_pdf[0].rect.width * 25.4 / 72) == 297
+        assert round(manual_pdf[0].rect.height * 25.4 / 72) == 210
+        manual_pixmap = manual_pdf[1].get_pixmap(dpi=72, colorspace=pymupdf.csRGB)
+        automatic_pixmap = automatic_pdf[1].get_pixmap(dpi=72, colorspace=pymupdf.csRGB)
+        top = (manual_pixmap.width // 2, 100)
+        assert manual_pixmap.pixel(*top) != automatic_pixmap.pixel(*top)
+    finally:
+        manual_pdf.close()
+        automatic_pdf.close()

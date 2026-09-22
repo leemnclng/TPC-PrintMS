@@ -8,6 +8,8 @@
 - `/tools/quotation` generates temporary PDF/PNG quotations from free-text prospect details and searchable catalog products. It does not create customer or quotation records; accepted quotes enter the normal customer/job-order workflow later.
 - `/tools/images-to-pdf` composes multiple local images onto A4 or Letter pages. Automatic single-page, one-per-page, 2-up, and 4-up flows remain manually adjustable through page assignment, dragging, resizing, and contain/cover fit before PDF preview and download.
 - The Tools and Templates landing pages are responsive container libraries: featured cards open isolated workspaces, while placeholder containers communicate where future utilities and calibrated formats will be added.
+- Two-sided templates share a Manual back-to-back switch. It defaults on for separately printed upright pages; turning it off applies a 180° reverse-page rotation for automatic duplex printers.
+- `/templates/trifold-brochure` lays out complete Outside and Inside artwork spreads on A4 or Letter landscape pages with thirds/fold guides, safe margins, drag/align/scale controls, inside calibration, PDF preview, and selectable duplex behavior.
 
 Job-order workspaces expose PDF and PNG receipt downloads. Documents use the persisted line totals, whole-order discount snapshot, verified non-voided payments, customer, and business profile so later catalog changes cannot rewrite the historical transaction.
 

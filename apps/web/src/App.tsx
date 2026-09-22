@@ -20,6 +20,7 @@ import { PricingOverviewWindow } from "./pages/PricingOverviewWindow";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { ToolsPage } from "./pages/ToolsPage";
 import { BusinessCardTemplatePage } from "./pages/templates/BusinessCardTemplatePage";
+import { TrifoldBrochureTemplatePage } from "./pages/templates/TrifoldBrochureTemplatePage";
 import { FileEnhancerPage } from "./pages/tools/FileEnhancerPage";
 import { QuotationToolPage } from "./pages/tools/QuotationToolPage";
 import { ImageLayoutToolPage } from "./pages/tools/ImageLayoutToolPage";
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="print-center" element={<PrintCenterPage />} />
         <Route path="templates" element={<TemplatesPage />} />
         <Route path="templates/business-card" element={<BusinessCardTemplatePage />} />
+        <Route path="templates/trifold-brochure" element={<TrifoldBrochureTemplatePage />} />
         <Route path="tools" element={<ToolsPage />} />
         <Route path="tools/enhancer" element={<FileEnhancerPage />} />
         <Route path="tools/quotation" element={<QuotationToolPage />} />

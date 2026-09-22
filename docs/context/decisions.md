@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-09-23 — Default two-sided templates to Manual without hard-coding it
+
+- Decision: Every current and future two-sided template uses the shared Manual back-to-back control, checked by default. Unchecking it rotates the reverse page 180° for automatic duplex printing.
+- Rationale: The shop's Canon G4770 requires a physical sheet reload, but templates should remain usable with duplex-capable printers without maintaining separate layout tools.
+- Impact: Business Card and Trifold Brochure export upright front/reverse pages by default. Automatic mode rotates both reverse artwork and its page-relative placement; calibration offsets remain available in either mode.
+
 ## 2026-09-23 — Keep image composition temporary and page-relative
 
 - Decision: Store each image frame as page-relative coordinates and send the draft plus source files directly to the PDF renderer without saving either.

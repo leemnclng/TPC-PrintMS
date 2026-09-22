@@ -1,5 +1,11 @@
 # Change Log
 
+## 2026-09-23 (trifold brochure and selectable duplex mode)
+
+- Added: A Trifold Brochure template with editable Outside/Inside artwork spreads, A4 or Letter landscape sheets, thirds/panel guides, printable fold marks, safe margins, artwork positioning, and inside-page calibration.
+- Added: A shared Manual back-to-back control for two-sided templates. Manual remains the default and keeps both pages upright for separate printing; disabling it rotates the reverse page 180° for automatic duplex printers.
+- Changed: Business Card now uses the same selectable duplex mode instead of permanently forcing same-orientation pages.
+
 ## 2026-09-23 (image page composer)
 
 - Added: Tools now includes an Images to PDF composition desk for combining up to 40 pictures across A4 or Letter pages.
