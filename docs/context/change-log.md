@@ -509,3 +509,4 @@ Track notable app changes by date.
 - Added: Failed submissions and incomplete Windows spooler error/cancellation releases are retained automatically in one failure ledger.
 - Fixed: Job-level rejection records every affected product, and analyzed tracked prints retain their linked product line.
 - Added: A job product can reconcile one successful Canon/Windows print plus multiple rejected attempts; all link to the product, rejected attempts record waste, and none remain false leakage.
+- Improved: Rejected-attempt choices rank case-insensitive filename and shared-word matches first, keep unrelated prints available in a lower section, and scroll within a bounded list.

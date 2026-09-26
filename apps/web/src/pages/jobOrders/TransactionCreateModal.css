@@ -32,6 +32,10 @@
 .transaction-line__tracked-print > label { display: flex; flex-direction: column; gap: var(--space-2); }
 .transaction-line__failed-prints { display: grid; gap: var(--space-2); margin-top: var(--space-3); border: 1px solid var(--color-hairline); padding: var(--space-3); background: var(--color-paper); }
 .transaction-line__failed-prints legend { padding-inline: var(--space-2); color: var(--color-ink); font-weight: 700; }
+.transaction-line__failed-print-list { display: grid; max-height: 15rem; gap: var(--space-3); overflow-y: auto; padding-right: var(--space-2); }
+.transaction-line__failed-print-list section { display: grid; gap: var(--space-2); }
+.transaction-line__failed-print-list section + section { border-top: 1px solid var(--color-hairline); padding-top: var(--space-3); }
+.transaction-line__failed-print-list section > strong { color: var(--color-accent); font: 600 var(--text-xs) var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
 .transaction-line__failed-prints label { display: flex; align-items: center; gap: var(--space-2); color: var(--color-ink-soft); font-size: var(--text-sm); }
 .transaction-line__failed-prints small { color: var(--color-ink-faint); }
 .transaction-line__file { grid-column: span 2; }

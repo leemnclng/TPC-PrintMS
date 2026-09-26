@@ -877,4 +877,5 @@ Chronological notes about app progress.
 - Summary: Implemented the print-failure ledger, structured quality rejection, Windows spooler failure capture, reconciliation, waste/quality, printer reliability, and CSV reports.
 - Completed: Seeded owner-editable reasons, required reason capture with spoiled-sheet/attempt context, per-item multi-product rejection records, failed-submission records, incomplete spooler error/cancellation records, historical backfill, observed-print item linking, and responsive report tabs with non-Windows availability guidance.
 - Completed: Job creation can attach rejected external attempts beside the successful print on one product line, link all spooler records, write quality failures, and consume reprint material.
+- Improved: The rejected-attempt picker groups case-insensitive filename correlations above other tracked prints without filtering any out, and caps the list height with scrolling.
 - Verified: New focused API tests, full API suite, Alembic empty-database upgrade and historical backfill checks, renderer/desktop typechecks, lint, and production build.
