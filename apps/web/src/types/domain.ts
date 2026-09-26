@@ -833,3 +833,76 @@ export interface OperationalReport {
   reAttempts: ReportReattemptSummary;
   inventory: ReportInventorySummary;
 }
+
+export interface FailureReason {
+  code: string;
+  label: string;
+  faultType: "machine" | "material" | "operator" | "customer";
+  isActive: boolean;
+  isSystem: boolean;
+  sortOrder: number;
+}
+
+export interface ReportBreakdown {
+  key: string;
+  label: string;
+  count: number;
+  spoiledSheets: number;
+  materialCost: number;
+}
+
+export interface ReconciliationRow {
+  id: string;
+  kind: "unconfirmed" | "mismatch" | "leakage" | "linked_external";
+  printerName?: string | null;
+  documentName?: string | null;
+  expectedPages?: number | null;
+  pagesPrinted?: number | null;
+  jobOrderId?: string | null;
+  observedPrintJobId?: string | null;
+}
+
+export interface ReconciliationReport {
+  generatedAt: string;
+  spoolerAvailable: boolean;
+  billedPrints: number;
+  spoolerConfirmed: number;
+  unconfirmed: number;
+  pageMismatches: number;
+  leakageCount: number;
+  leakagePages: number;
+  leakageEstimate: number;
+  linkedExternalPrints: number;
+  rows: ReconciliationRow[];
+}
+
+export interface FailureReport {
+  generatedAt: string;
+  totalFailures: number;
+  spoiledSheets: number;
+  materialCost: number;
+  failureRate: number;
+  bySource: ReportBreakdown[];
+  byReason: ReportBreakdown[];
+  byFaultType: ReportBreakdown[];
+  byProduct: ReportBreakdown[];
+  byPrinter: ReportBreakdown[];
+}
+
+export interface PrinterReliability {
+  printerName: string;
+  jobs: number;
+  pages: number;
+  failures: number;
+  errorRate: number;
+  colorJobs: number;
+  grayscaleJobs: number;
+  duplexJobs: number;
+  failuresBySource: ReportBreakdown[];
+}
+
+export interface PrinterReliabilityReport {
+  generatedAt: string;
+  spoolerAvailable: boolean;
+  printers: PrinterReliability[];
+}

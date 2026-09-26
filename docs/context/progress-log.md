@@ -872,3 +872,9 @@ Chronological notes about app progress.
 - Summary: Added explicit job-level discounting without changing automatic product pricing reductions.
 - Completed: Reusable whole-job templates, custom owner discounts, creation/workspace application, payment-safe editing rules, historical snapshots, total recalculation, and a paginated discount report.
 - Verified: All 73 API tests pass under the environment's Intel/Rosetta runtime; renderer production build and lint pass; web/desktop typechecks and the desktop build pass; Python sources compile.
+## 2026-09-26 (print reconciliation and quality ledger)
+
+- Summary: Implemented the print-failure ledger, structured quality rejection, Windows spooler failure capture, reconciliation, waste/quality, printer reliability, and CSV reports.
+- Completed: Seeded owner-editable reasons, required reason capture with spoiled-sheet/attempt context, per-item multi-product rejection records, failed-submission records, incomplete spooler error/cancellation records, historical backfill, observed-print item linking, and responsive report tabs with non-Windows availability guidance.
+- Completed: Job creation can attach rejected external attempts beside the successful print on one product line, link all spooler records, write quality failures, and consume reprint material.
+- Verified: New focused API tests, full API suite, Alembic empty-database upgrade and historical backfill checks, renderer/desktop typechecks, lint, and production build.

@@ -84,6 +84,9 @@ class TransactionItemCreate(CamelModel):
     # OMS (e.g. Canon PRINT) — per line, not per transaction, so
     # several already-tracked prints can be recorded together.
     observed_print_job_id: str | None = None
+    # Earlier external attempts that produced unusable output. They are
+    # reconciled to this same item and written to the quality-failure ledger.
+    failed_observed_print_job_ids: list[str] = Field(default_factory=list)
 
 
 class JobOrderDiscountInput(CamelModel):
@@ -205,12 +208,32 @@ class PaperUsageConfirmation(CamelModel):
 class JobOrderTransitionCreate(CamelModel):
     to_status: Literal["queued", "ready", "paid", "completed"]
     note: str | None = None
+    failure_reason_code: str | None = Field(default=None, max_length=80)
+    reason_note: str | None = Field(default=None, max_length=500)
+    spoiled_sheets: int | None = Field(default=None, ge=0)
+    print_job_id: str | None = None
     paper_usage: list[PaperUsageConfirmation] | None = None
+
+    @model_validator(mode="after")
+    def require_quality_reason(self):
+        if self.to_status == "queued" and not (self.failure_reason_code or "").strip():
+            raise ValueError("Choose a quality failure reason.")
+        return self
 
 
 class JobOrderItemTransitionCreate(CamelModel):
     to_status: Literal["queued", "ready"]
     note: str | None = None
+    failure_reason_code: str | None = Field(default=None, max_length=80)
+    reason_note: str | None = Field(default=None, max_length=500)
+    spoiled_sheets: int | None = Field(default=None, ge=0)
+    print_job_id: str | None = None
+
+    @model_validator(mode="after")
+    def require_quality_reason(self):
+        if self.to_status == "queued" and not (self.failure_reason_code or "").strip():
+            raise ValueError("Choose a quality failure reason.")
+        return self
 
 
 class JobOrderItemPriceUpdate(CamelModel):

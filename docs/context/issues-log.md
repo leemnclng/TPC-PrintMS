@@ -6,6 +6,7 @@ Track known issues, blockers, risks, and follow-up work.
 
 | Date | Area | Issue | Status | Owner/Notes |
 | --- | --- | --- | --- | --- |
+| 2026-09-26 | Reporting | Windows drivers vary in whether they report reliable page counts and transient status before releasing a spooler job. | Open | Physically validate incomplete error/cancel detection and reconciliation counts on the owner's Canon workstation. Zero page counts are intentionally excluded from mismatch claims. |
 | 2026-08-15 | Product | User roles and permissions are not yet defined. | Open | Clarify owner/admin, sales, cashier, production staff, and customer access. |
 | 2026-08-15 | Integrations | Messenger, Gmail, form intake, and online-payment integration levels are undecided. | Open | Initial implementation can support manual entry and payment verification. |
 | 2026-08-15 | Documents | File retention and conversion/export behavior remain incomplete. | Open | Confirmed transaction and scan files are now isolated by environment and included in backup/restore; standalone/cancelled analysis remains temporary. Define retention cleanup and print-ready conversion. |

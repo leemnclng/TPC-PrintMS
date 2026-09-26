@@ -23,6 +23,7 @@ from ..core.security import require_token
 from ..db.models import (
     BusinessProfile,
     Customer,
+    FailureReason,
     InventoryMovement,
     InventoryMovementKind,
     InventoryPaperSize,
@@ -40,6 +41,7 @@ from ..db.models import (
     Payment,
     Printer,
     PrintJob,
+    PrintFailure,
     PrintResult,
     PrintSides,
     Product,
@@ -48,6 +50,7 @@ from ..db.models import (
     StatusEvent,
 )
 from ..db.session import get_db
+from ..seed import seed_failure_reasons
 from ..schemas.inventory import InventoryMovementRead
 from ..modules.document_analyzer.analyzers.base import InvalidDocumentError
 from ..modules.document_analyzer.services.analysis_service import AnalysisService
@@ -881,12 +884,85 @@ def _record_item_status(item: JobOrderItem, to_status: str, note: str) -> None:
 
 def _plan_item_reprocess(item: JobOrderItem) -> int:
     """Add one fresh production cycle without rewriting consumed inventory history."""
-    completed_cycles = item.reprocess_count + 1
+    completed_cycles = (item.reprocess_count or 0) + 1
     for plan in item.material_plans:
         cycle_quantity = plan.planned_quantity / completed_cycles
         plan.planned_quantity = round(plan.planned_quantity + cycle_quantity, 6)
-    item.reprocess_count += 1
+    item.reprocess_count = (item.reprocess_count or 0) + 1
     return item.reprocess_count
+
+
+def _resolve_failure_reason(code: str, db: Session) -> FailureReason:
+    reason = db.get(FailureReason, code.strip())
+    if reason is None:
+        seed_failure_reasons(db, commit=False)
+        reason = db.get(FailureReason, code.strip())
+    if reason is None or not reason.is_active:
+        raise HTTPException(status_code=422, detail="Choose an active quality failure reason.")
+    return reason
+
+
+def _paper_unit_cost(item: JobOrderItem) -> float | None:
+    paper_plan = next((plan for plan in item.material_plans if plan.inventory_item.paper_size is not None), None)
+    if paper_plan is None or paper_plan.inventory_item.purchase_price is None:
+        return None
+    material = paper_plan.inventory_item
+    if material.purchase_price_basis == "ream":
+        return material.purchase_price / material.sheets_per_ream if material.sheets_per_ream else None
+    return material.purchase_price
+
+
+def _record_quality_failure(
+    job_order: JobOrder,
+    item: JobOrderItem,
+    payload: JobOrderTransitionCreate | JobOrderItemTransitionCreate,
+    db: Session,
+) -> None:
+    reason = _resolve_failure_reason(payload.failure_reason_code or "", db)
+    print_job = db.get(PrintJob, payload.print_job_id) if payload.print_job_id else next(
+        (
+            attempt for attempt in sorted(item.print_jobs, key=lambda value: value.submitted_at, reverse=True)
+            if attempt.result == PrintResult.succeeded
+        ),
+        None,
+    )
+    if print_job and (print_job.job_order_id != job_order.id or print_job.job_order_item_id not in {None, item.id}):
+        raise HTTPException(status_code=422, detail="The selected print attempt does not belong to this product.")
+    unit_cost = _paper_unit_cost(item)
+    material_cost = None
+    if payload.spoiled_sheets is not None and unit_cost is not None:
+        material_cost = round(payload.spoiled_sheets * unit_cost, 2)
+    db.add(PrintFailure(
+        source="quality_rejected",
+        job_order=job_order,
+        job_order_item=item,
+        print_job=print_job,
+        printer_name=print_job.printer.display_name if print_job else None,
+        reason=reason,
+        reason_note=(payload.reason_note or "").strip() or None,
+        spoiled_sheets=payload.spoiled_sheets,
+        material_cost_snapshot=material_cost,
+    ))
+
+
+def _record_submission_failure(
+    attempt: PrintJob,
+    item: JobOrderItem,
+    printer: Printer,
+    message: str,
+    db: Session,
+) -> None:
+    reason = _resolve_failure_reason("submission_failed", db)
+    db.add(PrintFailure(
+        source="submit_failed",
+        job_order_id=attempt.job_order_id,
+        job_order_item_id=item.id,
+        print_job=attempt,
+        printer_name=printer.display_name,
+        reason=reason,
+        reason_note=message[:1000],
+        occurred_at=attempt.submitted_at,
+    ))
 
 
 def _aggregate_transaction_status(job_order: JobOrder) -> JobOrderStatus:
@@ -978,20 +1054,29 @@ async def _save_transaction_lines(
     # combine into one transaction, so this is per-line rather than
     # transaction-wide. Keyed by client_key, not the observed job's id, since
     # the same dict is consulted per line below.
-    observed_jobs_by_client_key: dict[str, ObservedPrintJob] = {}
+    observed_jobs_by_client_key: dict[str, list[tuple[ObservedPrintJob, bool]]] = {}
     seen_observed_ids: set[str] = set()
     for line in payload.items:
-        if not line.observed_print_job_id:
+        observed_ids = [
+            *([line.observed_print_job_id] if line.observed_print_job_id else []),
+            *line.failed_observed_print_job_ids,
+        ]
+        if not observed_ids:
             continue
-        if line.observed_print_job_id in seen_observed_ids:
-            raise HTTPException(status_code=422, detail="A Windows print event can only be recorded once in this transaction.")
-        seen_observed_ids.add(line.observed_print_job_id)
-        observed_print_job = db.get(ObservedPrintJob, line.observed_print_job_id)
-        if not observed_print_job:
-            raise HTTPException(status_code=404, detail="Observed Windows print job not found.")
-        if observed_print_job.linked_job_order_item_id:
-            raise HTTPException(status_code=409, detail="A Windows print event in this transaction already has a job order.")
-        observed_jobs_by_client_key[line.client_key] = observed_print_job
+        if not line.observed_print_job_id:
+            raise HTTPException(status_code=422, detail="Choose the successful Windows print before adding rejected attempts.")
+        observed_jobs: list[tuple[ObservedPrintJob, bool]] = []
+        for observed_id in observed_ids:
+            if observed_id in seen_observed_ids:
+                raise HTTPException(status_code=422, detail="A Windows print event can only be recorded once in this transaction.")
+            seen_observed_ids.add(observed_id)
+            observed_print_job = db.get(ObservedPrintJob, observed_id)
+            if not observed_print_job:
+                raise HTTPException(status_code=404, detail="Observed Windows print job not found.")
+            if observed_print_job.linked_job_order_item_id:
+                raise HTTPException(status_code=409, detail="A Windows print event in this transaction already has a job order.")
+            observed_jobs.append((observed_print_job, observed_id in line.failed_observed_print_job_ids))
+        observed_jobs_by_client_key[line.client_key] = observed_jobs
     initial_service = db.get(Service, payload.initial_service_id)
     if not initial_service or not initial_service.is_active:
         raise HTTPException(status_code=422, detail="Select an active initial service.")
@@ -1100,7 +1185,7 @@ async def _save_transaction_lines(
             notes=payload.notes.strip() if payload.notes else None,
         )
     file_specs: list[tuple[JobOrderItem, str, bytes, object]] = []
-    observed_links: list[tuple[ObservedPrintJob, JobOrderItem]] = []
+    observed_links: list[tuple[ObservedPrintJob, JobOrderItem, bool]] = []
     any_override = False
     for line in payload.items:
         product = product_by_id[line.product_id]
@@ -1184,11 +1269,11 @@ async def _save_transaction_lines(
         line_total = suggested if line.price_mode == "suggested" else round(line.custom_price or 0, 2)
         price_breakdown = _with_owner_price(price_breakdown, line_total)
         any_override = any_override or line.price_mode == "custom"
-        observed_print_job = observed_jobs_by_client_key.get(line.client_key)
+        observed_print_jobs = observed_jobs_by_client_key.get(line.client_key, [])
         # Printing already happened outside OMS for this line — there
         # is no live submission to wait on, so it starts (and effectively
         # stays) at "ready" rather than going through queued -> printing.
-        initial_status = "ready" if observed_print_job else "queued"
+        initial_status = "ready" if observed_print_jobs else "queued"
         item = JobOrderItem(
             product_id=product.id,
             operation_kind=product.operation_kind,
@@ -1208,15 +1293,17 @@ async def _save_transaction_lines(
         item.status_events.append(JobOrderItemStatusEvent(
             from_status=None,
             to_status=initial_status,
-            note="Already printed outside OMS; recorded from a tracked Windows print event." if observed_print_job else "Product added to transaction.",
+            note="Already printed outside OMS; recorded from tracked Windows print events." if observed_print_jobs else "Product added to transaction.",
         ))
         item.material_plans = [
             JobOrderMaterialPlan(inventory_item_id=material_id, planned_quantity=quantity)
             for material_id, quantity in material_specs
         ]
         job_order.items.append(item)
-        if observed_print_job:
-            observed_links.append((observed_print_job, item))
+        for observed_print_job, failed in observed_print_jobs:
+            observed_links.append((observed_print_job, item, failed))
+            if failed:
+                _plan_item_reprocess(item)
         job_order.suggested_total = round(job_order.suggested_total + suggested, 2)
         job_order.total = round(job_order.total + line_total, 2)
         if product.operation_kind == "printing":
@@ -1272,11 +1359,29 @@ async def _save_transaction_lines(
                     analysis_confidence=analysis.confidence,
                 )
             )
-        for observed_print_job, item in observed_links:
+        linked_items: dict[str, JobOrderItem] = {}
+        for observed_print_job, item, failed in observed_links:
             observed_print_job.review_status = "linked"
             observed_print_job.reviewed_at = datetime.utcnow()
             observed_print_job.linked_job_order_id = job_order.id
             observed_print_job.linked_job_order_item_id = item.id
+            linked_items[item.id] = item
+            if failed:
+                spoiled_sheets = observed_print_job.pages_printed or observed_print_job.total_pages
+                unit_cost = _paper_unit_cost(item)
+                db.add(PrintFailure(
+                    source="quality_rejected",
+                    job_order=job_order,
+                    job_order_item=item,
+                    observed_print_job=observed_print_job,
+                    printer_name=observed_print_job.printer_name,
+                    reason=_resolve_failure_reason("other", db),
+                    reason_note="Rejected external print attempt linked during transaction creation.",
+                    spoiled_sheets=spoiled_sheets,
+                    material_cost_snapshot=round(spoiled_sheets * unit_cost, 2) if spoiled_sheets is not None and unit_cost is not None else None,
+                    occurred_at=observed_print_job.released_at or observed_print_job.submitted_at or observed_print_job.first_seen_at,
+                ))
+        for item in linked_items.values():
             # The physical print already happened — there is no live
             # submission afterward to trigger the usual post-print deduction,
             # so record the material consumption now instead of leaving it
@@ -1462,6 +1567,7 @@ async def create_analyzed_job_order(
             observed_print_job.review_status = "linked"
             observed_print_job.reviewed_at = datetime.utcnow()
             observed_print_job.linked_job_order_id = job_order.id
+            observed_print_job.linked_job_order_item_id = job_order.items[0].id
         db.commit()
         db.refresh(job_order)
     except Exception as error:
@@ -1778,7 +1884,7 @@ def transition_job_order(
     # Photocopy is produced entirely on the device with no computer queue to
     # return to. Scan does have a queue: the acquisition happens inside this
     # job, so a failed quality check can send it back to re-scan.
-    if operation_kind in {"photocopy", "adhoc"} and target == JobOrderStatus.queued:
+    if len(job_order.items) == 1 and operation_kind in {"photocopy", "adhoc"} and target == JobOrderStatus.queued:
         raise HTTPException(status_code=409, detail="Device-side and Ad Hoc jobs cannot enter the computer print queue.")
     # Quality inspection is not its own status: printing lands in Ready, where
     # the owner either sends the job back to Queued for a re-print or, once
@@ -1813,12 +1919,21 @@ def transition_job_order(
     note = payload.note.strip() if payload.note else default_notes[target]
     if target == JobOrderStatus.completed:
         _reconcile_paper_usage(job_order, payload.paper_usage, db)
-    if len(job_order.items) == 1 and target in {JobOrderStatus.ready, JobOrderStatus.queued}:
-        if target == JobOrderStatus.queued:
-            cycle = _plan_item_reprocess(job_order.items[0])
-            note = f"Quality failed; {job_order.items[0].product.name} entered reprocess cycle {cycle}."
-            if payload.note:
-                note += f" {payload.note.strip()}"
+    if target == JobOrderStatus.queued:
+        affected_items = [item for item in job_order.items if item.status == "ready"]
+        if not affected_items:
+            raise HTTPException(status_code=409, detail="No ready product can be returned for reprocessing.")
+        item_notes: list[str] = []
+        for item in affected_items:
+            cycle = _plan_item_reprocess(item)
+            item_note = f"Quality failed; {item.product.name} entered reprocess cycle {cycle}."
+            if payload.reason_note:
+                item_note += f" Quality failed: {payload.reason_note.strip()}"
+            _record_quality_failure(job_order, item, payload, db)
+            _record_item_status(item, target.value, item_note)
+            item_notes.append(item_note)
+        note = " ".join(item_notes)
+    elif len(job_order.items) == 1 and target == JobOrderStatus.ready:
         _record_item_status(job_order.items[0], target.value, note)
     _record_status(job_order, target, note)
     db.commit()
@@ -1893,8 +2008,9 @@ def transition_job_order_item(
     if target == "queued":
         cycle = _plan_item_reprocess(item)
         default_note = f"Quality failed; {item.product.name} entered reprocess cycle {cycle}."
-        if payload.note:
-            default_note += f" {payload.note.strip()}"
+        if payload.reason_note:
+            default_note += f" Quality failed: {payload.reason_note.strip()}"
+        _record_quality_failure(job_order, item, payload, db)
     else:
         default_note = f"{item.product.name} finished production and passed owner review."
     item_note = default_note if target == "queued" else payload.note.strip() if payload.note else default_note
@@ -2247,11 +2363,13 @@ async def submit_print_attempt(
     except PrintSubmissionError as error:
         attempt.result = PrintResult.failed
         attempt.error_message = str(error)[:1000]
+        _record_submission_failure(attempt, item, printer, str(error), db)
         db.commit()
         raise HTTPException(status_code=502, detail=f"Print submission failed: {error}") from error
     except Exception as error:
         attempt.result = PrintResult.failed
         attempt.error_message = "Unexpected operating-system print failure."
+        _record_submission_failure(attempt, item, printer, attempt.error_message, db)
         db.commit()
         raise HTTPException(status_code=502, detail="The operating system could not submit the print job.") from error
 

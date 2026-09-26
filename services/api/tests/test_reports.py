@@ -8,13 +8,19 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from app.db.base import Base
 from app.db.models import (
+    FailureReason,
     InventoryItem,
     JobOrder,
     JobOrderItem,
     JobOrderItemStatusEvent,
     JobOrderStatus,
+    ObservedPrintJob,
     Payment,
     PaymentMethod,
+    PrintFailure,
+    PrintJob,
+    PrintResult,
+    Printer,
     PrintType,
     Product,
     Service,
@@ -78,6 +84,14 @@ def test_period_reports_use_verified_sales_reprocess_events_and_live_inventory(t
                 from_status="ready",
                 to_status="queued",
                 note="Quality failed",
+                occurred_at=datetime(2026, 9, 3, 4, 0),
+            ),
+            FailureReason(code="other", label="Other", fault_type="operator"),
+            PrintFailure(
+                source="quality_rejected",
+                job_order=first_order,
+                job_order_item=item,
+                reason_code="other",
                 occurred_at=datetime(2026, 9, 3, 4, 0),
             ),
             InventoryItem(name="Healthy bond", category="Paper", unit="sheet", quantity_on_hand=100, reorder_level=20),
@@ -165,3 +179,88 @@ def test_report_query_rejects_invalid_period_and_timezone(tmp_path) -> None:
     )
     assert reversed_interval.status_code == 422
     assert reversed_interval.json()["detail"] == "Report end date must be on or after its start date."
+
+
+def test_reconciliation_failure_printer_reports_and_csv(tmp_path, monkeypatch) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'quality-reports.db'}", connect_args={"check_same_thread": False})
+    test_session = sessionmaker(bind=engine)
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "printer_platform", "windows")
+
+    with test_session() as db:
+        printer = Printer(system_name="Canon", display_name="Canon G4770", last_seen_state="idle")
+        order = JobOrder(number="JOB-0000000099", name="Quality report", total=100)
+        reason = FailureReason(code="streaks_banding", label="Streaks / banding", fault_type="machine")
+        confirmed = PrintJob(
+            job_order=order, printer=printer, result=PrintResult.succeeded,
+            color_mode="color", duplex_pass="simplex", spooler_key="confirmed",
+            spooler_status="released", spooler_pages_printed=4, spooler_total_pages=4,
+            spooler_released_at=datetime(2026, 9, 3, 9), submitted_at=datetime(2026, 9, 3, 8),
+        )
+        mismatch = PrintJob(
+            job_order=order, printer=printer, result=PrintResult.succeeded,
+            color_mode="grayscale", duplex_pass="front", spooler_key="mismatch",
+            spooler_status="released", spooler_pages_printed=2, spooler_total_pages=3,
+            spooler_released_at=datetime(2026, 9, 3, 10), submitted_at=datetime(2026, 9, 3, 9),
+        )
+        unconfirmed = PrintJob(
+            job_order=order, printer=printer, result=PrintResult.succeeded,
+            color_mode="grayscale", duplex_pass="simplex", submitted_at=datetime(2026, 9, 3, 10),
+        )
+        leakage = ObservedPrintJob(
+            spooler_key="outside", os_job_id="12", printer_name="Canon G4770",
+            document_name="outside.pdf", total_pages=5, pages_printed=5,
+            status="released", review_status="unreviewed", first_seen_at=datetime(2026, 9, 3, 11),
+            last_seen_at=datetime(2026, 9, 3, 11), released_at=datetime(2026, 9, 3, 11),
+        )
+        linked = ObservedPrintJob(
+            spooler_key="linked", os_job_id="13", printer_name="Canon G4770",
+            document_name="linked.pdf", total_pages=2, pages_printed=2,
+            status="released", review_status="linked", linked_job_order_id=order.id,
+            first_seen_at=datetime(2026, 9, 3, 12), last_seen_at=datetime(2026, 9, 3, 12),
+            released_at=datetime(2026, 9, 3, 12),
+        )
+        failure = PrintFailure(
+            source="quality_rejected", job_order=order, print_job=confirmed,
+            printer_name="Canon G4770", reason=reason, spoiled_sheets=3,
+            material_cost_snapshot=6.0, occurred_at=datetime(2026, 9, 3, 13),
+        )
+        db.add_all([printer, order, reason, confirmed, mismatch, unconfirmed, leakage, linked, failure])
+        db.commit()
+
+    def override_db():
+        with test_session() as db:
+            yield db
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(reports.router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+    query = "start_date=2026-09-03&end_date=2026-09-03"
+
+    reconciliation = client.get(f"/reports/reconciliation?{query}", headers=headers)
+    assert reconciliation.status_code == 200, reconciliation.text
+    assert reconciliation.json()["billedPrints"] == 3
+    assert reconciliation.json()["spoolerConfirmed"] == 2
+    assert reconciliation.json()["unconfirmed"] == 1
+    assert reconciliation.json()["pageMismatches"] == 1
+    assert reconciliation.json()["leakagePages"] == 5
+    assert reconciliation.json()["linkedExternalPrints"] == 1
+    assert reconciliation.json()["spoolerAvailable"] is True
+
+    failures = client.get(f"/reports/failures?{query}", headers=headers).json()
+    assert failures["totalFailures"] == 1
+    assert failures["spoiledSheets"] == 3
+    assert failures["materialCost"] == 6
+    assert failures["byReason"][0]["label"] == "Streaks / banding"
+
+    printers_report = client.get(f"/reports/printers?{query}", headers=headers).json()
+    assert printers_report["printers"][0]["jobs"] == 3
+    assert printers_report["printers"][0]["failures"] == 1
+    assert printers_report["printers"][0]["colorJobs"] == 1
+
+    csv_response = client.get(f"/reports/reconciliation?{query}&format=csv", headers=headers)
+    assert csv_response.status_code == 200
+    assert csv_response.headers["content-type"].startswith("text/csv")
+    assert "billed_prints,3" in csv_response.text

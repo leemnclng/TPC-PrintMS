@@ -17,8 +17,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from ...db.models import ObservedPrintJob, PrintJob
+from ...db.models import FailureReason, ObservedPrintJob, PrintFailure, PrintJob
 from ...db.session import SessionLocal
+from ...seed import seed_failure_reasons
 
 _INTERNAL_PREFIXES = ("OMS|", "Printing-MS|")
 
@@ -62,6 +63,54 @@ def _internal_attempt_id(document_name: str) -> str | None:
     return parts[1] if len(parts) == 3 and parts[1] else None
 
 
+def _failure_reason(code: str, db: Session) -> FailureReason:
+    reason = db.get(FailureReason, code)
+    if reason is None:
+        seed_failure_reasons(db, commit=False)
+        reason = db.get(FailureReason, code)
+    if reason is None:  # pragma: no cover - seed catalog is fixed
+        raise RuntimeError(f"Missing failure reason: {code}")
+    return reason
+
+
+def _record_incomplete_failure(
+    *,
+    previous_status: str,
+    failure_seen: bool,
+    pages_printed: int | None,
+    total_pages: int | None,
+    printer_name: str | None,
+    db: Session,
+    attempt: PrintJob | None = None,
+    observed: ObservedPrintJob | None = None,
+) -> None:
+    if total_pages is None or total_pages <= 0 or pages_printed is None or pages_printed >= total_pages:
+        return
+    if failure_seen or previous_status in {"error", "paused"}:
+        source, reason_code = "spooler_error", "printer_error"
+    elif previous_status == "printing" and pages_printed > 0:
+        source, reason_code = "cancelled_mid_print", "cancelled_mid_print"
+    else:
+        return
+    duplicate = db.query(PrintFailure).filter(
+        PrintFailure.source == source,
+        PrintFailure.print_job_id == (attempt.id if attempt else None),
+        PrintFailure.observed_print_job_id == (observed.id if observed else None),
+    ).first()
+    if duplicate:
+        return
+    db.add(PrintFailure(
+        source=source,
+        job_order_id=attempt.job_order_id if attempt else observed.linked_job_order_id if observed else None,
+        job_order_item_id=attempt.job_order_item_id if attempt else observed.linked_job_order_item_id if observed else None,
+        print_job=attempt,
+        observed_print_job=observed,
+        printer_name=printer_name,
+        reason=_failure_reason(reason_code, db),
+        spoiled_sheets=pages_printed,
+    ))
+
+
 def ingest_spooler_event(event: dict[str, Any], db: Session) -> None:
     spooler_key = str(event.get("spoolerKey") or "").strip()
     if not spooler_key:
@@ -73,8 +122,11 @@ def ingest_spooler_event(event: dict[str, Any], db: Session) -> None:
         attempt = db.query(PrintJob).filter_by(spooler_key=spooler_key).one_or_none()
     if attempt:
         now = datetime.now(UTC).replace(tzinfo=None)
+        previous_status = attempt.spooler_status
         attempt.spooler_key = spooler_key
         attempt.spooler_status = _normalized_status(event)
+        if attempt.spooler_status in {"error", "paused"}:
+            attempt.spooler_failure_seen = True
         attempt.spooler_last_seen_at = now
         pages_printed = _as_int(event.get("pagesPrinted"))
         total_pages = _as_int(event.get("totalPages"))
@@ -84,6 +136,15 @@ def ingest_spooler_event(event: dict[str, Any], db: Session) -> None:
             attempt.spooler_total_pages = total_pages
         if event.get("eventType") == "released":
             attempt.spooler_released_at = now
+            _record_incomplete_failure(
+                previous_status=previous_status,
+                failure_seen=attempt.spooler_failure_seen,
+                pages_printed=attempt.spooler_pages_printed,
+                total_pages=attempt.spooler_total_pages,
+                printer_name=str(event.get("printerName") or (attempt.printer.display_name if attempt.printer else "")) or None,
+                attempt=attempt,
+                db=db,
+            )
         elif event.get("osJobId"):
             attempt.external_job_id = str(event["osJobId"])
             attempt.spooler_released_at = None
@@ -94,9 +155,19 @@ def ingest_spooler_event(event: dict[str, Any], db: Session) -> None:
     observed = db.query(ObservedPrintJob).filter_by(spooler_key=spooler_key).one_or_none()
     if event.get("eventType") == "released":
         if observed:
+            previous_status = observed.status
             observed.status = "released"
             observed.last_seen_at = now
             observed.released_at = now
+            _record_incomplete_failure(
+                previous_status=previous_status,
+                failure_seen=observed.spooler_failure_seen,
+                pages_printed=observed.pages_printed,
+                total_pages=observed.total_pages,
+                printer_name=observed.printer_name,
+                observed=observed,
+                db=db,
+            )
             db.commit()
         return
 
@@ -119,6 +190,8 @@ def ingest_spooler_event(event: dict[str, Any], db: Session) -> None:
     observed.pages_printed = _as_int(event.get("pagesPrinted"))
     observed.size_bytes = _as_int(event.get("sizeBytes"))
     observed.status = _normalized_status(event)
+    if observed.status in {"error", "paused"}:
+        observed.spooler_failure_seen = True
     observed.raw_status = str(event.get("jobStatus") or event.get("status") or "") or None
     observed.submitted_at = _as_datetime(event.get("submittedAt"))
     observed.last_seen_at = now

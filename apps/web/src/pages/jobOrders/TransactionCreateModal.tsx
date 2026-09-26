@@ -53,6 +53,8 @@ interface TransactionLine {
    *  OMS (e.g. Canon PRINT) — it skips the live print queue and is
    *  recorded as already done. See the "other tracked prints" checklist. */
   observedPrintJobId: string | null;
+  /** Earlier tracked attempts that printed but were rejected for quality. */
+  failedObservedPrintJobIds: string[];
 }
 
 interface Props {
@@ -91,6 +93,7 @@ const newLine = (serviceId: string): TransactionLine => ({
   customPrice: "",
   otherMaterials: [],
   observedPrintJobId: null,
+  failedObservedPrintJobIds: [],
 });
 
 export function TransactionCreateModal({
@@ -210,7 +213,12 @@ export function TransactionCreateModal({
 
   function chooseService(line: TransactionLine, serviceId: string) {
     if (line.observedPrintJobId) attemptedSourceMatches.current.delete(line.observedPrintJobId);
-    updateLine(line.key, { ...newLine(serviceId), key: line.key, observedPrintJobId: line.observedPrintJobId });
+    updateLine(line.key, {
+      ...newLine(serviceId),
+      key: line.key,
+      observedPrintJobId: line.observedPrintJobId,
+      failedObservedPrintJobIds: line.failedObservedPrintJobIds,
+    });
   }
 
   function chooseObservedPrintJob(line: TransactionLine, observedPrintJobId: string) {
@@ -226,8 +234,17 @@ export function TransactionCreateModal({
     });
     updateLine(line.key, {
       observedPrintJobId: observedPrintJobId || null,
+      failedObservedPrintJobIds: line.failedObservedPrintJobIds.filter((id) => id !== observedPrintJobId),
       files: previousWasAutoMatched ? [] : line.files,
       analysis: previousWasAutoMatched ? null : line.analysis,
+    });
+  }
+
+  function toggleFailedObservedPrintJob(line: TransactionLine, observedPrintJobId: string, checked: boolean) {
+    updateLine(line.key, {
+      failedObservedPrintJobIds: checked
+        ? [...line.failedObservedPrintJobIds, observedPrintJobId]
+        : line.failedObservedPrintJobIds.filter((id) => id !== observedPrintJobId),
     });
   }
 
@@ -404,6 +421,7 @@ export function TransactionCreateModal({
         customPrice: line.priceMode === "custom" ? Number(line.customPrice) : null,
         otherMaterials: line.otherMaterials,
         observedPrintJobId: line.observedPrintJobId || null,
+        failedObservedPrintJobIds: line.failedObservedPrintJobIds,
       })),
       discount: !order && orderDiscount ? orderDiscount === "custom" ? {
         name: customDiscountName.trim(), calculationType: customDiscountType, value: Number(customDiscountValue),
@@ -464,9 +482,9 @@ export function TransactionCreateModal({
               const selectedTrackedPrint = trackedPrints.find((job) => job.id === line.observedPrintJobId);
               return (
                 <article className="transaction-line" key={line.key}>
-                  <header><div><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><strong>{product?.name || "Choose a product"}</strong>{product ? <small>{product.operationKind} workflow · {product.serviceName}</small> : null}{line.observedPrintJobId ? <StatusPill label="Already printed — recorded as done" tone="success" /> : null}</div>{lines.length > 1 ? <Button type="button" variant="ghost" size="sm" onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))}>Remove</Button> : null}</header>
+                  <header><div><span className="numeric">LINE {String(index + 1).padStart(2, "0")}</span><strong>{product?.name || "Choose a product"}</strong>{product ? <small>{product.operationKind} workflow · {product.serviceName}</small> : null}{line.observedPrintJobId ? <StatusPill label={line.failedObservedPrintJobIds.length ? `Already printed · ${line.failedObservedPrintJobIds.length} rejected attempt(s)` : "Already printed — recorded as done"} tone="success" /> : null}</div>{lines.length > 1 ? <Button type="button" variant="ghost" size="sm" onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))}>Remove</Button> : null}</header>
                   <div className="transaction-line__fields">
-                    {trackedPrints.length ? <label className="form-field transaction-line__tracked-print"><span>Tracked Windows print</span><select value={line.observedPrintJobId ?? ""} onChange={(event) => chooseObservedPrintJob(line, event.target.value)}><option value="">Not linked to a tracked print</option>{trackedPrints.map((job) => { const usedElsewhere = lines.some((candidate) => candidate.key !== line.key && candidate.observedPrintJobId === job.id); return <option key={job.id} value={job.id} disabled={usedElsewhere}>{job.documentName} · {job.printerName} job {job.osJobId}{usedElsewhere ? " · assigned to another product" : ""}</option>; })}</select><small>{selectedTrackedPrint ? line.files.length ? `${line.files[0].name} is already attached and will be used for this tracked print.` : `Already printed · ${selectedTrackedPrint.printerName} · ${formatDateTime(selectedTrackedPrint.firstSeenAt)}. A unique trusted-folder match will be attached automatically.` : "Optional · choose a print already completed through Canon or another Windows app."}</small></label> : null}
+                    {trackedPrints.length ? <div className="form-field transaction-line__tracked-print"><label><span>Successful tracked Windows print</span><select value={line.observedPrintJobId ?? ""} onChange={(event) => chooseObservedPrintJob(line, event.target.value)}><option value="">Not linked to a tracked print</option>{trackedPrints.map((job) => { const usedElsewhere = lines.some((candidate) => candidate.key !== line.key && (candidate.observedPrintJobId === job.id || candidate.failedObservedPrintJobIds.includes(job.id))); return <option key={job.id} value={job.id} disabled={usedElsewhere}>{job.documentName} · {job.printerName} job {job.osJobId}{usedElsewhere ? " · assigned to another product" : ""}</option>; })}</select></label><small>{selectedTrackedPrint ? line.files.length ? `${line.files[0].name} is already attached and will be used for this tracked print.` : `Already printed · ${selectedTrackedPrint.printerName} · ${formatDateTime(selectedTrackedPrint.firstSeenAt)}. A unique trusted-folder match will be attached automatically.` : "Optional · choose the successful print completed through Canon or another Windows app."}</small>{selectedTrackedPrint ? <fieldset className="transaction-line__failed-prints"><legend>Rejected attempts for this product</legend>{trackedPrints.filter((job) => job.id !== line.observedPrintJobId).map((job) => { const usedElsewhere = lines.some((candidate) => candidate.key !== line.key && (candidate.observedPrintJobId === job.id || candidate.failedObservedPrintJobIds.includes(job.id))); return <label key={job.id}><input type="checkbox" checked={line.failedObservedPrintJobIds.includes(job.id)} disabled={usedElsewhere} onChange={(event) => toggleFailedObservedPrintJob(line, job.id, event.target.checked)} /><span>{job.documentName} · {job.printerName} job {job.osJobId}{usedElsewhere ? " · assigned to another product" : ""}</span></label>; })}<small>Select every earlier output that failed quality. These prints will be linked and recorded as waste.</small></fieldset> : null}</div> : null}
                     <label className="form-field"><span>Service</span><select value={line.serviceId} disabled={!order && index === 0} onChange={(event) => chooseService(line, event.target.value)}>{activeServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{!order && index === 0 ? <small>Initial service</small> : null}</label>
                     <label className={`form-field form-field--required${!product ? " is-awaiting-input" : ""}`}><span>Product</span><ComboBox value={line.productId} onChange={(productId) => chooseProduct(line, productId)} placeholder="Select product" emptyMessage="No matching products" ariaInvalid={submitted && !product} options={lineProducts.map((candidate) => ({ value: candidate.id, label: `${candidate.name} | ${candidate.printTypeLabel || formatProductPrintType(candidate.printType)}`, meta: `${formatProductPriceRange(resolveProductPriceRange(candidate, pricingRules, scanPricingTiers, pricingVariables, pricingDiscounts), formatCurrency)} effective`, keywords: `${candidate.operationKind} ${candidate.serviceName}` }))} /></label>
                     {product && product.operationKind !== "scan" ? <label className={`form-field form-field--required${!line.paperId ? " is-awaiting-input" : ""}`}><span>{product.operationKind === "adhoc" ? "Priced material" : "Paper"}</span><select value={line.paperId} onChange={(event) => updateLine(line.key, { paperId: event.target.value, analysis: null })} aria-invalid={submitted && !line.paperId} required><option value="">{product.operationKind === "adhoc" ? "Select priced material" : "Select configured paper"}</option>{papers.map((paper) => <option key={paper.id} value={paper.id}>{paper.paperSize ? `${paperSizeDisplay(paper.paperSize, paper.paperWidthMm, paper.paperHeightMm)} · ${paper.name}` : paper.name}</option>)}</select></label> : null}

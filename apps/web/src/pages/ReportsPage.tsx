@@ -10,7 +10,7 @@ import { useResource } from "../hooks/useResource";
 import { usePaginatedResource } from "../hooks/usePaginatedResource";
 import { api } from "../lib/apiClient";
 import { formatCurrency } from "../lib/format";
-import type { DiscountedJobOrderPage, OperationalReport, ReportInventoryStatus, ReportPeriod } from "../types/domain";
+import type { DiscountedJobOrderPage, FailureReport, OperationalReport, PrinterReliabilityReport, ReconciliationReport, ReportInventoryStatus, ReportPeriod } from "../types/domain";
 import "./ReportsPage.css";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -72,7 +72,9 @@ export function ReportsPage() {
   const [draftEndDate, setDraftEndDate] = useState(initialSelection.endDate);
   const [selection, setSelection] = useState<ReportSelection>(initialSelection);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"operations" | "discounts">("operations");
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"operations" | "reconciliation" | "quality" | "discounts">("operations");
+  const reportQuery = `start_date=${selection.startDate}&end_date=${selection.endDate}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`;
   const { data, state, error, reload } = useResource(
     () => api.get<OperationalReport>(`/reports?period=${selection.period}&start_date=${selection.startDate}&end_date=${selection.endDate}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
     [selection.period, selection.startDate, selection.endDate],
@@ -81,6 +83,33 @@ export function ReportsPage() {
     (page, pageSize) => api.get<DiscountedJobOrderPage>(`/reports/discounted-job-orders/page?start_date=${selection.startDate}&end_date=${selection.endDate}&timezone_offset_minutes=${new Date().getTimezoneOffset()}&page=${page}&page_size=${pageSize}`),
     `${selection.startDate}|${selection.endDate}`,
   );
+  const reconciliation = useResource(
+    () => api.get<ReconciliationReport>(`/reports/reconciliation?${reportQuery}`),
+    [reportQuery],
+  );
+  const failures = useResource(
+    () => api.get<FailureReport>(`/reports/failures?${reportQuery}`),
+    [reportQuery],
+  );
+  const printerReliability = useResource(
+    () => api.get<PrinterReliabilityReport>(`/reports/printers?${reportQuery}`),
+    [reportQuery],
+  );
+
+  async function downloadCsv(section: "reconciliation" | "failures" | "printers") {
+    setExportError(null);
+    try {
+      const blob = await api.download(`/reports/${section}?${reportQuery}&format=csv`);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${section}-${selection.startDate}-${selection.endDate}.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setExportError(caught instanceof Error ? caught.message : "The CSV could not be exported.");
+    }
+  }
 
   function generateReport(event: FormEvent) {
     event.preventDefault();
@@ -127,10 +156,10 @@ export function ReportsPage() {
       <PageHeader
         eyebrow="REPORTS / OPERATIONS LEDGER"
         title="Business reports"
-        description="Generate an accountable sales, production re-attempt, and live inventory report for a day, week, or month."
+        description="Compare billed and physical output, measure waste, and review sales, quality, inventory, and printer reliability."
       />
 
-      <nav className="report-tabs" aria-label="Report type"><button type="button" className={tab === "operations" ? "is-active" : ""} onClick={() => setTab("operations")}>Operations</button><button type="button" className={tab === "discounts" ? "is-active" : ""} onClick={() => setTab("discounts")}>Discounted job orders</button></nav>
+      <nav className="report-tabs" aria-label="Report type"><button type="button" className={tab === "operations" ? "is-active" : ""} onClick={() => setTab("operations")}>Operations</button><button type="button" className={tab === "reconciliation" ? "is-active" : ""} onClick={() => setTab("reconciliation")}>Reconciliation</button><button type="button" className={tab === "quality" ? "is-active" : ""} onClick={() => setTab("quality")}>Waste &amp; quality</button><button type="button" className={tab === "discounts" ? "is-active" : ""} onClick={() => setTab("discounts")}>Discounted jobs</button></nav>
 
       <form className="report-generator" onSubmit={generateReport} noValidate>
         <fieldset>
@@ -190,6 +219,26 @@ export function ReportsPage() {
           </section>
         </div>
       ) : null}
+      {tab === "reconciliation" && reconciliation.state === "loading" ? <LoadingState label="Reconciling billed and spooler output…" /> : null}
+      {tab === "reconciliation" && reconciliation.state === "error" ? <ErrorState title="Reconciliation unavailable" description={reconciliation.error ?? undefined} onRetry={reconciliation.reload} /> : null}
+      {tab === "reconciliation" && reconciliation.data ? <div className="report-sheet">
+        <header className="report-sheet__header"><div><span className="numeric">PRINT RECONCILIATION</span><h2>{selection.startDate === selection.endDate ? dateFormatter.format(parseCalendarDate(selection.startDate)) : `${dateFormatter.format(parseCalendarDate(selection.startDate))} – ${dateFormatter.format(parseCalendarDate(selection.endDate))}`}</h2><p>Spooler output is physical truth; successful OMS attempts are billing truth.</p></div><Button type="button" variant="secondary" onClick={() => void downloadCsv("reconciliation")}>Export CSV</Button></header>
+        {exportError ? <p className="report-export-error" role="alert">{exportError}</p> : null}
+        {!reconciliation.data.spoolerAvailable ? <div className="report-unavailable"><strong>Spooler data unavailable on this platform</strong><p>OMS can still show billed attempts, but physical confirmation, mismatches, and leakage require the Windows monitor.</p></div> : null}
+        {reconciliation.data.spoolerAvailable ? <><section className="report-scoreboard" aria-label="Reconciliation summary"><article><span>Billed prints</span><strong className="numeric">{reconciliation.data.billedPrints}</strong></article><article><span>Confirmed</span><strong className="numeric">{reconciliation.data.spoolerConfirmed}</strong></article><article className={reconciliation.data.unconfirmed ? "has-warning" : ""}><span>Unconfirmed</span><strong className="numeric">{reconciliation.data.unconfirmed}</strong></article><article className={reconciliation.data.leakageCount ? "has-attention" : ""}><span>Leakage</span><strong className="numeric">{reconciliation.data.leakagePages} pages</strong><small>{formatCurrency(reconciliation.data.leakageEstimate)} estimated</small></article></section>
+        <section className="report-panel"><header><div><span className="numeric">EXCEPTIONS</span><h3>Items to review</h3></div><strong className="numeric">{reconciliation.data.rows.length}</strong></header>{reconciliation.data.rows.length ? <div className="report-inventory-table"><table><thead><tr><th>Document</th><th>Issue</th><th>Printer</th><th>Expected</th><th>Printed</th><th>Action</th></tr></thead><tbody>{reconciliation.data.rows.map((row) => <tr key={`${row.kind}-${row.id}`}><th scope="row"><strong>{row.documentName || "Untitled print"}</strong></th><td>{methodLabel(row.kind)}</td><td>{row.printerName || "Unknown"}</td><td className="numeric">{row.expectedPages ?? "—"}</td><td className="numeric">{row.pagesPrinted ?? "—"}</td><td>{row.kind === "leakage" ? <a href="#/print-center">Review print</a> : row.jobOrderId ? <a href={`#/job-orders/${row.jobOrderId}`}>Open job</a> : "—"}</td></tr>)}</tbody></table></div> : <EmptyState title="No reconciliation exceptions" description="All available print evidence agrees for this interval." />}</section></> : null}
+      </div> : null}
+      {tab === "quality" && (failures.state === "loading" || printerReliability.state === "loading") ? <LoadingState label="Calculating waste and printer reliability…" /> : null}
+      {tab === "quality" && failures.state === "error" ? <ErrorState title="Waste report unavailable" description={failures.error ?? undefined} onRetry={failures.reload} /> : null}
+      {tab === "quality" && printerReliability.state === "error" ? <ErrorState title="Printer reliability unavailable" description={printerReliability.error ?? undefined} onRetry={printerReliability.reload} /> : null}
+      {tab === "quality" && failures.data && printerReliability.data ? <div className="report-sheet">
+        <header className="report-sheet__header"><div><span className="numeric">WASTE &amp; QUALITY</span><h2>{selection.startDate === selection.endDate ? dateFormatter.format(parseCalendarDate(selection.startDate)) : `${dateFormatter.format(parseCalendarDate(selection.startDate))} – ${dateFormatter.format(parseCalendarDate(selection.endDate))}`}</h2><p>Structured quality rejects and machine-side failures, grouped by cause and output device.</p></div><div className="report-export-actions"><Button type="button" variant="secondary" onClick={() => void downloadCsv("failures")}>Export failures</Button><Button type="button" variant="secondary" onClick={() => void downloadCsv("printers")}>Export printers</Button></div></header>
+        <section className="report-scoreboard" aria-label="Waste summary"><article className={failures.data.totalFailures ? "has-attention" : ""}><span>Failures</span><strong className="numeric">{failures.data.totalFailures}</strong></article><article><span>Spoiled sheets</span><strong className="numeric">{failures.data.spoiledSheets}</strong></article><article><span>Material waste</span><strong>{formatCurrency(failures.data.materialCost)}</strong></article><article><span>Failure rate</span><strong className="numeric">{failures.data.failureRate}%</strong></article></section>
+        <div className="report-sheet__columns"><BreakdownPanel title="Failure reasons" entries={failures.data.byReason} /><BreakdownPanel title="Fault types" entries={failures.data.byFaultType} /><BreakdownPanel title="Products" entries={failures.data.byProduct} /><BreakdownPanel title="Printers" entries={failures.data.byPrinter} /></div>
+        {!printerReliability.data.spoolerAvailable ? <div className="report-unavailable"><strong>Spooler data unavailable on this platform</strong><p>Printer-side page counts and machine failures require the Windows monitor.</p></div> : null}
+        {exportError ? <p className="report-export-error" role="alert">{exportError}</p> : null}
+        {printerReliability.data.spoolerAvailable ? <section className="report-panel"><header><div><span className="numeric">PRINTER RELIABILITY</span><h3>Output by printer</h3></div></header>{printerReliability.data.printers.length ? <div className="report-inventory-table"><table><thead><tr><th>Printer</th><th>Jobs</th><th>Pages</th><th>Failures</th><th>Error rate</th><th>Color / mono</th><th>Duplex</th></tr></thead><tbody>{printerReliability.data.printers.map((printer) => <tr key={printer.printerName}><th scope="row"><strong>{printer.printerName}</strong></th><td className="numeric">{printer.jobs}</td><td className="numeric">{printer.pages}</td><td className="numeric">{printer.failures}</td><td className="numeric">{printer.errorRate}%</td><td className="numeric">{printer.colorJobs} / {printer.grayscaleJobs}</td><td className="numeric">{printer.duplexJobs}</td></tr>)}</tbody></table></div> : <EmptyState title="No printer activity" description="No print attempt was recorded in this interval." />}</section> : null}
+      </div> : null}
       {tab === "discounts" && discountReport.state === "loading" ? <LoadingState label="Loading discounted job orders…" /> : null}
       {tab === "discounts" && discountReport.state === "error" ? <ErrorState title="Discount report unavailable" description={discountReport.error ?? undefined} onRetry={discountReport.reload} /> : null}
       {tab === "discounts" && discountReport.data ? <div className="report-sheet discount-report">
@@ -200,4 +249,8 @@ export function ReportsPage() {
       </div> : null}
     </>
   );
+}
+
+function BreakdownPanel({ title, entries }: { title: string; entries: FailureReport["byReason"] }) {
+  return <section className="report-panel"><header><div><span className="numeric">BREAKDOWN</span><h3>{title}</h3></div></header>{entries.length ? <ul className="report-reattempt-list">{entries.map((entry) => <li key={entry.key}><span><strong>{entry.label}</strong><small>{entry.spoiledSheets} spoiled sheets · {formatCurrency(entry.materialCost)}</small></span><b className="numeric">{entry.count}</b></li>)}</ul> : <EmptyState title={`No ${title.toLowerCase()}`} description="Nothing was recorded in this interval." />}</section>;
 }

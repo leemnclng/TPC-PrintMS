@@ -845,6 +845,24 @@ class Printer(Base):
     print_jobs: Mapped[list["PrintJob"]] = relationship(back_populates="printer")
 
 
+class FailureReason(Base):
+    """Owner-maintained classification used by the print-failure ledger."""
+
+    __tablename__ = "failure_reasons"
+    __table_args__ = (
+        CheckConstraint("fault_type IN ('machine', 'material', 'operator', 'customer')", name="ck_failure_reasons_fault_type"),
+    )
+
+    code: Mapped[str] = mapped_column(String, primary_key=True)
+    label: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    fault_type: Mapped[str] = mapped_column(String, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    failures: Mapped[list["PrintFailure"]] = relationship(back_populates="reason")
+
+
 class ObservedPrintJob(Base):
     """A job seen in the host OS spooler, including work submitted outside
     OMS. These records are intentionally not job-order attempts until
@@ -864,6 +882,7 @@ class ObservedPrintJob(Base):
     size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String, default="queued", nullable=False)
     raw_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    spooler_failure_seen: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -871,13 +890,13 @@ class ObservedPrintJob(Base):
     review_status: Mapped[str] = mapped_column(String, default="unreviewed", nullable=False)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     notification_dismissed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    # Not unique: several observed prints can now be recorded under one job
-    # order (see linked_job_order_item_id below, which is the true 1:1 side).
+    # Several observed prints may belong to the same order and item when a
+    # rejected external attempt was followed by a successful reprint.
     linked_job_order_id: Mapped[str | None] = mapped_column(
         ForeignKey("job_orders.id"), nullable=True
     )
     linked_job_order_item_id: Mapped[str | None] = mapped_column(
-        ForeignKey("job_order_items.id"), unique=True, nullable=True
+        ForeignKey("job_order_items.id"), nullable=True
     )
 
 
@@ -915,12 +934,47 @@ class PrintJob(Base):
     spooler_total_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
     spooler_last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     spooler_released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    spooler_failure_seen: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     job_order: Mapped["JobOrder"] = relationship(back_populates="print_jobs")
     job_order_item: Mapped["JobOrderItem | None"] = relationship(back_populates="print_jobs")
     printer: Mapped["Printer"] = relationship(back_populates="print_jobs")
     job_file: Mapped["JobFile | None"] = relationship(back_populates="print_jobs")
+
+
+class PrintFailure(Base):
+    """Immutable evidence of rejected output or a machine-side print failure."""
+
+    __tablename__ = "print_failures"
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('quality_rejected', 'spooler_error', 'submit_failed', 'cancelled_mid_print')",
+            name="ck_print_failures_source",
+        ),
+        CheckConstraint("spoiled_sheets IS NULL OR spoiled_sheets >= 0", name="ck_print_failures_spoiled_sheets"),
+        CheckConstraint("material_cost_snapshot IS NULL OR material_cost_snapshot >= 0", name="ck_print_failures_material_cost"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    source: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    job_order_id: Mapped[str | None] = mapped_column(ForeignKey("job_orders.id"), nullable=True, index=True)
+    job_order_item_id: Mapped[str | None] = mapped_column(ForeignKey("job_order_items.id"), nullable=True, index=True)
+    print_job_id: Mapped[str | None] = mapped_column(ForeignKey("print_jobs.id"), nullable=True, index=True)
+    observed_print_job_id: Mapped[str | None] = mapped_column(ForeignKey("observed_print_jobs.id"), nullable=True, index=True)
+    printer_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    reason_code: Mapped[str] = mapped_column(ForeignKey("failure_reasons.code"), nullable=False)
+    reason_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    spoiled_sheets: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    material_cost_snapshot: Mapped[float | None] = mapped_column(Float, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    job_order: Mapped["JobOrder | None"] = relationship()
+    job_order_item: Mapped["JobOrderItem | None"] = relationship()
+    print_job: Mapped["PrintJob | None"] = relationship()
+    observed_print_job: Mapped["ObservedPrintJob | None"] = relationship()
+    reason: Mapped["FailureReason"] = relationship(back_populates="failures")
 
 
 class StatusEvent(Base):

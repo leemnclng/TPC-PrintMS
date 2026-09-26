@@ -16,7 +16,7 @@ from PIL import Image
 
 from app.core.config import settings
 from app.db.base import Base
-from app.db.models import JobOrder, JobOrderItem, JobOrderStatus, ObservedPrintJob, Printer, PrintJob, PrintResult
+from app.db.models import FailureReason, JobOrder, JobOrderItem, JobOrderStatus, ObservedPrintJob, PrintFailure, Printer, PrintJob, PrintResult
 from app.db.session import get_db
 from app.routers import printers
 from app.services.printing.adapter import (
@@ -316,6 +316,47 @@ def test_spooler_monitor_persists_external_jobs_and_links_internal_attempts(tmp_
         assert attempt.spooler_status == "released"
         assert attempt.spooler_released_at is not None
         assert db.query(ObservedPrintJob).count() == 1
+
+
+def test_spooler_monitor_records_incomplete_error_and_cancelled_failures(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'spooler-failures.db'}")
+    test_session = sessionmaker(bind=engine)
+    Base.metadata.create_all(engine)
+    with test_session() as db:
+        db.add_all([
+            FailureReason(code="printer_error", label="Printer error", fault_type="machine", is_system=True),
+            FailureReason(code="cancelled_mid_print", label="Cancelled mid-print", fault_type="operator", is_system=True),
+        ])
+        attempt = PrintJob(job_order_id="job-1", printer_id="printer-1")
+        db.add(attempt)
+        db.commit()
+        key = "Canon, 91|submitted"
+        ingest_spooler_event({
+            "eventType": "seen", "spoolerKey": key, "osJobId": "91",
+            "printerName": "Canon", "documentName": f"OMS|{attempt.id}|bad.pdf",
+            "pagesPrinted": 1, "totalPages": 4, "jobStatus": "Error",
+        }, db)
+        ingest_spooler_event({
+            "eventType": "seen", "spoolerKey": key, "osJobId": "91",
+            "printerName": "Canon", "documentName": f"OMS|{attempt.id}|bad.pdf",
+            "pagesPrinted": 2, "totalPages": 4, "jobStatus": "Printing",
+        }, db)
+        ingest_spooler_event({"eventType": "released", "spoolerKey": key}, db)
+        failure = db.query(PrintFailure).one()
+        assert failure.source == "spooler_error"
+        assert failure.spoiled_sheets == 2
+        assert failure.print_job_id == attempt.id
+
+        observed_key = "Canon, 92|submitted"
+        ingest_spooler_event({
+            "eventType": "seen", "spoolerKey": observed_key, "osJobId": "92",
+            "printerName": "Canon", "documentName": "outside.pdf",
+            "pagesPrinted": 2, "totalPages": 5, "jobStatus": "Printing",
+        }, db)
+        ingest_spooler_event({"eventType": "released", "spoolerKey": observed_key}, db)
+        failures = db.query(PrintFailure).order_by(PrintFailure.recorded_at).all()
+        assert [entry.source for entry in failures] == ["spooler_error", "cancelled_mid_print"]
+        assert failures[1].observed_print_job_id is not None
 
 
 def test_windows_spooler_monitor_emits_seen_and_released_events() -> None:

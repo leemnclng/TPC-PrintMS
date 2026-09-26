@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
-from app.db.models import JobOrder, JobOrderNumberSequence, ObservedPrintJob, Printer
+from app.db.models import FailureReason, JobOrder, JobOrderItem, JobOrderNumberSequence, JobOrderStatus, ObservedPrintJob, PrintFailure, PrintType, Printer, Product, Service
 from app.db.session import get_db
 from app.modules.document_analyzer.api import router as document_analyzer_router
 from app.routers import customers, inventory, job_orders, products, services, variants
@@ -47,6 +47,42 @@ def test_job_order_number_sequence_handles_million_scale(tmp_path) -> None:
         assert job_orders._next_job_order_number(db) == "JOB-0001000000"
         db.commit()
         assert job_orders._next_job_order_number(db) == "JOB-0001000001"
+
+
+def test_job_level_quality_failure_writes_one_ledger_row_per_ready_item(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'multi-quality.db'}", connect_args={"check_same_thread": False})
+    test_session = sessionmaker(bind=engine)
+    Base.metadata.create_all(engine)
+    with test_session() as db:
+        print_type = PrintType(key="black_and_white", label="B&W", color_mode="grayscale", applies_ink_coverage=False)
+        service = Service(name="Printing", category="printing")
+        first_product = Product(service=service, print_type_definition=print_type, name="Flyer", print_type="black_and_white")
+        second_product = Product(service=service, print_type_definition=print_type, name="Handout", print_type="black_and_white")
+        order = JobOrder(number="JOB-0000000001", name="Mixed output", status=JobOrderStatus.ready, total=20)
+        order.items.extend([
+            JobOrderItem(product=first_product, status="ready", operation_kind="printing", pages_per_copy=1, copies=1, unit_price=10, line_total=10),
+            JobOrderItem(product=second_product, status="ready", operation_kind="printing", pages_per_copy=1, copies=1, unit_price=10, line_total=10),
+        ])
+        db.add_all([print_type, service, first_product, second_product, order, FailureReason(code="other", label="Other", fault_type="operator")])
+        db.commit()
+        order_id = order.id
+
+    def override_db():
+        with test_session() as db:
+            yield db
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    app.include_router(job_orders.router)
+    response = TestClient(app).post(
+        f"/job-orders/{order_id}/transitions",
+        headers={"X-Print-MS-Token": settings.token},
+        json={"toStatus": "queued", "failureReasonCode": "other", "spoiledSheets": 1},
+    )
+    assert response.status_code == 200, response.text
+    assert [item["reprocessCount"] for item in response.json()["items"]] == [1, 1]
+    with test_session() as db:
+        assert db.query(PrintFailure).filter_by(source="quality_rejected").count() == 2
 
 
 def test_job_order_page_limits_and_searches_on_the_server(tmp_path) -> None:
@@ -867,7 +903,7 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     photocopy_requeue = client.post(
         f"/job-orders/{photocopy_order['id']}/transitions",
         headers=headers,
-        json={"toStatus": "queued"},
+        json={"toStatus": "queued", "failureReasonCode": "other"},
     )
     assert photocopy_requeue.status_code == 409
 
@@ -930,10 +966,16 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     assert append_scan_response.json()["status"] == "ready"
 
     photocopy_item = appended_order["items"][0]
+    missing_reason = client.post(
+        f"/job-orders/{appended_order['id']}/items/{photocopy_item['id']}/transitions",
+        headers=headers,
+        json={"toStatus": "queued"},
+    )
+    assert missing_reason.status_code == 422
     failed_photocopy = client.post(
         f"/job-orders/{appended_order['id']}/items/{photocopy_item['id']}/transitions",
         headers=headers,
-        json={"toStatus": "queued", "note": "Toner streak on the reverse side."},
+        json={"toStatus": "queued", "failureReasonCode": "streaks_banding", "reasonNote": "Toner streak on the reverse side.", "spoiledSheets": 6},
     )
     assert failed_photocopy.status_code == 200
     assert failed_photocopy.json()["status"] == "queued"
@@ -1081,7 +1123,7 @@ def test_job_order_creation_and_material_usage(tmp_path, monkeypatch) -> None:
     requeued = client.post(
         f"/job-orders/{scanned_order['id']}/transitions",
         headers=headers,
-        json={"toStatus": "queued"},
+        json={"toStatus": "queued", "failureReasonCode": "other"},
     )
     assert requeued.status_code == 200
     assert requeued.json()["status"] == "queued"
@@ -1306,6 +1348,9 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     assert after_failure["printAttempts"][0]["quality"] == "auto"
     assert after_failure["items"][0]["materials"][0]["consumedQuantity"] == 0
     assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 100
+    with test_session() as db:
+        submit_failure = db.query(PrintFailure).filter_by(source="submit_failed").one()
+        assert submit_failure.print_job_id == after_failure["printAttempts"][0]["id"]
 
     incomplete_custom_size = client.post(
         f"/job-orders/{order['id']}/print-attempts",
@@ -1662,7 +1707,7 @@ def test_analyzed_transaction_saves_owner_price_and_file_only_on_confirmation(tm
     reprint = client.post(
         f"/job-orders/{suggested_order['id']}/transitions",
         headers=headers,
-        json={"toStatus": "queued"},
+        json={"toStatus": "queued", "failureReasonCode": "other"},
     )
     assert reprint.status_code == 200
     assert reprint.json()["status"] == "queued"
@@ -1945,6 +1990,92 @@ def test_transaction_lines_from_observed_prints_are_recorded_ready_and_combined(
         ],
     )
     assert duplicate_within_transaction.status_code == 422
+
+
+def test_transaction_line_links_rejected_external_attempts_to_the_same_item(tmp_path, monkeypatch) -> None:
+    """A missing multi-attempt link would leave the rejected spooler event
+    in leakage reports even though the owner reconciled it with the sale."""
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'external-reprints.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "app-data")
+
+    def override_db():
+        with test_session() as db:
+            yield db
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = override_db
+    for router in (services.router, products.router, inventory.router, variants.router, document_analyzer_router, job_orders.router):
+        app.include_router(router)
+    client = TestClient(app)
+    headers = {"X-Print-MS-Token": settings.token}
+
+    paper = _create_material(client, headers, "External reprint paper", "sheet", 100, paper_size="Letter")
+    _assign_pricing_materials(client, headers, "printing", [paper["id"]])
+    service = client.post(
+        "/services", headers=headers,
+        json={"name": "External reprints", "category": "printing", "isActive": True},
+    ).json()
+    product = client.post(
+        "/products", headers=headers,
+        json={
+            "serviceId": service["id"], "name": "External document",
+            "printType": "black_and_white", "isActive": True, "variants": [],
+            "materialAssignments": [{"inventoryItemId": paper["id"]}],
+        },
+    ).json()
+    with test_session() as db:
+        db.add(FailureReason(code="other", label="Other", fault_type="operator"))
+        rejected = ObservedPrintJob(
+            spooler_key="Canon, 201|submitted", os_job_id="201", printer_name="Canon",
+            document_name="bad-output.png", total_pages=1, pages_printed=1, status="released",
+        )
+        accepted = ObservedPrintJob(
+            spooler_key="Canon, 202|submitted", os_job_id="202", printer_name="Canon",
+            document_name="replacement.png", total_pages=1, pages_printed=1, status="released",
+        )
+        db.add_all([rejected, accepted])
+        db.commit()
+        rejected_id, accepted_id = rejected.id, accepted.id
+
+    image_buffer = BytesIO()
+    Image.new("RGB", (850, 1100), (10, 10, 10)).save(image_buffer, format="PNG", dpi=(100, 100))
+    response = client.post(
+        "/job-orders/transactions", headers=headers,
+        data={
+            "transaction": json.dumps({
+                "name": "Canon quality reprint", "initialServiceId": service["id"],
+                "items": [{
+                    "clientKey": "print-line", "productId": product["id"],
+                    "paperInventoryItemId": paper["id"], "copies": 1,
+                    "observedPrintJobId": accepted_id,
+                    "failedObservedPrintJobIds": [rejected_id],
+                }],
+            }),
+            "file_keys": "print-line",
+        },
+        files=[("files", ("replacement.png", image_buffer.getvalue(), "image/png"))],
+    )
+
+    assert response.status_code == 201, response.text
+    order = response.json()
+    item_id = order["items"][0]["id"]
+    with test_session() as db:
+        rejected = db.get(ObservedPrintJob, rejected_id)
+        accepted = db.get(ObservedPrintJob, accepted_id)
+        assert rejected.review_status == accepted.review_status == "linked"
+        assert rejected.linked_job_order_item_id == accepted.linked_job_order_item_id == item_id
+        failure = db.query(PrintFailure).filter_by(observed_print_job_id=rejected_id).one()
+        assert failure.source == "quality_rejected"
+        assert failure.job_order_id == order["id"]
+        assert failure.job_order_item_id == item_id
+        assert failure.spoiled_sheets == 1
+        assert db.get(JobOrderItem, item_id).reprocess_count == 1
+    assert client.get(f"/inventory-items/{paper['id']}", headers=headers).json()["quantityOnHand"] == 98
 
 
 def _create_material(

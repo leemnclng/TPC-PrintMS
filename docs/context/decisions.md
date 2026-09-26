@@ -912,3 +912,11 @@ Status: Refined on 2026-08-29 by “Treat the Configured B&W Rate as an All-Incl
 - Decision: Keep automatic product discounts separate from whole-job templates. A whole-job discount is applied only when an owner selects it, and its name/type/value are copied onto the job.
 - Rationale: Wholesale pricing is a negotiated transaction decision; silently applying it would undercharge ordinary jobs. Snapshots keep completed-job totals and reports stable when configuration changes later.
 - Impact: Discount edits are blocked after verified payment or closure. Reports classify discounted jobs by creation date and show the saved discount rather than the current template.
+## 2026-09-26 (print failure and reconciliation reporting)
+
+- Decision: Use an immutable `print_failures` ledger for quality rejects, failed submissions, spooler errors, and mid-print cancellations; only quality rejects trigger reprocessing.
+- Decision: Treat successful OMS attempts as billing truth and released Windows spooler counts as physical-output truth. Zero page counts do not create mismatch claims.
+- Decision: Require an owner-editable reason for quality rejection, allow spoiled-sheet entry to be deferred, snapshot material-only waste cost, and group reports by event time.
+- Decision: Treat unreviewed observed prints as leakage priced at the active default mono rate; dismissed prints are explicitly non-billable.
+- Decision: Record paused/error jobs only when they release incomplete. A resumed job that releases cleanly is not a failure.
+- Decision: Reconcile external quality reprints on one product line: one successful observed print and zero or more rejected attempts all share the job item; rejected attempts create quality-failure rows and additional material consumption.

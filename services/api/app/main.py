@@ -41,7 +41,7 @@ from .routers import (
     tools,
     variants,
 )
-from .seed import seed_business_profile
+from .seed import seed_business_profile, seed_failure_reasons
 from .services.backup_restore import write_environment_config
 from .services.product_deletion import finalize_expired_product_deletions
 from .services.printing.spooler_monitor import spooler_monitor
@@ -97,6 +97,7 @@ async def lifespan(_: FastAPI):
     with startup_phase("seed_and_catalog_cleanup"):
         with SessionLocal() as db:
             seed_business_profile(db)
+            seed_failure_reasons(db)
             finalized_products = finalize_expired_product_deletions(db)
             profile = db.query(BusinessProfile).first()
         logger.info("startup.catalog_cleanup finalized_products=%d", finalized_products)

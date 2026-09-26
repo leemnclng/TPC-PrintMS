@@ -29,6 +29,11 @@
    gaps or orphaned single fields depending on how many actually render. */
 .transaction-line__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--space-4); padding: var(--space-4); }
 .transaction-line__tracked-print { grid-column: 1 / -1; border-left: 2px solid var(--color-accent); padding: var(--space-3); background: var(--color-accent-softer); }
+.transaction-line__tracked-print > label { display: flex; flex-direction: column; gap: var(--space-2); }
+.transaction-line__failed-prints { display: grid; gap: var(--space-2); margin-top: var(--space-3); border: 1px solid var(--color-hairline); padding: var(--space-3); background: var(--color-paper); }
+.transaction-line__failed-prints legend { padding-inline: var(--space-2); color: var(--color-ink); font-weight: 700; }
+.transaction-line__failed-prints label { display: flex; align-items: center; gap: var(--space-2); color: var(--color-ink-soft); font-size: var(--text-sm); }
+.transaction-line__failed-prints small { color: var(--color-ink-faint); }
 .transaction-line__file { grid-column: span 2; }
 .transaction-line__fields .form-field > span:first-child,
 .transaction-line > footer span {

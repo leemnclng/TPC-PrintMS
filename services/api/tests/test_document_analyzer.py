@@ -648,7 +648,7 @@ def test_scan_pricing_tiers_by_page_count_and_product_override(tmp_path) -> None
     requeue = client.post(
         f"/job-orders/{job_response['id']}/transitions",
         headers=headers,
-        json={"toStatus": "queued"},
+        json={"toStatus": "queued", "failureReasonCode": "other"},
     )
     assert requeue.status_code == 200
     big_scan = client.post(

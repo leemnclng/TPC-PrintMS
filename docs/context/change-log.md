@@ -502,3 +502,10 @@ Track notable app changes by date.
 - Added: Discount configuration now distinguishes automatic product discounts from manually selected whole-job templates for wholesale pricing.
 - Added: Owners can apply a template or custom percentage/fixed discount while creating a transaction or from an unpaid job workspace. The job stores a historical snapshot and recalculates the payable balance when product lines change.
 - Added: Reports now includes a paginated Discounted job orders ledger with original subtotal, discount given, final value, and links to each job.
+## 2026-09-26
+
+- Added: Quality failures now require a structured reason and can record spoiled sheets plus the responsible print attempt.
+- Added: Reports now include print reconciliation, leakage/page mismatch review, waste cost, failure breakdowns, printer reliability, and CSV exports.
+- Added: Failed submissions and incomplete Windows spooler error/cancellation releases are retained automatically in one failure ledger.
+- Fixed: Job-level rejection records every affected product, and analyzed tracked prints retain their linked product line.
+- Added: A job product can reconcile one successful Canon/Windows print plus multiple rejected attempts; all link to the product, rejected attempts record waste, and none remain false leakage.
